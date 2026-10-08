@@ -80,9 +80,13 @@ impl Audio {
         Ok(Self { rate, frames })
     }
 
-    /// Simple offline rate conversion, only used when the device rejects the
-    /// source rate. This is explicitly not production-quality resampling.
-    pub fn resample_linear(&self, rate: u32) -> Result<Self> {
+    /// Band-limited, delay-compensated conversion before device playback.
+    /// This runs on the control thread, never in the callback.
+    pub fn resample(&self, rate: u32) -> Result<Self> {
+        use rubato::{
+            Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
+            WindowFunction,
+        };
         ensure!(rate > 0, "Invalid output sample rate");
         if rate == self.rate {
             return Ok(self.clone());
@@ -92,17 +96,45 @@ impl Audio {
             count > 0 && count <= 64_000_000,
             "Resampled audio exceeds memory limit"
         );
-        let frames = (0..count)
-            .map(|n| {
-                let p = n as f64 * self.rate as f64 / rate as f64;
-                let a = p.floor() as usize;
-                let b = (a + 1).min(self.frames.len() - 1);
-                let fraction = (p - a as f64) as f32;
-                std::array::from_fn(|c| {
-                    self.frames[a][c] * (1.0 - fraction) + self.frames[b][c] * fraction
-                })
-            })
-            .collect();
+        let mut converter = SincFixedIn::<f32>::new(
+            rate as f64 / self.rate as f64,
+            1.0,
+            SincInterpolationParameters {
+                sinc_len: 128,
+                f_cutoff: 0.95,
+                interpolation: SincInterpolationType::Cubic,
+                oversampling_factor: 128,
+                window: WindowFunction::BlackmanHarris2,
+            },
+            1024,
+            2,
+        )?;
+        let mut discard = converter.output_delay();
+        let mut frames = Vec::with_capacity(count);
+        let mut input = vec![vec![0.0; 1024]; 2];
+        let mut cursor = 0;
+        while frames.len() < count {
+            for (channel, plane) in input.iter_mut().enumerate() {
+                for (n, sample) in plane.iter_mut().enumerate() {
+                    *sample = self
+                        .frames
+                        .get(cursor + n)
+                        .map_or(0.0, |frame| frame[channel]);
+                }
+            }
+            cursor += 1024;
+            let output = converter.process(&input, None)?;
+            for (&left, &right) in output[0].iter().zip(&output[1]) {
+                if discard > 0 {
+                    discard -= 1;
+                    continue;
+                }
+                if frames.len() == count {
+                    break;
+                }
+                frames.push([left, right]);
+            }
+        }
         Ok(Self { rate, frames })
     }
 

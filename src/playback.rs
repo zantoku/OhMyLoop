@@ -155,6 +155,10 @@ pub struct Player {
 
 impl Player {
     pub fn open(audio: Audio, finer: bool) -> Result<Self> {
+        Self::open_shared(Arc::new(audio), finer)
+    }
+
+    pub fn open_shared(audio: Arc<Audio>, finer: bool) -> Result<Self> {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -193,11 +197,11 @@ impl Player {
             cpal::SupportedBufferSize::Unknown => 0,
         };
         let duration = audio.duration();
-        let audio = Arc::new(if rate == source_rate {
+        let audio = if rate == source_rate {
             audio
         } else {
-            audio.resample_linear(rate)?
-        });
+            Arc::new(audio.resample(rate)?)
+        };
         let shared = Arc::new(Shared::new((rate as usize / 10).max(1024)));
         let stream = match sample_format {
             cpal::SampleFormat::F32 => {

@@ -6,15 +6,16 @@ OhMyLoop is a free, open-source music practice desktop app for Linux, macOS,
 and Windows. Its core features are independent playback speed and pitch,
 named song-section markers, precise seeking, and repeatable loops.
 
-The current milestone is an audio risk prototype. Validate the audio engine
-before designing the production UI. Keep prototype controls small and useful.
+The audio risk prototype is validated. The current milestone is the first
+single-song desktop implementation described in PLAN.md. Preserve the CLI
+prototype and its audio tests while building the desktop UI.
 
 ## Technical direction
 
 - Use Rust for the playback engine, CPAL for device output, Symphonia for file
   decoding, and Rubber Band for independent tempo and pitch processing.
-- Keep the engine independent of the UI. Tauri and Svelte are the leading
-  production UI option; the prototype may use terminal controls.
+- Keep the engine independent of the UI. Use Tauri with Svelte/TypeScript for
+  the desktop UI. Native audio and musical timing remain in Rust.
 - Use GPL-3.0-or-later for project code. Preserve third-party source, license,
   and attribution notices. Rubber Band is GPL-2.0-or-later.
 - Keep development tools and caches inside the workspace when the environment
@@ -47,5 +48,8 @@ before designing the production UI. Keep prototype controls small and useful.
 ## Working practices
 
 - Prefer small modules, explicit state, and narrowly scoped unsafe FFI.
-- Avoid adding a database, network service, or production UI to this milestone.
+- Follow the first-pass scope in PLAN.md. Defer count-ins, musical rests, tempo
+  detection, speed ladders, sequences, export UI, recording, stems, and tabs.
+- Persist stable section identities and source coordinates. Keep temporary
+  loops independent from saved sections. Version saved song documents.
 - Preserve user changes and keep generated assets reproducible.

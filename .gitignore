@@ -4,4 +4,7 @@
 /artifacts/
 *.ohmyloop.json
 .DS_Store
-
+node_modules/
+/dist/
+/.npm-cache/
+/src-tauri/gen/

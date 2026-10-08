@@ -1,14 +1,90 @@
 # OhMyLoop
 
 A free, open-source music practice player for Linux, macOS, and Windows.
-This is the **audio risk prototype**, with terminal controls. Production UI
-design comes after validating the audio behavior.
+The first desktop implementation provides a waveform workspace, editable
+sections, temporary loops, independent speed and pitch controls, and automatic
+practice-state restoration. The validated terminal prototype remains available.
 
 The prototype uses Rust, CPAL, Symphonia, and bundled Rubber Band 4.0.0.
 Playback uses Rubber Band's R3/Finer engine. R2 remains available to the
 measurement probe for comparison, but is not exposed as a playback option.
 
-## Build and run
+## Desktop app
+
+Install Rust stable, Node.js 22 or newer, and your platform's native build
+tools (listed below). From the project directory:
+
+```sh
+export CARGO_HOME="$PWD/.cargo-home"
+npm ci
+npm run desktop
+```
+
+Build a native app locally:
+
+```sh
+npm run desktop:build
+# macOS app-only build:
+npm run desktop:build -- --bundles app
+```
+
+The macOS bundle is generated at `target/release/bundle/macos/OhMyLoop.app`.
+Windows and Linux use their platform's Tauri bundle formats. Linux also needs
+the WebKitGTK and desktop integration packages listed in
+[Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+Open a song or try the built-in demo. Click the waveform to seek; drag to
+choose a temporary loop. The A/B handles and numeric fields adjust the bounds.
+Scroll over the waveform to zoom at the pointer; hold the middle mouse button
+and drag to pan. Zoom buttons and the overview also let you move around the song.
+
+Named sections have explicit start/end ranges and may overlap. Selecting a
+section prepares its range and seeks to its start while preserving play/pause
+and loop on/off state. Adjusting a temporary loop does not modify the saved
+section. Sections can be renamed, resized, and deleted; Undo restores deleted
+sections during the current app session.
+
+Space toggles playback, L toggles looping, A/B set loop boundaries, X clears
+the A–B range and turns looping off, brackets navigate sections, N adds a
+section, and Cmd/Ctrl+O opens a song. Arrow keys
+seek five seconds; Shift+arrows seek 0.1 seconds. Shortcuts are suspended while
+editing fields or dialogs. The in-app shortcut panel lists these controls.
+
+Practice documents are saved in the app's per-user data directory, under
+`practice`. They contain stable section IDs, source coordinates, controls,
+loop selection, and last position. A SHA-256 identity lets settings survive
+moving or renaming an unchanged audio file. Playback is restored paused.
+Corrupt or unsupported documents are reported and left intact. For development
+only, `OHMYLOOP_DATA_DIR` can select another settings directory.
+
+Audio-device failures leave the song editable and provide a Retry audio
+action. Sample-rate mismatches use delay-compensated, band-limited resampling.
+The playhead follows native output-frame positions rather than a frontend
+playback timer; adaptive stretching and physical device latency still make
+it an estimate.
+
+`npm run dev` opens a frontend-only development preview. It uses explicit demo
+fixtures and disables audio playback; the desktop app uses the real Rust engine.
+
+Count-ins, inter-loop rests, BPM detection, speed ladders, section automation,
+sequences, export UI, recording, stems, and tabs remain future work in
+[PLAN.md](PLAN.md).
+
+Desktop checks:
+
+```sh
+npm run check
+npm test
+npm run build
+cargo test --locked --release -p ohmyloop
+cargo clippy --locked --workspace --all-targets -- -D warnings
+```
+
+Run native Cargo builds and tests sequentially. The Tauri CLI sets macOS
+deployment build variables, so concurrent CLI builds can invalidate artifacts
+while the separate Rust documentation test process is reading them.
+
+## Terminal prototype: build and run
 
 Install Rust stable and your platform's C++ build tools:
 
@@ -19,7 +95,7 @@ Install Rust stable and your platform's C++ build tools:
   and the Windows SDK; use Rust's MSVC target.
 
 No system Rubber Band installation, Python runtime, FFmpeg, or web frontend
-is needed for the player. Rust 1.99.0 was used for local validation; the
+is needed for the terminal player. Rust 1.99.0 was used for local validation; the
 manifest declares Rust 1.88 as the language/dependency minimum.
 
 From the project directory:
@@ -155,9 +231,9 @@ source reader without resetting DSP history on every repeat.
 
 This prototype decodes the whole song into memory, capped at roughly 512 MiB
 of stereo PCM. It prefers an output device configuration at the source rate.
-If unavailable, it uses offline linear rate conversion as a prototype fallback;
-production needs a better resampler. Device loss is reported, with no automatic
-reconnection. Settings outside the tested ranges are rejected.
+If unavailable, it uses offline band-limited rate conversion. Device loss is
+reported; the desktop app can reopen the default device with Retry audio.
+Settings outside the tested ranges are rejected.
 
 `status` reports nominal source positions attached to submitted output frames,
 plus the source reader position. Rubber Band's adaptive timing, especially

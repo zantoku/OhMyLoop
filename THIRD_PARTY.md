@@ -29,6 +29,10 @@ Bundled upstream auxiliary sources retain their notices:
 Direct dependencies: CPAL (Apache-2.0), Symphonia (MPL-2.0), crossbeam-queue
 (MIT OR Apache-2.0), anyhow (MIT OR Apache-2.0), serde and serde_json
 (MIT OR Apache-2.0), hound (Apache-2.0), and cc (MIT OR Apache-2.0).
+The desktop implementation additionally uses Rubato (MIT), sha2 (MIT OR
+Apache-2.0), Tauri and its dialog plugin (MIT OR Apache-2.0), and Svelte (MIT).
+The JavaScript Tauri API uses MIT OR Apache-2.0. Vite, Vitest, and the frontend
+test tools are development dependencies; `package-lock.json` pins that graph.
 `Cargo.lock` pins the full dependency graph, including platform-specific crates.
 Source and license files are available in the Cargo registry cache and the
 upstream package repositories. Packaging a binary release must include the

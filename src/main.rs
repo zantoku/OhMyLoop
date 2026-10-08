@@ -71,7 +71,7 @@ fn interactive(args: &[String]) -> Result<()> {
         player.duration
     );
     if player.source_rate != player.rate {
-        println!("Prototype fallback: linear sample-rate conversion; quality remains unvalidated.");
+        println!("Source converted to device rate with band-limited resampling.");
     }
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();

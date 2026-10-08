@@ -1,0 +1,15 @@
+[package]
+name = "ohmyloop-desktop"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "OhMyLoop desktop music practice player"
+
+[dependencies]
+ohmyloop = { path = ".." }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+anyhow = "1.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
