@@ -1,0 +1,4 @@
+* text=auto
+vendor/rubberband/** -text
+*.wav binary
+

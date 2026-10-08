@@ -1,0 +1,10 @@
+User-reported hardware smoke test, 2026-10-08, 15:54:51 Europe/Berlin.
+Command: target/release/ohmyloop smoke --demo
+
+Device smoke test: KT_USB_AUDIO (48000 Hz; source 48000 Hz)
+paused | estimated output 1.170/12.000s | input 1.259s | queued 44.7ms | underrun events 0 | max render 1.59ms | last seek setup 1.33ms | input loop wraps 3 | callbacks 938 | device errors 0
+PASS: callback, live controls, seek, and looping executed. Listen separately for quality.
+
+This confirms device callbacks and transport execution, not subjective sound
+quality or physical speaker latency. Log supplied by the user, not captured by
+the sandbox, which has no visible audio devices.

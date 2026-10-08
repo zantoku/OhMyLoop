@@ -1,0 +1,34 @@
+name: Audio prototype
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  audio:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Linux audio headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Vendor integrity
+        run: python scripts/check_vendor.py
+      - name: Format
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: DSP and transport tests
+        run: cargo test --locked --release
+      - name: Synthetic measurements and listening fixtures
+        run: cargo run --locked --release -- probe artifacts/probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probe-${{ matrix.os }}
+          path: artifacts/probe
+

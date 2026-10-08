@@ -1,0 +1,7 @@
+/target/
+/.cargo-home/
+/.tools/
+/artifacts/
+*.ohmyloop.json
+.DS_Store
+
