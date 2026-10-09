@@ -62,16 +62,17 @@ export class Keymap {
     for (const id of Object.keys(ACTIONS) as ActionId[]) {
       for (const text of this.keys[id]) {
         const chord = parse(text, mac);
-        const conflict = this.bindings.find(b => overlaps(b.chord, chord));
+        const scope=ACTIONS[id].scope;
+        const conflict = this.bindings.find(b => overlaps(b.chord, chord) && (scope==='all' || ACTIONS[b.action].scope==='all' || scope===ACTIONS[b.action].scope));
         if (conflict) throw new Error(`Shortcut ${text} conflicts with ${conflict.action}.`);
         this.bindings.push({ action: id, chord });
       }
     }
   }
 
-  match(event: Input): ActionId | undefined {
+  match(event: Input, context:'practice'|'mapping'='practice'): ActionId | undefined {
     if (event.isComposing) return;
-    return this.bindings.find(({ action, chord }) => chord.key === keyName(event.key) &&
+    return this.bindings.find(({ action, chord }) => (ACTIONS[action].scope==='all'||ACTIONS[action].scope===context) && chord.key === keyName(event.key) &&
       chord.ctrl === event.ctrlKey && chord.meta === event.metaKey && chord.alt === event.altKey &&
       (chord.shift === null || chord.shift === event.shiftKey) && (!event.repeat || ACTIONS[action].repeat))?.action;
   }
@@ -87,8 +88,8 @@ export class Keymap {
   buttonLabel(button: ButtonId, defaultLabel: string): string {
     return this.actionFor(button) === BUTTONS[button] ? defaultLabel : this.description(this.actionFor(button));
   }
-  shortcuts(): { action: ActionId; keys: string; description: string }[] {
-    return (Object.keys(ACTIONS) as ActionId[]).filter(id => this.keys[id].length).map(action => ({ action, keys: this.shortcut(action), description: this.description(action) }));
+  shortcuts(context?:'practice'|'mapping'): { action: ActionId; keys: string; description: string }[] {
+    return (Object.keys(ACTIONS) as ActionId[]).filter(id => this.keys[id].length && (!context || ACTIONS[id].scope==='all' || ACTIONS[id].scope===context)).map(action => ({ action, keys: this.shortcut(action), description: this.description(action) }));
   }
   private display(text: string): string {
     return text.split('+').map(part => ({ Mod: this.mac ? '⌘' : 'Ctrl', Meta: this.mac ? '⌘' : 'Meta', ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Escape: 'Esc' }[part] ?? (part.length === 1 && /[a-z]/i.test(part) ? part.toUpperCase() : part))).join(' + ');

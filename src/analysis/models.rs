@@ -1,3 +1,4 @@
+use super::progress::{ProgressUnit, ProgressUpdate};
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 use std::{
@@ -46,7 +47,7 @@ pub fn verify_models(directory: &Path) -> Result<()> {
 pub fn install(
     directory: &Path,
     cancelled: &AtomicBool,
-    mut phase: impl FnMut(&str),
+    mut report: impl FnMut(ProgressUpdate),
 ) -> Result<()> {
     fs::create_dir_all(directory)?;
     let client = reqwest::blocking::Client::builder()
@@ -63,17 +64,31 @@ pub fn install(
             "Model installation cancelled"
         );
         let destination = directory.join(name);
+        let label = if name.starts_with("mel") {
+            "audio frontend"
+        } else {
+            "beat model"
+        };
+        report(ProgressUpdate::stage(&format!("Verifying {label}")));
         if verify(&destination, hash).is_ok() {
             continue;
         }
-        phase(if name.starts_with("mel") {
-            "Downloading audio frontend"
-        } else {
-            "Downloading beat model (about 83 MB)"
-        });
+        let phase = format!("Downloading {label}");
+        report(ProgressUpdate::stage(&phase));
         let temporary = directory.join(format!("{name}.download-{}", std::process::id()));
         let result = (|| -> Result<()> {
             let mut response = client.get(url).send()?.error_for_status()?;
+            let total = response.content_length().filter(|size| *size > 0);
+            ensure!(
+                total.is_none_or(|size| size <= 90_000_000),
+                "Model download exceeded expected size"
+            );
+            report(ProgressUpdate::measured(
+                &phase,
+                0,
+                total,
+                ProgressUnit::Bytes,
+            ));
             let mut file = File::create(&temporary)?;
             let mut buffer = [0_u8; 65536];
             let mut size = 0_u64;
@@ -89,9 +104,16 @@ pub fn install(
                 size += read as u64;
                 ensure!(size <= 90_000_000, "Model download exceeded expected size");
                 file.write_all(&buffer[..read])?;
+                report(ProgressUpdate::measured(
+                    &phase,
+                    size,
+                    total,
+                    ProgressUnit::Bytes,
+                ));
             }
             file.sync_all()?;
             drop(file);
+            report(ProgressUpdate::stage(&format!("Verifying {label}")));
             verify(&temporary, hash)?;
             ensure!(
                 !cancelled.load(Ordering::Acquire),
@@ -105,6 +127,7 @@ pub fn install(
         }
         result?;
     }
+    report(ProgressUpdate::stage("Finishing model installation"));
     fs::write(
         directory.join("LICENSE.txt"),
         include_str!("../../licenses/beat-this-MIT.txt"),

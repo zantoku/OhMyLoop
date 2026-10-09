@@ -12,6 +12,8 @@ controls, keyboard navigation, and restored practice settings.
 - `src/desktop.rs`: controller actor that owns CPAL streams on one thread.
   UI commands are handled away from the device callback. It does not require
   unsafe Send/Sync implementations for native audio objects.
+- `src/timing/`: source-frame musical map, validation, edits and projections.
+- `src/analysis/`: optional model setup and cancellable subprocess inference.
 - `src-tauri`: native file picker, command bridge, and app lifecycle.
 - `src/keymap.rs`: bounded, read-only configuration-file loading.
 - `ui/actions.ts`, `ui/keymap.ts`, `ui/action-dispatcher.ts`: shared command
@@ -54,7 +56,8 @@ and corrected-file reloads. A/B shortcuts do nothing without a range or while
 editing decimal inputs or dialogs.
 Svelte/TypeScript checks report no errors or warnings.
 
-The native macOS app builds into a roughly 15 MiB app bundle. The first window
+The original practice-only native macOS app built into a roughly 15 MiB bundle.
+With the optional analysis runtime, the current bundle is about 25 MiB. The first window
 inspection found lower controls falling outside the initial viewport; the
 layout was adjusted to give the waveform flexible height and keep transport
 and practice controls visible.
@@ -114,3 +117,11 @@ installer distribution, automatic device reconnection, streaming long files,
 and sample-accurate synchronization through adaptive stretching remain later
 work. None of the musical practice features deferred in PLAN.md have been
 added to this pass.
+
+## Measure mapping extension
+
+The dedicated mapping editor, practice ruler, optional model installer and real
+inference worker are now implemented. Architecture, exact setup/evaluation commands,
+current test counts, native QA and remaining validation are maintained in
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md). The workflow contract is in
+[MEASURE_MAPPING.md](MEASURE_MAPPING.md); analysis is a best-effort draft.

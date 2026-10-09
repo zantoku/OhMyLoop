@@ -1,5 +1,5 @@
 use ohmyloop::{
-    analysis_pcm::{MODEL_RATE, write_model_pcm},
+    analysis_pcm::{MODEL_RATE, write_model_pcm, write_model_pcm_with_progress},
     audio::Audio,
 };
 use std::sync::atomic::AtomicBool;
@@ -22,7 +22,14 @@ fn prepared_pcm_has_exact_duration_and_no_leading_or_tail_delay() {
             "ohmyloop-analysis-pcm-{}-{rate}.wav",
             std::process::id()
         ));
-        write_model_pcm(&audio, &path, &AtomicBool::new(false)).unwrap();
+        let mut progress = vec![];
+        write_model_pcm_with_progress(&audio, &path, &AtomicBool::new(false), |done, total| {
+            progress.push((done, total))
+        })
+        .unwrap();
+        assert_eq!(progress.first(), Some(&(0, rate as u64)));
+        assert_eq!(progress.last(), Some(&(rate as u64, rate as u64)));
+        assert!(progress.windows(2).all(|pair| pair[0].0 <= pair[1].0));
         let reader = hound::WavReader::open(&path).unwrap();
         assert_eq!(reader.spec().channels, 1);
         assert_eq!(reader.spec().sample_rate, MODEL_RATE);

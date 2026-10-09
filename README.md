@@ -11,7 +11,7 @@ measurement probe for comparison, but is not exposed as a playback option.
 
 ## Desktop app
 
-Install Rust stable, Node.js 22 or newer, and your platform's native build
+Install Rust stable (1.89 or newer), Node.js 22 or newer, and your platform's native build
 tools (listed below). From the project directory:
 
 ```sh
@@ -19,6 +19,10 @@ export CARGO_HOME="$PWD/.cargo-home"
 npm ci
 npm run desktop
 ```
+
+Development builds optimize inference and resampling dependencies while keeping
+app code debuggable. The first build after these profile changes takes longer;
+restart `npm run desktop` to pick up native code and build-profile changes.
 
 Build a native app locally:
 
@@ -72,16 +76,64 @@ The playhead follows native output-frame positions rather than a frontend
 playback timer; adaptive stretching and physical device latency still make
 it an estimate.
 
+In **Measure map**, **Metronome** defaults on to play the displayed authored map,
+including a green draft before applying it. **Click level** adjusts its volume;
+clicks follow the chosen pulse and accent measure/group starts. **Follow playhead**
+also defaults on and pages the waveform during playback without changing zoom. Panning or minimap
+navigation turns following off; wheel zoom preserves it. Toggle following back
+on to resume after navigation. Leaving the mapping screen stops the metronome.
+Left, Right and Enter also reveal the playhead in
+the waveform while paused, preserving zoom. See [map review behavior and timing limits](docs/MEASURE_MAPPING.md#listening-to-the-displayed-map).
+
 `npm run dev` opens a frontend-only development preview. It uses explicit demo
 fixtures and disables audio playback; the desktop app uses the real Rust engine.
 
-The next planned pass is a dedicated measure-mapping screen with editable
-tempo/meter interpretation and automatic beat/downbeat draft generation.
-See the [implementation plan](docs/MEASURE_MAPPING.md) and
-[technology research](docs/BEAT_MAPPING_RESEARCH.md); these features are not
-complete or verified yet; see the [implementation checkpoint](docs/IMPLEMENTATION_STATUS.md). Count-ins, inter-loop rests, speed ladders, section automation,
-sequences, export UI, recording, stems, and tabs remain later work in
-[PLAN.md](PLAN.md).
+Click **Measure map** to build or correct a musical timeline. **Create measures**
+provides two explicit sources:
+
+- **Detected beats** is selected after analysis. Choose the time signature and the
+  note value of each detected pulse, then set the first downbeat. Its position
+  snaps to the nearest detected beat in the selected span. **Preview detected
+  measures** calculates the number of full/partial measures and places their
+  boundaries and internal anchors at detected source frames. Review the green
+  draft, then **Apply map**. Changing draft settings requires another preview.
+- **Even spacing (manual)** uses a span and an explicit measure count. It ignores
+  detected beats and is available without installing or running a model.
+
+**Span** expands the target range and optional grouping controls. Detected drafts
+end at the last observed pulse; leading/trailing audio can remain unmapped. Meter
+changes, pickups and partial bars can then be corrected locally. Draft settings
+and the selected measure's notation controls are independent.
+
+Drag measure/beat lines to correct timing, or use exact source positions and
+arrow-key nudges (10 ms; Shift gives 1 ms). The inspector supports meter changes,
+pickups, incomplete bars, beat anchors, splits/merges, free-time gaps and protected
+corrections. **Clear map** removes all measures/anchors, including protected ones;
+**Undo** restores them. It retains detected beats for rebuilding and keeps practice
+sections, loops and playback settings. Mapping undo/redo survives switching back
+to practice; the accepted map is saved with the song. Practice gains a measure
+ruler and measure navigation.
+
+**Analysis model → Download analysis model** optionally installs the pinned
+Beat This! model (about 83 MB). **Analyze song** runs CPU inference in a separate,
+cancellable process. Download progress shows received bytes; analysis shows
+per-stage progress, completed segments and elapsed time. The model folder is
+shown beneath Verify / reinstall. Downbeat conflicts produce review warnings.
+Analysis never applies a map automatically; protected spans block replacement.
+Installed models work offline, and manual mapping needs no download or Python
+runtime. For development/offline provisioning, `OHMYLOOP_MODEL_DIR` selects a
+folder containing the two pinned ONNX files listed in
+[config/beat-model.json](config/beat-model.json); checksums are verified before
+inference. The normal model folder is `models/beat-this-v1` under app data.
+
+Analysis is limited to one hour and its accuracy remains provisional. Generated
+fixtures showed missed/extra beats and significant downbeat errors with changing
+meter. Real guitar recordings, Python parity and the small-model comparison still
+need evaluation. See [verification and limits](docs/IMPLEMENTATION_STATUS.md),
+[the mapping contract](docs/MEASURE_MAPPING.md), and
+[technology research](docs/BEAT_MAPPING_RESEARCH.md). Count-ins, inter-loop rests,
+speed ladders, section automation, sequences, export UI, recording, stems and tabs
+remain later work in [PLAN.md](PLAN.md).
 
 Desktop checks:
 
@@ -89,7 +141,7 @@ Desktop checks:
 npm run check
 npm test
 npm run build
-cargo test --locked --release -p ohmyloop
+cargo test --locked --release -p ohmyloop --features beat-analysis
 cargo clippy --locked --workspace --all-targets -- -D warnings
 ```
 
@@ -109,7 +161,7 @@ Install Rust stable and your platform's C++ build tools:
 
 No system Rubber Band installation, Python runtime, FFmpeg, or web frontend
 is needed for the terminal player. Rust 1.99.0 was used for local validation; the
-manifest declares Rust 1.88 as the language/dependency minimum.
+manifest declares Rust 1.89 as the language/dependency minimum.
 
 From the project directory:
 

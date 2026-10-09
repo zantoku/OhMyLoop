@@ -1,7 +1,7 @@
 # First measure-mapping implementation pass
 
-Drafted: 2026-10-09. Status: implementation in progress, paused at the user’s request.
-Checkpoint and resume notes: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+Drafted: 2026-10-09. Status: first editor and optional analyzer implemented;
+analysis quality remains provisional. Verification and remaining evaluation: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 Research: [BEAT_MAPPING_RESEARCH.md](BEAT_MAPPING_RESEARCH.md).
 
 ## Outcome
@@ -33,7 +33,7 @@ The mapping screen has:
 - A musical ruler displaying measure numbers and beat positions, alongside a
   time ruler. Strong measure boundaries, lighter beat lines, meter labels,
   and explicit unmapped/partial spans make the interpretation visible.
-- A toolbar for **Analyze song**, **Build measures**, adding boundaries,
+- A toolbar for **Analyze song**, **Clear map**, adding boundaries,
   undo/redo, and fitting the selected measure or whole song.
 - An inspector for the selected measure/boundary: meter, pulse unit/grouping,
   full/pickup/incomplete status, exact position, and protection from reanalysis.
@@ -139,14 +139,14 @@ history is scoped to mapping and survives screen switching during the session.
 
 ## Domain and persistence boundaries
 
-Proposed domain shape, to finalize with invariant tests before UI wiring:
+Implemented domain shape (validated in Rust before persistence):
 
 | Entity | Responsibility |
 | --- | --- |
 | Analysis result | Immutable candidate beat/downbeat source frames, model/checksum/preprocessing provenance, and uncalibrated evidence scores |
 | Shared boundary | Stable ID and integer source frame; adjacent measures reference the same boundary |
 | Measure | Stable ID, boundary references, full/pickup/incomplete kind, actual notated extent, and optional pickup offset |
-| Meter event | Meter, pulse unit and optional grouping attached to a stable measure ID |
+| Meter interpretation | Meter, pulse unit and optional grouping stored explicitly on each stable measure; changes are derived by comparison |
 | Beat anchor | Stable ID, source frame and rational notated offset inside a measure |
 | Map | Ordered mapped spans and free-time gaps, explicit numbering origin, protected ranges and revision |
 
@@ -270,7 +270,7 @@ and report the gap instead of presenting an unsupported automated map.
 
 ## Deferred work
 
-Count-ins, inter-loop rests, synchronized click-preview scheduling, speed
+Count-ins, inter-loop rests, speed
 ladders, per-section playback automation, sequences, export UI, recording,
 stem separation and synchronized tabs remain separate milestones. The map
 provides their future timing foundation; this pass does not implement them.
@@ -278,3 +278,68 @@ Also defer score import/alignment, polymeter, overlapping musical clocks,
 manual tempo-curve drawing, ripple edits and automatic constrained neural
 reanalysis. Preview/apply plus protected manual corrections is the first
 robust reanalysis contract.
+
+## Current draft workflow
+
+The inspector's **Create measures** section selects **Detected beats** after an
+analysis result arrives. Time signature, pulse note value and the first downbeat
+are draft settings; the selected measure's notation has separate controls. The
+first downbeat snaps to the nearest detected pulse within the replacement span.
+Keeping alignment separate from span bounds lets a new draft replace an older
+whole span even when its first detected measure begins later.
+
+**Preview detected measures** derives count and reports pulses per measure,
+full bars, final partial extent and actual first boundary from Rust. The manual
+count field appears only for **Even spacing (manual)**, which never uses detected
+pulses. A changed draft requires a new preview before Apply. Input settings survive
+screen switching and repeated status replies for the same analysis job.
+
+**Clear map** is an explicit, undoable operation that removes all accepted measure
+and beat annotations, including protected ones, and resets numbering to 1. It
+preserves source identity, monotonic IDs and detected evidence for rebuilding.
+Practice sections, loops, speed/pitch and play/pause state are independent. If
+only an unapplied preview exists, Clear map discards it without a save.
+
+## Listening to the displayed map
+
+The mapping screen provides **Metronome on/off**, **Click level**, and **Follow
+playhead on/off**. Metronome and following both default on for each song session.
+Clicks begin once an authored map or draft exists. The metronome uses the green
+draft while one is displayed, otherwise the accepted map. Applying retains that
+timing; discarding returns to
+the accepted map. Raw detected suggestions never drive clicks directly. Measure
+starts receive a distinct accent, grouping starts a secondary accent, and the
+chosen pulse note value determines the remaining clicks. Pickups keep their
+notated offset; incomplete measures end early and free-time gaps are silent.
+Arbitrary beat anchors change interpolation without becoming extra pulses.
+
+Rust builds the bounded pulse schedule from original source frames, converts it
+to the playback device rate, and mixes short fixed-pitch clicks after Rubber Band
+on the render worker. Speed changes alter spacing while pitch changes leave the
+click sound alone. Seeking resets click history; loop wraps restart the schedule
+at the rounded source loop start. Pause stops both song and clicks. Live map/level
+changes take effect after the existing bounded audio queue (about 50 ms, plus
+device latency); no frontend timer schedules audio and the callback is unchanged.
+Mixing reserves volume-dependent headroom for clicks to avoid clipping.
+
+The musical footer follows the displayed map too. Review map, click enable/level,
+and following are session state; they do not change the saved song schema. Leaving
+mapping disables the metronome and restores accepted-map transport coordinates.
+The click preference resumes on reentering mapping during the same song session.
+
+Following defaults on and pages only during playback. Crossing the current
+window's end advances by a full window, preserving zoom; backwards seeks and loop
+wraps page backwards. The final page clamps to EOF. Manual panning, minimap
+navigation, Fit measure or Whole song turns following off; use Follow
+playhead to resume. Paused editing keeps the viewport still.
+Mouse-wheel zoom preserves following.
+Explicit playhead navigation (including Left, Right and Enter) reveals the
+resulting position in either screen even while paused or with following off.
+It preserves zoom and the follow toggle, and does not move the view if the
+resulting position is already visible. Rewinding also works when the playhead
+is already at zero but the view has been panned elsewhere.
+
+Clicks share the engine's nominal source-position estimate. Rubber Band's adaptive
+timing can move individual transients around that estimate, particularly during
+live speed changes; this is not a claim of sample-accurate click/transient alignment.
+Count-ins, practice rests and exported clicks remain outside this review feature.

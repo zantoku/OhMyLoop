@@ -1,96 +1,288 @@
-# Measure mapping implementation checkpoint
+# Measure mapping implementation and evidence
 
-Paused at the user's request: 2026-10-09.
-This is an implementation in progress, not a completed or released milestone.
-Resume against [MEASURE_MAPPING.md](MEASURE_MAPPING.md).
+Updated: 2026-10-09. The first manual editor, practice integration and optional
+automatic-draft workflow are implemented. Analyzer quality remains provisional;
+this is not a release-readiness or broad music-accuracy claim.
 
-## Current code
+## Delivered behavior
 
-- Rust musical-time domain in `src/timing.rs`: integer source frames, rational
-  quarter-note values, shared boundaries, changing meter/pulse/grouping,
-  pickups and incomplete measures, free-time gaps, beat anchors, local edits,
-  split/merge, spacing, protection, derived numbering and coordinate lookup.
-- Song document version 3 adds the map. Valid v2 files migrate on load without
-  changing practice settings; invalid/future files retain their preservation
-  behavior. Actual decoded rate/frame count is checked on updates.
-- A dedicated `MeasureEditor.svelte` screen is connected to the app shell via
-  Measure map / Back to practice actions. It has its own timeline, inspector,
-  preview/apply, history, and edit selection. Shared timeline helpers and
-  playback settings preserve the practice workflow. Practice measure ruler,
-  musical position and measure navigation are wired.
-- Mapping and analysis orchestration are separate frontend modules; action
-  availability includes practice/mapping scope. New actions have no default
-  keys yet, preserving existing configuration files.
-- Optional `beat-analysis` Cargo feature uses pinned `beat-this` 1.1.0 / RTen.
-  Desktop enables it; default CLI operation is preserved. The declared Rust
-  minimum is now 1.89. Cargo dependencies are fetched into `.cargo-home`.
-- Native analysis manager starts a separate instance of the app executable in
-  `--analysis-worker` mode before Tauri initialization. Jobs prepare shared
-  source PCM, restrict inference to two threads, support cancellation, and
-  keep candidates/provenance/raw activations outside the song document.
-- Optional model download and offline `OHMYLOOP_MODEL_DIR` path are wired.
-  URLs/checksums/provenance are in `config/beat-model.json`. MIT notices are
-  in `licenses/beat-this-MIT.txt` and configured as bundle resources.
-- Downloaded main and mel ONNX artifacts are in ignored
-  `artifacts/beat-models/`; their hashes match the pinned configuration.
-  These are development artifacts, not committed or installed user models.
+- A dedicated Measure map screen shares source audio and transport with practice,
+  retains its own viewport, and supports wheel zoom, middle-button pan and minimap
+  navigation. Mapping gestures edit timing annotations without replacing loops.
+- Build a selected span by measure count or detected pulses, preview, then apply.
+  Correct shared boundaries and fixed beat anchors by dragging, exact source
+  coordinates or keyboard nudges. Split/merge, respace, meter/pulse/grouping changes,
+  pickups, partial measures, free-time gaps, numbering origin, protection and
+  session undo/redo are available. Protected conflicts leave the accepted map intact.
+- The practice screen shows the accepted measure ruler, musical position and
+  previous/next/Go-to-measure navigation. Existing section identities, source-based
+  loops, playback speed and pitch remain independent of the map.
+- Version-3 song documents hold version-1 maps. Valid version-2 documents migrate;
+  invalid/future documents are preserved. Load and update validate exact decoded
+  sample rate and frame count. A failed map save leaves the accepted map intact
+  and keeps its preview available for retry.
+- Optional Beat This! main-model analysis runs in a separate instance of the
+  executable, with two inference threads and a one-hour input limit. Source PCM
+  preparation runs away from playback; cancellation kills/reaps the inference
+  process and discards its result. Candidates retain song/revision/model/processing
+  provenance; raw activations live in a separate bounded cache. Applying suggestions
+  requires a chosen meter/pulse/span and explicit preview/apply. Downbeat conflicts
+  and stale map revisions are reported.
+- Optional model installation downloads about 83 MB, checks pinned SHA-256 hashes,
+  and retains MIT notices and provenance. Manual mapping works without models.
+  Installed models support offline operation through `OHMYLOOP_MODEL_DIR`.
 
-## Checkpoint evidence
+## Architecture decisions
 
-The following passed on this macOS host after the final checkpoint changes:
+`src/timing/` separates model, validation, transactional edits and projections.
+Meter/pulse/grouping are explicit per measure; comparing adjacent measures derives
+meter changes. Beat anchors and shared boundaries are authoritative source-frame
+coordinates. Tempo and numbering are derived, with BPM expressed in the selected
+pulse unit. Gaps continue numbering from the global origin; independent numbering
+resets after individual gaps are not included.
+
+Persistence remains in `project`, native transport/source ownership in `desktop`,
+and inference/model setup in `analysis`. Frontend mapping history and async job
+orchestration are separate modules; Svelte renders validated projections. Shared
+input primitives and playback settings serve both screens. Action scope permits
+practice and mapping commands to share bindings when their scopes do not overlap.
+Mapping commands have no new default keys; existing configurations stay valid.
+
+The CLI remains available without the optional analysis dependency. Desktop enables
+`beat-analysis`. Rust 1.89 is the declared minimum. Models are external assets;
+`config/beat-model.json` and `licenses/beat-this-MIT.txt` record attribution and pins.
+
+## Automated and native evidence
+
+On this macOS host:
+
+- **40 Rust tests pass**, including all existing DSP/callback tests, 13 mapping
+  tests, source-identity/migration/preservation checks and analysis preparation/job
+  error checks. Generated impulse locations at 8/22.05/44.1/48/96 kHz remain within
+  one 22.05 kHz sample, with exact output duration. Preparation corrects Rubato's
+  polyphase origin rather than trimming its advertised pipeline delay.
+- **59 frontend tests pass**; Svelte/TypeScript reports zero errors or warnings.
+  Coverage includes gestures, scoped bindings, preview/history, failed-save retry,
+  screen changes and stale/disposed asynchronous replies.
+- Formatting, workspace/all-target Clippy, vendor integrity and diff whitespace
+  checks pass. The macOS app-only bundle builds at approximately 25 MiB.
+- A separate QA app with workspace-only practice data exercised manual build/apply,
+  shared-boundary dragging, exact 2.125-second edits, 10 ms/1 ms nudges, protection,
+  real native inference, conflict warnings, detected-draft apply, pickup notation,
+  practice ruler seeking, undo across screen switches and restoration after relaunch.
+  Playback remained paused at the same source position during map edits. The mapper
+  was inspected at 1180 × 810 and the minimum 820 × 620; its panes scroll while
+  transport stays visible. The existing user app session was left open.
+
+Reproduce the routine checks (omit `--offline` unless dependencies are cached):
 
 ```sh
-CARGO_HOME="$PWD/.cargo-home" cargo fmt
-CARGO_HOME="$PWD/.cargo-home" cargo test --offline --locked -p ohmyloop --release --features beat-analysis
+export CARGO_HOME="$PWD/.cargo-home"
+cargo fmt --check
+cargo clippy --offline --locked --workspace --all-targets -- -D warnings
+cargo test --offline --locked --release -p ohmyloop --features beat-analysis
 npm run check
 npm test
+npm run desktop:build -- --bundles app # macOS
+python3 scripts/check_vendor.py
 git diff --check
 ```
 
-There are **30 passing Rust tests** (including all existing audio checks,
-8 mapping tests and 2 analysis-PCM tests) and **49 passing frontend tests**.
-Svelte/TypeScript reports zero errors and warnings. A workspace Cargo check
-passed earlier in this turn; final all-target lint/native bundle checks remain
-pending. No native app window was inspected or relaunched for this revision.
+Run native Cargo/Tauri builds and tests sequentially.
 
-A generated impulse test exposed an incorrect use of the resampler's advertised
-pipeline delay in analysis preparation. The analysis path now aligns the
-Rubato 0.16 polyphase origin rather than trimming that advertised latency.
-Impulse locations at 8/22.05/44.1/48/96 kHz are within one model-rate sample,
-and output length is exact. This verifies preprocessing alignment on the
-covered inputs, not model accuracy or perceptual beat placement.
+## Real model evaluation
 
-No actual model inference benchmark, Python parity run, subjective map review,
-analysis-under-playback hardware check, Linux/Windows run, or new commit has
-been performed. The user's existing native app/settings were not intentionally
-changed; no real-song measure map was applied.
+`examples/analysis_probe.rs` generates original annotated percussion/harmonic audio
+and runs the actual subprocess adapter. These recordings do not establish accuracy
+on guitar practice material. One-to-one event matching uses independent generated
+truth; this is not comparison with Python predictions.
 
-## Resume work
+| Generated case | Beats matched / truth / predicted (70 ms) | Downbeats matched / truth / predicted (70 ms) |
+| --- | --- | --- |
+| Steady 4/4, 33 s | 64 / 64 / 67 | 16 / 16 / 17 |
+| Tempo changes, 4/4 → 3/4 → 4/4 and rubato, 34 s | 60 / 64 / 62 | 13 / 18 / 21 |
 
-1. Review the code against the agreed interaction/domain contract. Split the
-   large timing module into cohesive model/validation/edit/projection files
-   before treating it as the maintained architecture. Check grouped beat
-   labels, pickup displays, split/merge preservation, and source identity races.
-2. Run final workspace Clippy and native bundle checks sequentially; resolve
-   any failures. Review bundle resources and model/dependency attribution.
-   Update setup documentation for Rust 1.89 and the analysis feature.
-3. Exercise the real worker on generated annotated audio using the downloaded
-   models. Record detection errors, duration/memory, cancellation and source
-   alignment; compare small/main models and Python only when the reference
-   environment is available. Do not confuse parity with ground truth.
-4. Use an isolated `OHMYLOOP_DATA_DIR` under `artifacts` and the workspace model
-   directory for native UI verification. Inspect normal/minimum-window layout,
-   empty map, manual build/apply, dragging/nudging, meter changes, partial bars,
-   undo/redo across screen switches, restoration, and automatic suggestions.
-   Resolve usability problems, including dense full-song marker rendering.
-5. Test model installation/missing/corrupt/offline states and cancellation;
-   verify inference alongside actual playback with no callback regression.
-   Add focused coverage for outstanding async/native boundaries as needed.
-6. Reconcile the implementation plan with delivered behavior, update README,
-   DESKTOP and THIRD_PARTY with exact commands/evidence/limits, and report each
-   platform's validation honestly. A screenshot or configured CI is not proof
-   of passing hardware/platform checks.
+Matched beats were within 20 ms in these fixtures. The changing-meter result needs
+manual correction, especially at downbeats; neither result establishes a reliable
+whole-song measure interpretation.
 
-Retain the uncommitted work and the ignored model artifacts for resumption.
-The original count-in, rests, ladder, sequencing, export, recording, stems and
-notation features remain deferred.
+During actual default-device playback (`KT_USB_AUDIO`), both inference cases
+reported **zero underrun events and zero device errors**, with 876/723 callbacks.
+Maximum playback render time was 3.05/3.10 ms. Inference took 3.72/3.35 s (4.67/3.86 s
+including preparation/process overhead) while a native bundle build was also active.
+A separate run without that load took roughly 1.8–2.1 s of inference. Cancellation
+completed in 57 ms in the instrumented device run and discarded the result.
+`/usr/bin/time -l` reported maximum resident set size of 529,039,360 bytes (~505 MiB)
+for the probe/worker run; this is not the app's steady-state memory footprint.
+
+A fresh official-source download through the actual model installer completed in
+46.9 s, verified both pinned checksums, wrote license/provenance files, and then
+supported inference. Missing/corrupt-model tests return errors without modifying
+model input files or producing a map. Model-install cancellation checks between
+chunks; a stalled network read can wait for its configured request timeout.
+
+```sh
+cargo build --locked --release --features beat-analysis --bin ohmyloop --example analysis_probe
+# An already-installed model folder:
+target/release/examples/analysis_probe target/release/ohmyloop artifacts/beat-models artifacts/analysis-probe --device
+# Download into a fresh folder and verify the installer too:
+target/release/examples/analysis_probe target/release/ohmyloop artifacts/installer-models artifacts/installer-probe --install
+```
+
+The example writes generated WAVs, `report.json` and caches into the selected output
+folder. `--device` requires real sound hardware and audibly plays generated material.
+On Windows use `.exe` paths. Model artifacts, reports, caches and QA data are ignored
+by Git and can be regenerated.
+
+## Remaining validation and scope
+
+Linux/Windows CI jobs are configured, including analysis-feature tests and native
+builds; they have not been run here. Only macOS has local build/UI/device evidence.
+Physical middle-button dragging remains pending; automated gesture coverage passes.
+Real guitar-song evaluation, small/main-model comparison and Python preprocessing/
+prediction parity remain outstanding. Long-song resource use and broad device/load
+coverage need further measurement. Code signing, installer distribution and the full
+binary-release license inventory are release work.
+
+Count-ins, inter-loop rests, ladders, section automation, sequences, export UI,
+recording, stems and synchronized tabs remain deferred. No commit or push was made
+while continuing this implementation.
+
+## Download and analysis progress
+
+Download jobs now report received bytes and the server's content length when
+available. Preparation and spectrogram stages report processed frames; inference
+reports completed segments through a decorator of the upstream public `Model`
+interface. No prediction algorithm or third-party source was modified. Segment
+counts follow pinned beat-this 1.1.0's 50 Hz mel grid and 1488-frame stride; tests
+exercise the actual public pipeline across short, exact-edge and longer inputs.
+
+The worker streams bounded newline-delimited progress updates through its stdout
+pipe. A separate reader updates only the current running job; cancellation and
+late replies cannot revive progress. UI polling shows elapsed time and percentages
+for each stage, with indeterminate activity during model loading, verification or
+unknown-length downloads. These are stage percentages, not an overall ETA.
+The installed model folder (or intended download folder) appears below the model
+setup button, wraps without truncation, and can be selected/copied.
+
+A separate macOS QA instance performed a fresh actual model download: at 22 seconds
+the UI displayed 53.6 / 83.2 MB and 64%, then restored Verify / reinstall with the
+installed folder visible. A generated 330-second file showed preparation at 15%,
+then 11 / 12 inference segments and 91% at 10 seconds, and completed successfully
+with 661 suggestions (10.6 seconds reported analysis time). The existing user app
+was not closed, and test models/practice data stayed in ignored workspace folders.
+
+Development builds now optimize RTen's computation crates, Beat This!, FFT and
+analysis resampling dependencies while keeping application code debuggable. The
+updated development CLI/worker probe took about 2.0 seconds of inference and
+7.9–8.1 seconds total per 33–34-second fixture; predictions matched the previously
+reported results. Cancellation discarded the result in 26 ms. This is measured
+current performance, not a controlled comparison against the old debug build.
+Restart `npm run desktop` to pick up native/profile changes; the first dependency
+rebuild takes longer. Release builds are unchanged in optimization policy.
+
+Additional tests cover progress framing/limits, actual inference segment counts,
+job identity/cancellation and elapsed-time freezing, monotonic PCM preparation,
+UI progress rendering/polling and the model folder display. Current checks are
+40 passing Rust tests and 59 passing frontend tests, zero Svelte/TypeScript
+warnings, clean workspace Clippy/format checks, and a rebuilt macOS app bundle.
+
+## Beat-aligned first drafts and clear-map workflow
+
+**Create measures** now offers explicit Detected beats and Even spacing (manual)
+sources. A completed analysis selects Detected beats. The manual count input is
+absent in that mode; Preview calculates full/partial measure counts in Rust and
+places boundaries/anchors at observed pulse frames. The summary explicitly counts
+the last pulse as an end boundary, so full/partial lengths count pulse intervals.
+First-downbeat alignment snaps to the nearest detected pulse independently of
+replacement span bounds. A changed draft requires another preview before Apply.
+
+Draft form state lives in `MeasureBuilder.svelte`; selected-measure notation has
+separate state and shared `MeterFields.svelte` presentation/parsing. Choosing a
+measure does not overwrite draft settings. Repeated status replies for the same
+job do not reset them. Inspector refresh compares view content as well as revision,
+so replacing a preview at the same accepted-map revision updates its fields.
+Model setup is labeled Analysis model; the detected-preview action is no longer
+hidden inside that disclosure.
+
+The Clear map action removes all accepted measures/anchors, including protected
+ones, resets numbering and preserves the source/ID counter. Mapping Undo restores
+the exact annotations, IDs and protection. It retains detected suggestions for
+rebuilding, and practice sections/loops/controls stay independent. An unapplied
+preview alone is discarded without a document write.
+
+Native macOS QA on generated demo audio confirmed automatic source selection,
+1.13-second alignment snapping to 1.00 seconds, six measures in 4/4 (five full and
+one partial), then eight in 3/4 (seven full and one partial) from the same 23 pulse
+marks. Apply became disabled after a settings change until a fresh preview. Clear
+removed an accepted map containing a protected measure; Undo restored its eight
+measures and protection while playback stayed paused at zero. QA used isolated
+workspace practice data and existing test models; the user app was left open.
+
+Current checks: 40 Rust tests, 59 frontend tests, zero Svelte/TypeScript diagnostics,
+clean formatting/workspace Clippy and a rebuilt macOS app bundle. New domain tests
+cover first-pulse snapping, irregular anchors, compound-meter count derivation and
+explicit clear; UI tests cover source modes, stale previews, same-revision inspector
+refresh, preserved screen state, protected-map undo and untouched practice settings.
+
+## Authored-map listening and paged review
+
+The mapping screen now has a metronome with click level and a Follow playhead
+toggle. Clicks and the transport's musical position follow the displayed green
+draft, reverting to the accepted map on discard. Leaving mapping disables clicks;
+reentering preserves the session preference. Mapping review state is source-bound
+and ephemeral, with no song-document schema change. Both toggles use centralized
+button/action/help metadata and support configured keyboard bindings.
+Both toggles default on for each new song session; clicks wait for an authored
+map or draft so an empty map does not attenuate playback.
+
+`timing/pulses.rs` derives pulses and measure/group accents from authored meter,
+pickup offset, partial length and piecewise beat anchors. Detected candidates are
+never a playback clock. `metronome.rs` converts the bounded schedule to device PCM
+frames with the same rounding/truncated EOF as seeking/resampling, then mixes
+fixed-pitch clicks after DSP on the render worker. It resets click history on seek
+and handles fractional source progression at loop wraps. The callback remains
+unchanged. Live schedule/level changes retain the existing ~50 ms queue latency
+plus hardware latency. Click mixing reserves headroom; timing remains the engine's
+nominal source estimate, not sample-accurate Rubber Band transient alignment.
+
+Paging preserves viewport span, handles skipped pages and backwards seeks/loop
+wraps, and clamps the last page to EOF. Following defaults on and runs only during
+playback. Wheel zoom preserves following; pan/minimap navigation and Fit measure/
+Whole song turn it off. Follow playhead resumes it at the current position.
+Explicit seeks reveal the resulting native playhead position in both screens,
+even while paused or with following off, without changing zoom or the toggle.
+This includes Left/Right, Enter and other seek actions; Enter also reveals zero
+when the playhead was already there but the viewport was manually panned away.
+
+Current verification: 46 Rust tests and 71 frontend tests pass, zero Svelte/
+TypeScript diagnostics, clean workspace Clippy/format/diff checks, and a rebuilt
+25.09 MiB macOS app bundle. Generated-output tests cover actual DSP click spacing
+at 0.5/1/2 speed with transposition, source-rate conversion, rubato anchors, 6/8,
+7/8 grouping, pickups/partials/gaps, exclusive endpoints, paused prebuffering,
+seeking and fractional loop wraps. Controller tests cover source identity and
+unsaved review-map state. UI tests cover draft/discard/volume/screen transitions,
+audio-error recovery, coalesced late replies, paging and manual navigation.
+The default/seek tweak adds keyboard navigation checks in both screens while
+paused and playing, including manually suspended following and preserved zoom.
+No Rust/audio changes were needed for this tweak; native/device evidence below
+is from the metronome implementation, not a new hardware run.
+
+The reproducible hardware probe on KT_USB_AUDIO at 48 kHz passed with 1,692
+callbacks, zero underrun events/device errors, max render 1.37 ms and last seek
+setup 1.12 ms. It exercised clicks, speed/pitch, seek, looping, a live draft change,
+pause, click disable and restart. An earlier run during a native build recorded
+one underrun; the repeat without that load passed. This does not establish broad
+device/load robustness or subjective song/click alignment quality.
+
+```sh
+cargo build --locked --release --example map_review_probe
+target/release/examples/map_review_probe
+```
+
+The probe audibly plays generated material and touches no user song/settings.
+On Windows use the `.exe` path. Native visual QA for these new controls remains
+pending: the isolated QA app launched successfully, but the server restarted
+before inspection and desktop-control tools were unavailable afterward. The QA
+process was cleaned up; the user's existing app was left untouched. Linux and
+Windows have not been locally verified.

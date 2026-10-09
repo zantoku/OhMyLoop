@@ -1,7 +1,11 @@
 use super::models::{MODEL_ID, verify_models};
+use super::{
+    inference_progress::ObservedModel,
+    progress::{ProgressUnit, ProgressUpdate},
+};
 use crate::analysis_pcm::{MODEL_RATE, PREPROCESSING};
 use anyhow::{Context, Result, ensure};
-use beat_this::{BeatThis, RtenRuntime};
+use beat_this::{BeatThis, RtenRuntime, Runtime};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
@@ -69,14 +73,18 @@ pub fn worker(args: &[String]) -> Result<()> {
     let frames: u64 = args[5].parse()?;
     let revision: u64 = args[6].parse()?;
     ensure!(rate > 0 && frames > 0, "Invalid analysis source");
+    publish(ProgressUpdate::stage("Verifying model files"))?;
     verify_models(models)?;
     let began = Instant::now();
-    let mut tracker = BeatThis::new(
-        &RtenRuntime,
-        &models.join("mel_spectrogram.onnx"),
-        &models.join("beat_this.onnx"),
-    )?;
     let reader = hound::WavReader::open(input)?;
+    let samples = u64::from(reader.duration());
+    publish(ProgressUpdate::stage("Loading analysis models"))?;
+    let mel = RtenRuntime.load_model(&models.join("mel_spectrogram.onnx"))?;
+    let beats = RtenRuntime.load_model(&models.join("beat_this.onnx"))?;
+    let mut tracker = BeatThis::from_models(
+        ObservedModel::plain(mel),
+        ObservedModel::beats(beats, samples, publish),
+    );
     ensure!(
         reader.spec().sample_rate == MODEL_RATE
             && reader.spec().channels == 1
@@ -85,19 +93,40 @@ pub fn worker(args: &[String]) -> Result<()> {
     );
     let mut stream = tracker.stream(MODEL_RATE)?;
     let mut chunk = Vec::with_capacity(4096);
+    let mut processed = 0;
+    publish(ProgressUpdate::measured(
+        "Creating spectrogram",
+        0,
+        Some(samples),
+        ProgressUnit::Frames,
+    ))?;
     for sample in reader.into_samples::<f32>() {
         let sample = sample?;
         ensure!(sample.is_finite(), "Non-finite analysis PCM");
         chunk.push(sample);
         if chunk.len() == 4096 {
             stream.push(&chunk)?;
+            processed += chunk.len() as u64;
+            publish(ProgressUpdate::measured(
+                "Creating spectrogram",
+                processed,
+                Some(samples),
+                ProgressUnit::Frames,
+            ))?;
             chunk.clear();
         }
     }
     if !chunk.is_empty() {
         stream.push(&chunk)?;
+        publish(ProgressUpdate::measured(
+            "Creating spectrogram",
+            samples,
+            Some(samples),
+            ProgressUnit::Frames,
+        ))?;
     }
     let analysis = stream.finish()?;
+    publish(ProgressUpdate::stage("Finalizing detected beats"))?;
     let to_frame =
         |seconds: f32| ((f64::from(seconds) * f64::from(rate)).round() as u64).min(frames - 1);
     let downbeats: std::collections::HashSet<_> =
@@ -138,5 +167,13 @@ pub fn worker(args: &[String]) -> Result<()> {
     let mut writer = BufWriter::new(File::create(output)?);
     serde_json::to_writer(&mut writer, &cache)?;
     writer.flush()?;
+    Ok(())
+}
+
+fn publish(update: ProgressUpdate) -> Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    serde_json::to_writer(&mut stdout, &update)?;
+    writeln!(stdout)?;
+    stdout.flush()?;
     Ok(())
 }

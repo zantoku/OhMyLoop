@@ -105,6 +105,18 @@ async fn transport_action(action: Action, state: State<'_, Desktop>) -> Result<S
 }
 
 #[tauri::command]
+async fn set_map_metronome(
+    song_key: String,
+    enabled: bool,
+    volume: f32,
+    map: Option<ohmyloop::timing::MeasureMap>,
+    state: State<'_, Desktop>,
+) -> Result<Transport, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.metronome(song_key, enabled, volume, map)).await
+}
+
+#[tauri::command]
 async fn transport_status(state: State<'_, Desktop>) -> Result<Transport, String> {
     let desktop = state.inner().clone();
     work(move || desktop.status()).await
@@ -189,6 +201,7 @@ fn main() {
             open_song,
             update_document,
             transport_action,
+            set_map_metronome,
             transport_status
         ])
         .on_window_event(|window, event| {

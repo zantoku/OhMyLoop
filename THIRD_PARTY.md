@@ -37,3 +37,25 @@ test tools are development dependencies; `package-lock.json` pins that graph.
 Source and license files are available in the Cargo registry cache and the
 upstream package repositories. Packaging a binary release must include the
 applicable license and attribution files from the resolved dependency graph.
+
+## Optional Beat This! analysis
+
+The desktop enables `beat-this` **1.1.0** (MIT), a Rust port by danigb of
+[Beat This!](https://github.com/CPJKU/beat_this) by the Institute of Computational
+Perception, JKU Linz. CPU inference uses RTen (MIT OR Apache-2.0); downloading
+uses reqwest (MIT OR Apache-2.0). The terminal player does not enable this
+feature by default.
+
+The optional upstream `final0` checkpoint and its main-model ONNX conversion
+are recorded separately in [config/beat-model.json](config/beat-model.json):
+original project, conversion revision, exact download URLs and SHA-256 hashes.
+Models are downloaded from the Rust port's pinned official artifacts, rather
+than bundled in Git or the app. The upstream work and port use MIT terms;
+[licenses/beat-this-MIT.txt](licenses/beat-this-MIT.txt) retains both notices.
+The app bundles that notice and provenance, and successful model installation
+copies them beside the weights as `LICENSE.txt` and `PROVENANCE.json`.
+
+Model timestamps use OhMyLoop's own source-aligned mono preprocessing;
+this is identified independently of the model. Runtime licensing, converted
+weight provenance and analysis accuracy are separate concerns. Binary-release
+attribution for the entire resolved dependency graph remains a release task.

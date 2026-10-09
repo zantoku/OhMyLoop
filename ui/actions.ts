@@ -9,7 +9,15 @@ function define(description: string, keys: readonly string[] = [], requires: Req
 const practice = (...args: Parameters<typeof define>) => ({ ...define(...args), scope: 'practice' as ActionScope });
 const mapping = (description: string, keys: readonly string[] = []) => ({ ...define(description, keys), scope: 'mapping' as ActionScope });
 export const MAPPING_ACTIONS = {
-  map_build: mapping('Preview measures in the selected span'),
+  map_metronome: mapping('Toggle the metronome for the displayed authored map'),
+  map_follow: mapping('Follow the playhead by paging the waveform view'),
+  map_clear: mapping('Clear all measures and anchors; Undo restores them. Keep detected beats for rebuilding'),
+  map_first_downbeat: mapping('Set the first downbeat near the playhead'),
+  map_origin: mapping('Preview the first full measure number'),
+  map_span_start: mapping('Set the map span start at the playhead'),
+  map_span_end: mapping('Set the map span end at the playhead'),
+  map_anchor_playhead: mapping('Set the beat anchor position at the playhead'),
+  map_build: mapping('Preview evenly spaced measures without using detected beats'),
   map_apply: mapping('Apply the measure-map preview'),
   map_discard: mapping('Discard the measure-map preview'),
   map_notation: mapping('Preview meter and measure extent'),
@@ -80,7 +88,7 @@ export const ACTIONS = {
 export type ActionId = keyof typeof ACTIONS;
 export const BUTTONS = {
   ...Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id => [id, id])) as { [K in MappingActionId]: K },
-  show_measure_map: 'show_measure_map', show_practice: 'show_practice',
+  mapping_loop_off: 'disable_loop', show_measure_map: 'show_measure_map', show_practice: 'show_practice',
   previous_measure: 'previous_measure', next_measure: 'next_measure', goto_measure: 'goto_measure',
   open_song: 'open_song', demo: 'load_demo', shortcuts: 'show_shortcuts',
   previous_section: 'previous_section', play: 'play_pause', next_section: 'next_section',

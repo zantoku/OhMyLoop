@@ -14,13 +14,14 @@ describe('measure-map timeline',()=>{
     await pointer(s.field,'pointerup',650);expect(s.onedit).toHaveBeenCalledExactlyOnceWith({type:'move_boundary',id:'map-2',frame:4400});expect(s.onseek).not.toHaveBeenCalled();expect(s.field.releasePointerCapture).toHaveBeenCalledWith(1);
   });
   it('turns an interpolated beat drag into an anchor and supports keyboard adjustment',async()=>{
-    const s=setup();const beat=screen.getByRole('button',{name:'Measure 1 beat 2'});await pointer(beat,'pointerdown',225);await pointer(s.field,'pointerup',250);
+    const s=setup();const beat=screen.getByRole('button',{name:'Measure 1 beat 2'});await pointer(beat,'pointerdown',225);expect(document.activeElement).toBe(beat);await pointer(s.field,'pointerup',250);
     expect(s.onedit).toHaveBeenLastCalledWith({type:'set_beat',measure:'map-3',id:null,frame:1200,offset:{num:960,den:960}});
     await fireEvent.keyDown(beat,{key:'ArrowRight',shiftKey:true});expect(s.onedit).toHaveBeenLastCalledWith({type:'set_beat',measure:'map-3',id:null,frame:1001,offset:{num:960,den:960}});
   });
   it('pans and zooms without map edits, cancels pointer gestures, and clamps minimap navigation',async()=>{
-    const s=setup();await pointer(s.field,'pointerdown',600,1);await pointer(s.field,'pointermove',700,1);expect(s.onview).toHaveBeenLastCalledWith({start:0,end:8});await pointer(s.field,'pointercancel',700,1);expect(s.onedit).not.toHaveBeenCalled();expect(s.onseek).not.toHaveBeenCalled();
+    const s=setup();await pointer(s.field,'pointerdown',600,1);await pointer(s.field,'pointermove',700,1);expect(s.onview).toHaveBeenLastCalledWith({start:0,end:8},'pan');await pointer(s.field,'pointercancel',700,1);expect(s.onedit).not.toHaveBeenCalled();expect(s.onseek).not.toHaveBeenCalled();
     const wheel=new WheelEvent('wheel',{bubbles:true,cancelable:true,clientX:350,deltaY:-100});await fireEvent(s.field,wheel);expect(wheel.defaultPrevented).toBe(true);expect(s.onview.mock.lastCall?.[0].end-s.onview.mock.lastCall?.[0].start).toBeCloseTo(8*Math.exp(-.25));
-    await pointer(s.overview,'pointerdown',900);await pointer(s.overview,'pointermove',2000);await pointer(s.overview,'pointerup',2000);expect(s.onview).toHaveBeenLastCalledWith({start:4,end:12});expect(s.onedit).not.toHaveBeenCalled();
+    expect(s.onview.mock.lastCall?.[1]).toBe('zoom');
+    await pointer(s.overview,'pointerdown',900);await pointer(s.overview,'pointermove',2000);await pointer(s.overview,'pointerup',2000);expect(s.onview).toHaveBeenLastCalledWith({start:4,end:12},'pan');expect(s.onedit).not.toHaveBeenCalled();
   });
 });

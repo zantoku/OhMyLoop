@@ -55,6 +55,7 @@ enum Command {
     Status,
     Shutdown,
     Source(String),
+    Metronome(String, bool, f32, Option<crate::timing::MeasureMap>),
 }
 enum Response {
     Snapshot(Box<Snapshot>),
@@ -96,6 +97,9 @@ impl Desktop {
                     audio_error: None,
                     save_error: None,
                     last_save: Instant::now(),
+                    review_map: None,
+                    metronome_enabled: false,
+                    metronome_volume: 0.5,
                 };
                 while let Ok(request) = receiver.recv() {
                     if matches!(request.command, Command::Shutdown) {
@@ -146,6 +150,18 @@ impl Desktop {
             _ => unreachable!(),
         }
     }
+    pub fn metronome(
+        &self,
+        key: String,
+        enabled: bool,
+        volume: f32,
+        map: Option<crate::timing::MeasureMap>,
+    ) -> Result<Transport> {
+        match self.request(Command::Metronome(key, enabled, volume, map))? {
+            Response::Status(s) => Ok(s),
+            _ => unreachable!(),
+        }
+    }
     pub fn shutdown(&self) {
         let _ = self.request(Command::Shutdown);
     }
@@ -160,6 +176,9 @@ struct Controller {
     audio_error: Option<String>,
     save_error: Option<String>,
     last_save: Instant,
+    review_map: Option<crate::timing::MeasureMap>,
+    metronome_enabled: bool,
+    metronome_volume: f32,
 }
 
 impl Controller {
@@ -170,6 +189,46 @@ impl Controller {
                 if let Some(source) = self.store.last_song()? {
                     self.load(&source)?;
                 }
+            }
+            Command::Metronome(key, enabled, volume, map) => {
+                let song = self.song.as_ref().context("Open a song first")?;
+                ensure!(
+                    song.key == key,
+                    "The song changed; reopen the mapping screen"
+                );
+                ensure!(
+                    volume.is_finite() && (0.0..=1.0).contains(&volume),
+                    "Invalid click volume"
+                );
+                if let Some(map) = &map {
+                    map.validate()?;
+                    let audio = self.audio.as_ref().unwrap();
+                    ensure!(
+                        map.rate == audio.rate && map.frames == audio.frames.len() as u64,
+                        "Metronome map belongs to a different source"
+                    );
+                }
+                let result = if let Some(player) = &self.player {
+                    let ticks = if enabled {
+                        map.as_ref()
+                            .map(|m| crate::metronome::ticks(m, player.rate))
+                            .transpose()?
+                            .unwrap_or_default()
+                    } else {
+                        vec![]
+                    };
+                    player.set_metronome(enabled, volume, ticks)
+                } else {
+                    ensure!(!enabled, "Audio output is unavailable; choose Retry audio");
+                    Ok(())
+                };
+                self.review_map = map;
+                // A late disable still clears session intent if the worker has
+                // stopped, so Retry audio cannot revive clicks outside mapping.
+                self.metronome_enabled = enabled && result.is_ok();
+                self.metronome_volume = volume;
+                result?;
+                return Ok(Response::Status(self.transport()));
             }
             Command::Load(source) => self.load(&source)?,
             Command::Update(mut document) => {
@@ -247,6 +306,12 @@ impl Controller {
         };
         let first_use = !self.store.contains(&key)?;
         let mut document = self.store.load(&key, audio.duration())?;
+        if let Some(map) = &document.measure_map {
+            ensure!(
+                map.rate == audio.rate && map.frames == audio.frames.len() as u64,
+                "Saved musical map belongs to a different decoded source; the original file was left intact"
+            );
+        }
         // Demo has illustrative ranges on first use, not on real imported songs.
         if key == DEMO && first_use {
             document.sections = ["Verse", "Chorus", "Bridge", "Outro"]
@@ -272,6 +337,8 @@ impl Controller {
         self.store.remember(source)?;
         self.persist_position();
         self.player = None;
+        self.review_map = None;
+        self.metronome_enabled = false;
         self.audio = Some(Arc::new(audio));
         self.document = Some(document);
         self.song = Some(song);
@@ -289,6 +356,15 @@ impl Controller {
             player.set_controls(document.controls)?;
             player.set_loop(document.active_loop())?;
             player.seek(document.last_position)?;
+            let map = self.review_map.as_ref().or(document.measure_map.as_ref());
+            let ticks = if self.metronome_enabled {
+                map.map(|m| crate::metronome::ticks(m, player.rate))
+                    .transpose()?
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
+            player.set_metronome(self.metronome_enabled, self.metronome_volume, ticks)?;
             Ok(player)
         })();
         match result {
@@ -365,9 +441,9 @@ impl Controller {
 
     fn transport(&mut self) -> Transport {
         let musical_position = |seconds: f64| {
-            self.document
+            self.review_map
                 .as_ref()
-                .and_then(|d| d.measure_map.as_ref())
+                .or_else(|| self.document.as_ref().and_then(|d| d.measure_map.as_ref()))
                 .and_then(|map| map.position((seconds * f64::from(map.rate)).round() as u64))
         };
         if let Some(player) = &self.player {

@@ -32,7 +32,7 @@ export class MappingSession {
     if (this.state.pending || !this.state.preview) return;
     const before = this.read(); const result = this.state.preview;
     if (result.map.revision !== (before.map?.revision ?? 0) + 1) { this.state.error = 'The map changed. Rebuild this preview before applying it.'; this.state.preview = null; this.emit(); return; }
-    this.state.pending = true; this.emit();
+    this.state.pending = true; this.state.error = ''; this.emit();
     try { await this.acceptResult(result, before.map); }
     catch (e) { this.state.error = String(e); }
     finally { this.state.pending = false; this.emit(); }

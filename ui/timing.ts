@@ -6,12 +6,15 @@ export type Beat = { id: string; frame: number; offset: Fraction };
 export type Measure = { id: string; start: string; end: string; meter: Meter; kind: MeasureKind; length: Fraction; offset: Fraction; beats: Beat[]; protected: boolean };
 export type MeasureMap = { version: number; revision: number; rate: number; frames: number; next_id: number; first_number: number; boundaries: { id: string; frame: number }[]; measures: Measure[] };
 export type GridPoint = { id: string | null; frame: number; quarter: number; label: string };
-export type MeasureView = { id: string; start_id: string; end_id: string; start: number; end: number; number: number | null; label: string; meter: Meter; kind: MeasureKind; length: Fraction; protected: boolean; grid: GridPoint[] };
+export type MeasureView = { id: string; start_id: string; end_id: string; start: number; end: number; number: number | null; label: string; meter: Meter; kind: MeasureKind; length: Fraction; protected: boolean; grid: GridPoint[]; tempo_bpm: number };
 export type MapView = { revision: number; measures: MeasureView[] };
-export type MapPreview = { map: MeasureMap; view: MapView };
-export type MusicalPosition = { measure: string; label: string; beat: number };
+export type DetectedDraftSummary = {pulse_count:number;pulses_per_measure:number;full_measures:number;partial_pulses:number;measure_count:number;first_frame:number;last_frame:number};
+export type MapPreview = { map: MeasureMap; view: MapView; warnings?: string[]; draft?:DetectedDraftSummary|null };
+export type MusicalPosition = { measure: string; label: string; beat: number; tempo_bpm?: number; pulse?: Fraction };
 export type MapEdit =
-  | { type: 'build_from_pulses'; pulses:number[]; start:number; end:number; meter:Meter }
+  | { type: 'clear' }
+  | { type: 'set_origin'; first_number:number }
+  | { type: 'build_from_pulses'; pulses:number[]; downbeats:number[]; first_downbeat?:number|null; start:number; end:number; meter:Meter }
   | { type: 'build'; start: number; end: number; count: number; meter: Meter }
   | { type: 'move_boundary'; id: string; frame: number }
   | { type: 'set_notation'; id: string; meter: Meter; kind: MeasureKind; length: Fraction; following: boolean }
@@ -34,4 +37,9 @@ export function parseFraction(text: string): Fraction {
 }
 export type Detection = { frame:number; score:number; downbeat:boolean };
 export type Candidates = { version:number; song_key:string; map_revision:number; rate:number; frames:number; model:string; preprocessing:string; elapsed_seconds:number; beats:Detection[] };
-export type AnalysisStatus = { id:number; running:boolean; kind:string; phase:string; model_ready:boolean; song_key:string|null; map_revision:number; error:string|null; result:Candidates|null };
+export type WorkProgress = {completed:number;total:number|null;unit:'bytes'|'frames'|'segments'};
+export type AnalysisStatus = { id:number; running:boolean; kind:string; phase:string; model_ready:boolean; model_path:string; progress:WorkProgress|null; elapsed_seconds:number; song_key:string|null; map_revision:number; error:string|null; result:Candidates|null };
+
+export function pulseName(pulse:Fraction):string {
+  return ({'1':'quarter','1/2':'eighth','3/2':'dotted quarter','2':'half','1/4':'sixteenth'} as Record<string,string>)[fractionText(pulse)] ?? `${fractionText(pulse)} quarters`;
+}

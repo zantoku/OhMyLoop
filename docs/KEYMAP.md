@@ -2,10 +2,15 @@
 
 Default endpoint navigation is `,` → A, `.` → B, and Enter → song start.
 The A/B labels beside the time fields also invoke the same actions when clicked.
+
 Seeking to B turns looping off because B is the exclusive end. Seeking to
 the song start also turns looping off when it lies outside the enabled range.
 Seeking preserves play/pause state; reaching the file's natural end can finish
 playback. A range remains saved when looping is turned off.
+
+The mapping actions `map_metronome` and `map_follow` control authored-map clicks
+and waveform paging. They have button/help metadata and no default keyboard
+bindings; custom bindings can be assigned like other mapping actions.
 
 ## Configuration file
 
@@ -50,7 +55,9 @@ file at application startup. It does not change the song-settings directory.
 `keys` replaces the whole binding list for each named action. Omitted actions
 inherit their defaults; `[]` disables a shortcut. Each action may have up to
 eight bindings. If a reassigned key was already used, also remove or replace
-the other action's binding. Conflicts include inherited defaults.
+the other action's binding when their screen scopes overlap. Conflicts include
+inherited defaults. Practice-only and mapping-only actions may share a key;
+global transport actions overlap both screens.
 
 Bindings use the produced `KeyboardEvent.key` character, independent of physical
 keyboard position. Letters are case-insensitive, and Shift may be used to produce
@@ -61,7 +68,7 @@ Home, End, PageUp/Down, Delete, Backspace, and F1–F12. Use `Plus` for a litera
 `+`. Modifiers are `Ctrl`, `Meta`, `Alt`, `Shift`, and `Mod`, separated by `+`;
 `Mod` means Command on macOS and Control elsewhere. For example, `Mod+o` opens
 a song and `Shift+ArrowLeft` performs fine seeking. Tab remains keyboard focus
-navigation. Bindings that overlap after modifier/platform resolution are rejected.
+navigation. Bindings that overlap after modifier/platform resolution and screen scope are rejected.
 
 `buttons` maps a stable control ID to an action. Actions requiring contextual
 data, such as a section or speed preset, can only replace actions accepting the
@@ -98,3 +105,26 @@ local to those widgets.
 The model is replaced atomically after complete validation. Failed reloads do
 not apply a partial configuration. A future settings editor can edit the same
 versioned format rather than introducing another action or binding system.
+
+## Mapping actions
+
+Mapping actions belong to the `mapping` scope; loop-editing actions belong to
+`practice`, and shared transport/navigation actions are available on both.
+The shortcut dialog lists actions for the current screen. New mapping commands
+have no default bindings so existing keymap files continue to work. For example:
+
+```json
+{
+  "version": 1,
+  "keys": {
+    "map_undo": ["Mod+z"],
+    "map_redo": ["Mod+Shift+z"],
+    "map_analyze": ["r"],
+    "map_apply": ["Mod+Enter"]
+  }
+}
+```
+
+Handle nudging remains local widget behavior. Enter/Space on a focused button
+activate that button through the native WebView instead of dispatching a global
+rewind or playback toggle.

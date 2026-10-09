@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), previewMap: vi.fn(), mapView: vi.fn() }));
+const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -12,7 +12,8 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_ready:false,song_key:null,map_revision:0,error:null,result:null});
+  mock.metronome.mockResolvedValue({});
+  mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:false,song_key:null,map_revision:0,error:null,result:null});
   mock.readKeymap.mockResolvedValue({ path: '/test/keymap.json', configuration: null, warning: null });
   document = { version: 3, song_key: 'test', controls: { speed: 1, semitones: 0 },
     sections: [{ id: 'verse', name: 'Verse', start: 0, end: 8 }, { id: 'chorus', name: 'Chorus', start: 3, end: 6 }],
@@ -205,9 +206,146 @@ describe('measure-map screen integration',()=>{
     const workspace=screen.getByRole('region',{name:'Measure mapping workspace'});expect(workspace).toBeTruthy();expect(transport.playing).toBe(true);expect(document.loop_enabled).toBe(true);
     await fireEvent.keyDown(window,{key:'x'});await fireEvent.keyDown(window,{key:'a'});expect(mock.update).not.toHaveBeenCalled();
     await fireEvent.input(screen.getByLabelText('Span end (seconds)'),{target:{value:'8'}});await fireEvent.input(screen.getByLabelText('Number of measures'),{target:{value:'2'}});
-    await fireEvent.click(screen.getByRole('button',{name:'Preview measures'}));await screen.findByRole('button',{name:'Apply map'});expect(mock.update).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button',{name:'Preview evenly spaced measures'}));await screen.findByRole('button',{name:'Apply map'});expect(mock.update).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button',{name:'Apply map'}));await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));expect(document.loop_enabled).toBe(true);expect(transport.playing).toBe(true);
-    await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));expect(screen.getByRole('region',{name:'Measure ruler'})).toBeTruthy();
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Back to practice'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));expect(screen.getByRole('region',{name:'Measure ruler'})).toBeTruthy();
     await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false);
   });
+});
+
+it('keeps the accepted map on a failed save and can retry the same preview',async()=>{
+  mock.previewMap.mockResolvedValue(timingFixture(48000));await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Preview evenly spaced measures'}));const apply=await screen.findByRole('button',{name:'Apply map'});
+  const enter=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});await fireEvent(apply,enter);expect(enter.defaultPrevented).toBe(false);expect(mock.action).not.toHaveBeenCalled();
+  mock.update.mockRejectedValueOnce(new Error('Disk full'));await fireEvent.click(apply);await screen.findByText(/Disk full/);expect(document.measure_map).toBeUndefined();
+  await fireEvent.click(screen.getByRole('button',{name:'Apply map'}));await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));await waitFor(()=>expect(screen.queryByText(/Disk full/)).toBeNull());
+});
+
+it('polls visible analysis progress and shows the installed model folder',async()=>{
+  const status={id:4,running:true,kind:'analysis',phase:'Finding beats and downbeats',model_ready:true,model_path:'/test/installed/models',progress:{completed:1,total:4,unit:'segments'},elapsed_seconds:61,song_key:'test',map_revision:0,error:null,result:null};
+  mock.analysisStatus.mockResolvedValueOnce(status).mockResolvedValue({...status,progress:{completed:2,total:4,unit:'segments'},elapsed_seconds:62});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  await screen.findByText('1 / 4 segments completed · 25%');
+  await screen.findByText('2 / 4 segments completed · 50%');
+  await fireEvent.click(screen.getByText('Analysis model',{selector:'summary'}));
+  expect(screen.getByText('/test/installed/models')).toBeTruthy();expect(screen.getByText('Installed model folder')).toBeTruthy();
+});
+
+it('uses detected beats by default, derives count from the preview, and prevents applying changed settings',async()=>{
+  const result={version:1,song_key:'test',map_revision:0,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
+  mock.analysisStatus.mockImplementation(async()=>structuredClone({id:3,running:false,kind:'analysis',phase:'Complete',model_ready:true,model_path:'/models',progress:null,elapsed_seconds:3,song_key:'test',map_revision:0,error:null,result}));
+  mock.previewMap.mockResolvedValue({...timingFixture(48000),draft:{pulse_count:9,pulses_per_measure:4,full_measures:2,partial_pulses:0,measure_count:2,first_frame:0,last_frame:384000}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const source=await screen.findByLabelText('Measure source');await waitFor(()=>expect((source as HTMLSelectElement).value).toBe('detected'));
+  expect(screen.queryByLabelText('Number of measures')).toBeNull();
+  await fireEvent.click(screen.getByRole('button',{name:'Preview detected measures'}));await screen.findByText('9 detected pulses, including the end boundary');
+  expect(screen.getByLabelText('Derived measure count').textContent).toBe('2 measures');
+  expect(mock.previewMap.mock.lastCall?.[2]).toMatchObject({type:'build_from_pulses',first_downbeat:0,start:0,end:576000,pulses:result.beats.map(b=>b.frame)});
+  await fireEvent.input(screen.getByLabelText('Draft Meter numerator'),{target:{value:'3'}});
+  expect(screen.getByRole('button',{name:'Apply map'}).hasAttribute('disabled')).toBe(true);expect(screen.getByText('Settings changed. Preview again before applying.')).toBeTruthy();
+  const regrouped=timingFixture(48000);for(const m of [...regrouped.map.measures,...regrouped.view.measures]){m.meter={...m.meter,numerator:3};m.length={num:3,den:1};}
+  mock.previewMap.mockResolvedValue({...regrouped,draft:{pulse_count:9,pulses_per_measure:3,full_measures:2,partial_pulses:2,measure_count:3,first_frame:0,last_frame:384000}});
+  await fireEvent.click(screen.getByRole('button',{name:'Preview detected measures'}));expect(mock.previewMap.mock.lastCall?.[2].meter.numerator).toBe(3);
+  await waitFor(()=>expect((screen.getByRole('spinbutton',{name:'Meter numerator'}) as HTMLInputElement).value).toBe('3'));
+  await fireEvent.change(source,{target:{value:'manual'}});expect(screen.getByLabelText('Number of measures')).toBeTruthy();
+  expect(screen.getByText(/This mode does not use detected beats/)).toBeTruthy();
+  await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  await waitFor(()=>expect(mock.analysisStatus.mock.calls.length).toBeGreaterThan(1));expect((screen.getByLabelText('Measure source') as HTMLSelectElement).value).toBe('manual');
+});
+it('clears a protected map, keeps practice settings, and restores the exact map through Undo',async()=>{
+  const original=timingFixture(48000);original.map.measures[0].protected=true;
+  document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  const empty={...original,map:{...original.map,revision:2,first_number:1,measures:[],boundaries:[]},view:{revision:2,measures:[]}};
+  mock.previewMap.mockResolvedValue(empty);mock.mapView.mockResolvedValue({...original.view,revision:3});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Clear map'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(0));expect(mock.previewMap.mock.lastCall?.[2]).toEqual({type:'clear'});
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));expect(document.measure_map?.boundaries).toEqual(original.map.boundaries);
+  expect(document.controls).toEqual({speed:.75,semitones:-3});expect(document.loop_enabled).toBe(true);expect(document.loop_selection).toEqual({start:3,end:6,fade_ms:5});expect(document.sections[0].id).toBe('verse');
+});
+
+it('auditions the displayed draft, reverts on discard, and disables clicks when returning to practice',async()=>{
+  const original=timingFixture(48000),draft=structuredClone(original);draft.map.boundaries[1].frame=3*48000;draft.map.revision=2;draft.view.revision=2;
+  document.measure_map=structuredClone(original.map);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockResolvedValue(draft);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  expect(screen.getByRole('button',{name:'Metronome on'}).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
+  await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.5,original.map]));
+  await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
+  await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',false,.5,original.map]));
+  await fireEvent.click(screen.getByRole('button',{name:'Metronome off'}));
+  await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.5,original.map]));
+  await fireEvent.click(screen.getByRole('button',{name:'Preview numbering'}));
+  await screen.findByRole('button',{name:'Apply map'});
+  await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.5,draft.map]));
+  expect(document.measure_map).toEqual(original.map);
+  await fireEvent.click(screen.getByRole('button',{name:'Discard'}));
+  await waitFor(()=>expect(mock.metronome.mock.lastCall?.[3]).toEqual(original.map));
+  await fireEvent.input(screen.getByLabelText('Metronome volume'),{target:{value:'80'}});
+  await waitFor(()=>expect(mock.metronome.mock.lastCall?.[2]).toBe(.8));
+  transport.audio_error='Output disconnected';
+  await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',false,.8,original.map]));
+  transport.audio_error=null;
+  await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.8,original.map]));
+  await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));
+  await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',false,.8,null]));
+  expect(transport.playing).toBe(false);expect(document.measure_map).toEqual(original.map);
+});
+
+it('pages the mapping waveform during playback and lets manual navigation suspend following',async()=>{
+  const fixture=timingFixture(48000);document.measure_map=fixture.map;
+  mock.initialize.mockResolvedValue({...response(),map_view:fixture.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Fit measure'}));
+  const viewport=documentForViewport();
+  expect(screen.getByRole('button',{name:'Follow playhead off'}).getAttribute('aria-pressed')).toBe('false');
+  await fireEvent.click(screen.getByRole('button',{name:'Follow playhead off'}));
+  await fireEvent(screen.getByRole('region',{name:/Measure-map waveform/}),new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-60,clientX:0}));
+  expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
+  const width=parseFloat(viewport.style.width);
+  await fireEvent.click(screen.getByRole('button',{name:'Play'}));
+  const initial=viewport.style.left;transport.position=5;
+  await waitFor(()=>expect(viewport.style.left).not.toBe(initial));
+  expect(parseFloat(viewport.style.width)).toBeCloseTo(width);
+  transport.position=.5;await waitFor(()=>expect(viewport.style.left).toBe('0%'));
+  await fireEvent.click(screen.getByRole('button',{name:'Move measure-map view'}),{clientX:300});
+  expect(screen.getByRole('button',{name:'Follow playhead off'}).getAttribute('aria-pressed')).toBe('false');
+});
+function documentForViewport(){return screen.getByRole('button',{name:'Move measure-map view'}).querySelector('.map-viewport') as HTMLElement;}
+
+it.each([
+  {context:'mapping',playing:false},{context:'mapping',playing:true},
+  {context:'practice',playing:false},{context:'practice',playing:true}
+])('reveals keyboard seeks in $context while playing=$playing, preserving zoom and manual follow state',async({context,playing})=>{
+  await ready();
+  if(context==='mapping')await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const waveform=screen.getByRole('region',{name:context==='mapping'?/Measure-map waveform/:/^Waveform\./});
+  const box={left:0,width:1000,height:200,top:0,right:1000,bottom:200,x:0,y:0,toJSON(){}};
+  vi.spyOn(waveform,'getBoundingClientRect').mockReturnValue(box);
+  for(let i=0;i<2;i++)await fireEvent(waveform,new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-240,clientX:0}));
+  const overview=screen.getByRole('button',{name:context==='mapping'?'Move measure-map view':'Move waveform view'});
+  vi.spyOn(overview,'getBoundingClientRect').mockReturnValue(box);
+  const viewport=overview.querySelector(context==='mapping'?'.map-viewport':'.viewport') as HTMLElement;
+  const width=parseFloat(viewport.style.width);
+  if(playing){await fireEvent.keyDown(window,{key:' ',code:'Space'});await waitFor(()=>expect(transport.playing).toBe(true));}
+  await fireEvent.keyDown(window,{key:'ArrowRight',code:'ArrowRight'});
+  await waitFor(()=>expect(transport.position).toBe(5));await waitFor(()=>expect(parseFloat(viewport.style.left)).toBeGreaterThan(0));
+  const firstPage=parseFloat(viewport.style.left);
+  await fireEvent.keyDown(window,{key:'ArrowRight',code:'ArrowRight'});
+  await waitFor(()=>expect(transport.position).toBe(10));await waitFor(()=>expect(parseFloat(viewport.style.left)).toBeGreaterThan(firstPage));
+  await fireEvent.keyDown(window,{key:'ArrowLeft',code:'ArrowLeft'});
+  await waitFor(()=>expect(transport.position).toBe(5));await waitFor(()=>expect(parseFloat(viewport.style.left)).toBeCloseTo(firstPage));
+  await fireEvent.keyDown(window,{key:'Enter',code:'Enter'});
+  await waitFor(()=>expect(transport.position).toBe(0));await waitFor(()=>expect(viewport.style.left).toBe('0%'));
+  // Rewind must also reveal zero when the playhead is already there and the
+  // user has manually panned elsewhere, disabling continuous following.
+  await fireEvent.click(overview,{clientX:300});expect(parseFloat(viewport.style.left)).toBeGreaterThan(0);
+  if(context==='mapping')expect(screen.getByRole('button',{name:'Follow playhead off'}).getAttribute('aria-pressed')).toBe('false');
+  await fireEvent.keyDown(window,{key:'Enter',code:'Enter'});
+  await waitFor(()=>expect(viewport.style.left).toBe('0%'));
+  if(context==='mapping')expect(screen.getByRole('button',{name:'Follow playhead off'}).getAttribute('aria-pressed')).toBe('false');
+  expect(parseFloat(viewport.style.width)).toBeCloseTo(width);expect(transport.playing).toBe(playing);
 });

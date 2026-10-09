@@ -27,7 +27,7 @@ jobs:
       - run: npm run build
       - run: cargo fmt --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --release -p ohmyloop
+      - run: cargo test --locked --release -p ohmyloop --features beat-analysis
       - name: Native app build
         run: npm run desktop:build -- --no-bundle
       - uses: actions/upload-artifact@v4

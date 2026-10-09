@@ -1,8 +1,9 @@
 use super::{
     models,
+    progress::{ProgressUnit, ProgressUpdate, WorkProgress, read_updates},
     worker::{Candidates, read_result},
 };
-use crate::{analysis_pcm::write_model_pcm, audio::Audio};
+use crate::{analysis_pcm::write_model_pcm_with_progress, audio::Audio};
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use std::{
@@ -15,7 +16,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 #[derive(Clone, Serialize)]
 pub struct JobStatus {
@@ -24,6 +25,9 @@ pub struct JobStatus {
     pub kind: String,
     pub phase: String,
     pub model_ready: bool,
+    pub model_path: String,
+    pub progress: Option<WorkProgress>,
+    pub elapsed_seconds: f64,
     pub song_key: Option<String>,
     pub map_revision: u64,
     pub error: Option<String>,
@@ -35,20 +39,27 @@ struct Inner {
     child: Mutex<Option<Child>>,
     models: PathBuf,
     cache: PathBuf,
+    started: Mutex<Instant>,
 }
 #[derive(Clone)]
 pub struct AnalysisManager(Arc<Inner>);
 impl AnalysisManager {
     pub fn new(models: PathBuf, cache: PathBuf) -> Result<Self> {
         fs::create_dir_all(&cache)?;
+        let models = std::path::absolute(models)?;
+        let model_path = models.to_string_lossy().into_owned();
         let model_ready = models::present(&models);
         Ok(Self(Arc::new(Inner {
+            started: Mutex::new(Instant::now()),
             state: Mutex::new(JobStatus {
                 id: 0,
                 running: false,
                 kind: "idle".into(),
                 phase: "Ready".into(),
                 model_ready,
+                model_path,
+                progress: None,
+                elapsed_seconds: 0.0,
                 song_key: None,
                 map_revision: 0,
                 error: None,
@@ -61,7 +72,11 @@ impl AnalysisManager {
         })))
     }
     pub fn status(&self) -> JobStatus {
-        self.0.state.lock().unwrap().clone()
+        let mut status = self.0.state.lock().unwrap().clone();
+        if status.running {
+            status.elapsed_seconds = self.0.started.lock().unwrap().elapsed().as_secs_f64();
+        }
+        status
     }
     fn begin(&self, kind: &str, key: Option<String>, revision: u64) -> Result<u64> {
         let mut state = self.0.state.lock().unwrap();
@@ -73,6 +88,9 @@ impl AnalysisManager {
         state.running = true;
         state.kind = kind.into();
         state.phase = "Starting".into();
+        state.progress = None;
+        state.elapsed_seconds = 0.0;
+        *self.0.started.lock().unwrap() = Instant::now();
         state.song_key = key;
         state.map_revision = revision;
         state.error = None;
@@ -81,11 +99,24 @@ impl AnalysisManager {
         Ok(state.id)
     }
     fn phase(&self, phase: &str) {
-        self.0.state.lock().unwrap().phase = phase.into();
+        let mut state = self.0.state.lock().unwrap();
+        if !self.0.cancel.load(Ordering::Acquire) {
+            state.phase = phase.into();
+            state.progress = None;
+        }
+    }
+    fn progress(&self, id: u64, update: ProgressUpdate) {
+        let mut state = self.0.state.lock().unwrap();
+        if state.id == id && state.running && !self.0.cancel.load(Ordering::Acquire) {
+            state.phase = update.phase;
+            state.progress = update.progress;
+        }
     }
     fn finish(&self, result: Result<Option<Candidates>>) {
         let mut state = self.0.state.lock().unwrap();
         state.running = false;
+        state.progress = None;
+        state.elapsed_seconds = self.0.started.lock().unwrap().elapsed().as_secs_f64();
         if self.0.cancel.load(Ordering::Acquire) {
             state.phase = "Cancelled".into();
             state.result = None;
@@ -107,20 +138,24 @@ impl AnalysisManager {
         state.model_ready = models::present(&self.0.models);
     }
     pub fn install(&self) -> Result<JobStatus> {
-        self.begin("install", None, 0)?;
+        let id = self.begin("install", None, 0)?;
         let manager = self.clone();
         if let Err(e) = thread::Builder::new()
             .name("ohmyloop-model-install".into())
             .spawn(move || {
-                let result =
-                    models::install(&manager.0.models, &manager.0.cancel, |s| manager.phase(s))
-                        .map(|()| None);
+                let result = models::install(&manager.0.models, &manager.0.cancel, |update| {
+                    manager.progress(id, update)
+                })
+                .map(|()| None);
                 manager.finish(result);
             })
         {
             self.finish(Err(e.into()));
         }
         Ok(self.status())
+    }
+    pub fn worker_pid(&self) -> Option<u32> {
+        self.0.child.lock().unwrap().as_ref().map(Child::id)
     }
     pub fn analyze(
         &self,
@@ -129,6 +164,12 @@ impl AnalysisManager {
         key: String,
         revision: u64,
     ) -> Result<JobStatus> {
+        ensure!(
+            !key.is_empty()
+                && key.len() <= 128
+                && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'),
+            "Invalid analysis song identity"
+        );
         ensure!(
             audio.duration() <= 3600.0,
             "Automatic analysis is limited to one hour; manual mapping remains available"
@@ -142,19 +183,39 @@ impl AnalysisManager {
         if let Err(e) = thread::Builder::new()
             .name("ohmyloop-analysis".into())
             .spawn(move || {
-                let directory = manager
-                    .0
-                    .cache
-                    .join(format!("job-{}-{id}", std::process::id()));
+                let directory = manager.0.cache.join(format!(
+                    "job-{}-{id}-{}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos()
+                ));
                 let input = directory.join("source.wav");
                 let output = directory.join("detections.json");
                 let errors = directory.join("worker-error.txt");
+                let mut progress_reader = None;
                 let result = (|| -> Result<Option<Candidates>> {
                     fs::create_dir(&directory).context("Could not create analysis job cache")?;
                     manager.phase("Verifying model files");
                     models::verify_models(&manager.0.models)?;
                     manager.phase("Preparing source-aligned audio");
-                    write_model_pcm(&audio, &input, &manager.0.cancel)?;
+                    write_model_pcm_with_progress(
+                        &audio,
+                        &input,
+                        &manager.0.cancel,
+                        |completed, total| {
+                            manager.progress(
+                                id,
+                                ProgressUpdate::measured(
+                                    "Preparing audio",
+                                    completed,
+                                    Some(total),
+                                    ProgressUnit::Frames,
+                                ),
+                            );
+                        },
+                    )?;
                     ensure!(
                         !manager.0.cancel.load(Ordering::Acquire),
                         "Analysis cancelled"
@@ -173,7 +234,7 @@ impl AnalysisManager {
                         .env("RAYON_NUM_THREADS", "2")
                         .env("RTEN_NUM_THREADS", "2")
                         .stdin(Stdio::null())
-                        .stdout(Stdio::null())
+                        .stdout(Stdio::piped())
                         .stderr(Stdio::from(fs::File::create(&errors)?));
                     #[cfg(target_os = "windows")]
                     {
@@ -193,6 +254,24 @@ impl AnalysisManager {
                                 .context("Could not start the analysis process")?,
                         );
                     }
+                    let stdout = manager
+                        .0
+                        .child
+                        .lock()
+                        .unwrap()
+                        .as_mut()
+                        .context("Analysis process disappeared")?
+                        .stdout
+                        .take()
+                        .context("Worker progress pipe is missing")?;
+                    let observer = manager.clone();
+                    progress_reader = Some(
+                        thread::Builder::new()
+                            .name("ohmyloop-analysis-progress".into())
+                            .spawn(move || {
+                                read_updates(stdout, |update| observer.progress(id, update));
+                            })?,
+                    );
                     loop {
                         let status = {
                             let mut slot = manager.0.child.lock().unwrap();
@@ -235,6 +314,9 @@ impl AnalysisManager {
                     let _ = child.kill();
                     let _ = child.wait();
                 }
+                if let Some(reader) = progress_reader {
+                    let _ = reader.join();
+                }
                 let _ = fs::remove_file(input);
                 let _ = fs::remove_file(errors);
                 if result.is_ok() && !manager.0.cancel.load(Ordering::Acquire) {
@@ -264,6 +346,7 @@ impl AnalysisManager {
         if state.id == id && state.running {
             self.0.cancel.store(true, Ordering::Release);
             state.phase = "Cancelling".into();
+            state.progress = None;
             if let Some(child) = self.0.child.lock().unwrap().as_mut() {
                 let _ = child.kill();
             }
@@ -281,5 +364,35 @@ impl AnalysisManager {
     }
     pub fn model_directory(&self) -> &Path {
         &self.0.models
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn progress_is_bound_to_a_running_job_and_elapsed_time_freezes_at_finish() {
+        let root =
+            std::env::temp_dir().join(format!("ohmyloop-progress-state-{}", std::process::id()));
+        let manager = AnalysisManager::new(root.join("models"), root.join("cache")).unwrap();
+        let id = manager.begin("analysis", Some("song".into()), 0).unwrap();
+        let update = ProgressUpdate::measured("Finding beats", 1, Some(4), ProgressUnit::Segments);
+        manager.progress(id + 1, update.clone());
+        assert!(manager.status().progress.is_none());
+        manager.progress(id, update.clone());
+        assert_eq!(manager.status().progress, update.progress);
+        manager.cancel(id);
+        manager.progress(id, update.clone());
+        assert_eq!(manager.status().phase, "Cancelling");
+        manager.finish(Ok(None));
+        let elapsed = manager.status().elapsed_seconds;
+        thread::sleep(Duration::from_millis(10));
+        assert_eq!(manager.status().elapsed_seconds, elapsed);
+        let next = manager.begin("analysis", Some("song".into()), 0).unwrap();
+        manager.progress(id, update);
+        assert!(manager.status().progress.is_none());
+        manager.cancel(next);
+        manager.finish(Ok(None));
+        fs::remove_dir_all(root).unwrap();
     }
 }

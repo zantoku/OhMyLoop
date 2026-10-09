@@ -34,3 +34,14 @@ export function drawWaveform(target: HTMLCanvasElement | undefined, peaks: [numb
     ctx.fillRect(x,h/2-high*scale,1.4,Math.max(1,(high-low)*scale));
   }
 }
+
+// Preserve zoom and move in whole pages, clamping the last page to the song end.
+export function pageForPlayhead(view:View,duration:number,position:number):View {
+  const span=view.end-view.start;
+  if(span<=0||!Number.isFinite(position)||duration<=0)return view;
+  const point=clamp(position,0,duration);
+  if(point>=view.start&&(point<view.end||view.end>=duration))return view;
+  const pages=Math.floor((point-view.start)/span);
+  const start=clamp(view.start+pages*span,0,Math.max(0,duration-span));
+  return start===view.start?view:{start,end:Math.min(duration,start+span)};
+}

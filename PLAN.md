@@ -44,7 +44,7 @@ The implementation uses Tauri and Svelte/TypeScript with the native Rust
 engine. Playhead synchronization and broader Linux/Windows/device validation
 remain evidence-driven work; completed local checks do not settle all risks.
 
-## Next implementation pass: editable measure mapping
+## Current implementation: editable measure mapping
 
 Create a dedicated **Measure map** screen, opened from a button in the practice
 screen's header. Give it its own minimap, detailed waveform and musical ruler,
@@ -63,11 +63,11 @@ protected corrections and undo/redo. Automatic reruns preview candidates and
 must preserve accepted edits. Persist a versioned map anchored to source audio
 and add measure navigation/ruler display to the practice screen.
 
-Detailed scope, proposed domain model, work packages, and acceptance evidence:
+Detailed scope, domain model, work packages, and acceptance evidence:
 [docs/MEASURE_MAPPING.md](docs/MEASURE_MAPPING.md). Technical research and
 primary sources: [docs/BEAT_MAPPING_RESEARCH.md](docs/BEAT_MAPPING_RESEARCH.md).
-Implementation is in progress; the current pause checkpoint and remaining
-verification are in [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+The first editor and optional analyzer are implemented. Local verification,
+provisional analysis results and remaining evaluation are in [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
 
 The remaining features below are outside the measure-mapping pass. The map
 will supply their musical timing foundation.
@@ -90,7 +90,7 @@ pause. Whether the rest includes an audible click remains a UX decision.
 
 ### Musical timing foundation
 
-The next measure-mapping pass introduces best-effort beat/downbeat analysis
+The measure-mapping implementation introduces best-effort beat/downbeat analysis
 and an editable source-to-musical-time map. Tempo and meter may change within
 a song; a single steady BPM is no longer the proposed foundation. The accepted
 map, including user corrections and pulse interpretation, owns musical timing.
@@ -217,13 +217,13 @@ outside the playback worker and report progress to the UI.
 
 ## Scope discipline and next decisions
 
-The next deliverable is the editable measure-mapping workflow described in
-docs/MEASURE_MAPPING.md, including automatic draft generation and measure
-navigation. Count-ins, rests, ladders, section settings, sequences, export UI,
+The editable measure-mapping workflow in docs/MEASURE_MAPPING.md is implemented
+with automatic draft generation and measure navigation. Next, evaluate it on real
+guitar material and gather cross-platform and user-workflow feedback. Count-ins, rests, ladders, section settings, sequences, export UI,
 recording, stems, and transcription remain later work.
 
-Finalize timing invariants with generated fixtures, then build the manual
-editor before wiring automatic suggestions. Preserve both phrase practice
+Keep strengthening timing invariants with generated fixtures and evaluating
+automatic suggestions against independent evidence. Preserve both phrase practice
 and longer-section navigation in the existing practice screen. Keep analyzer
 evidence, accepted musical definitions, persistence, and playback scheduling
 separate.

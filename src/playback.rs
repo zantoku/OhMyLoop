@@ -2,6 +2,7 @@ use crate::{
     audio::Audio,
     dsp::Controls,
     engine::{Engine, LoopRegion, RenderedFrame},
+    metronome::{ClickMixer, Tick},
 };
 use anyhow::{Context, Result, ensure};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -138,6 +139,7 @@ enum Command {
     Controls(Controls, SyncSender<()>),
     Seek(f64, Instant, SyncSender<()>),
     Loop(Option<LoopRegion>, SyncSender<()>),
+    Metronome(bool, f32, Vec<Tick>, SyncSender<()>),
     Shutdown,
 }
 
@@ -284,6 +286,24 @@ impl Player {
         self.request(|reply| Command::Loop(region, reply))
     }
 
+    pub fn set_metronome(&self, enabled: bool, volume: f32, ticks: Vec<Tick>) -> Result<()> {
+        ensure!(
+            volume.is_finite() && (0.0..=1.0).contains(&volume),
+            "Click volume must be between 0 and 1"
+        );
+        ensure!(
+            ticks.len() <= 80_000
+                && ticks.iter().all(|t| t.source_frame.is_finite()
+                    && t.source_frame >= 0.0
+                    && t.source_frame < self.duration * f64::from(self.rate))
+                && ticks
+                    .windows(2)
+                    .all(|w| w[0].source_frame < w[1].source_frame),
+            "Invalid metronome schedule"
+        );
+        self.request(|reply| Command::Metronome(enabled, volume, ticks, reply))
+    }
+
     // Only the control/UI thread waits. The device callback never does.
     fn request(&self, command: impl FnOnce(SyncSender<()>) -> Command) -> Result<()> {
         let (reply, receiver) = mpsc::sync_channel(1);
@@ -382,6 +402,7 @@ fn run_worker(
     let mut engine = Engine::new(audio.clone(), controls, 0.0, region, finer)?;
     let mut pending = Vec::new().into_iter();
     let mut ended = false;
+    let mut metronome = ClickMixer::new(audio.rate);
     let target = audio.rate as usize / 20;
     loop {
         loop {
@@ -392,6 +413,15 @@ fn run_worker(
             };
             let reset = match command {
                 Command::Shutdown => return Ok(()),
+                Command::Metronome(enabled, volume, ticks, reply) => {
+                    metronome.configure(enabled, volume, ticks);
+                    if shared.playing.load(Ordering::Acquire) {
+                        let _ = reply.send(());
+                        None
+                    } else {
+                        Some((shared.position() / audio.rate as f64, None, reply))
+                    }
+                }
                 Command::Controls(value, reply) => {
                     controls = value;
                     if shared.playing.load(Ordering::Acquire) {
@@ -421,6 +451,7 @@ fn run_worker(
                 shared.finished.store(false, Ordering::Release);
                 shared.loop_wraps.store(0, Ordering::Relaxed);
                 engine = new_engine;
+                metronome.reset(region);
                 ended = false;
                 if let Some(submitted) = submitted {
                     shared
@@ -459,9 +490,10 @@ fn run_worker(
             pending = block.into_iter();
         }
         while shared.queue.len() < target {
-            let Some(frame) = pending.next() else {
+            let Some(mut frame) = pending.next() else {
                 break;
             };
+            frame.samples = metronome.mix(frame.source_frame, frame.samples);
             // Only this worker pushes. The consumer can only make more room.
             shared
                 .queue
@@ -530,6 +562,51 @@ mod tests {
             consumer.next_frame();
         }
         assert!((0.5..0.8).contains(&(shared.position() / 48_000.0)));
+        sender.send(Command::Shutdown).unwrap();
+        worker.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn paused_metronome_changes_replace_prebuffered_audio_and_seek_clears_click_history() {
+        let rate = 48_000;
+        let audio = Arc::new(Audio {
+            rate,
+            frames: vec![[0.0; 2]; rate as usize],
+        });
+        let shared = Arc::new(Shared::new(4800));
+        let (sender, receiver) = mpsc::sync_channel(32);
+        let worker_shared = shared.clone();
+        let worker = thread::spawn(move || run_worker(audio, true, receiver, &worker_shared));
+        wait_until(|| shared.queue.len() == 2400);
+        let (reply, ack) = mpsc::sync_channel(1);
+        sender
+            .send(Command::Metronome(
+                true,
+                1.0,
+                vec![Tick {
+                    source_frame: 0.0,
+                    accent: crate::timing::Accent::Measure,
+                }],
+                reply,
+            ))
+            .unwrap();
+        ack.recv_timeout(Duration::from_secs(2)).unwrap();
+        wait_until(|| shared.epoch.load(Ordering::Acquire) == 1 && shared.queue.len() == 2400);
+        let mut consumer = Consumer::new(shared.clone(), rate);
+        shared.playing.store(true, Ordering::Release);
+        let samples: Vec<_> = (0..1200).map(|_| consumer.next_frame()[0]).collect();
+        assert!(
+            samples.iter().any(|s| s.abs() > 0.01),
+            "First beat must survive callback startup fade"
+        );
+        shared.playing.store(false, Ordering::Release);
+        let (reply, ack) = mpsc::sync_channel(1);
+        sender
+            .send(Command::Seek(0.5, Instant::now(), reply))
+            .unwrap();
+        ack.recv_timeout(Duration::from_secs(2)).unwrap();
+        wait_until(|| shared.epoch.load(Ordering::Acquire) == 2 && shared.queue.len() == 2400);
+        assert!((0..2400).all(|_| shared.queue.pop().unwrap().frame.samples == [0.0; 2]));
         sender.send(Command::Shutdown).unwrap();
         worker.join().unwrap().unwrap();
     }

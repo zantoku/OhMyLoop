@@ -32,3 +32,28 @@ cc = "1.2"
 
 [profile.release]
 debug = 1
+
+[[example]]
+name = "analysis_probe"
+required-features = ["beat-analysis"]
+
+# Inference kernels must remain optimized in `tauri dev`; app code keeps its
+# normal debug profile. Otherwise long-song analysis can take minutes per segment.
+[profile.dev.package.rten]
+opt-level = 3
+[profile.dev.package.rten-gemm]
+opt-level = 3
+[profile.dev.package.rten-simd]
+opt-level = 3
+[profile.dev.package.rten-tensor]
+opt-level = 3
+[profile.dev.package.rten-vecmath]
+opt-level = 3
+[profile.dev.package.rustfft]
+opt-level = 3
+[profile.dev.package.beat-this]
+opt-level = 3
+[profile.dev.package."rubato:0.16.2"]
+opt-level = 3
+[profile.dev.package.hound]
+opt-level = 3

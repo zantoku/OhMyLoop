@@ -292,6 +292,8 @@ fn detected_pulses_preserve_drift_and_partial_tail_without_extrapolation() {
     let pulses = vec![1000, 1500, 2100, 2700, 3400, 4200, 5000];
     let map = MeasureMap::empty(1000, 20_000)
         .edit(Edit::BuildFromPulses {
+            first_downbeat: None,
+            downbeats: vec![],
             pulses: pulses.clone(),
             start: 500,
             end: 10_000,
@@ -317,6 +319,8 @@ fn detected_pulses_preserve_drift_and_partial_tail_without_extrapolation() {
     assert!(
         MeasureMap::empty(1000, 20_000)
             .edit(Edit::BuildFromPulses {
+                first_downbeat: None,
+                downbeats: vec![],
                 pulses,
                 start: 0,
                 end: 10_000,
@@ -324,4 +328,181 @@ fn detected_pulses_preserve_drift_and_partial_tail_without_extrapolation() {
             })
             .is_err()
     );
+}
+
+#[test]
+fn reanalysis_replaces_a_selected_old_draft_with_unobserved_edges_left_free() {
+    let old = build(0, 8000, 2, Meter::common());
+    let preview = old
+        .edit(Edit::BuildFromPulses {
+            first_downbeat: None,
+            pulses: vec![1000, 1500, 2100, 2700, 3400, 4200, 5000],
+            downbeats: vec![1000, 4200],
+            start: 0,
+            end: 8000,
+            meter: Meter::common(),
+        })
+        .unwrap();
+    assert_eq!(preview.map.revision, old.revision + 1);
+    assert!(preview.map.position(500).is_none());
+    assert!(preview.map.position(7000).is_none());
+    assert!(!preview.warnings.is_empty());
+    let protected = old
+        .edit(Edit::SetProtected {
+            id: old.measures[0].id.clone(),
+            protected: true,
+        })
+        .unwrap()
+        .map;
+    assert!(
+        protected
+            .edit(Edit::BuildFromPulses {
+                first_downbeat: None,
+                pulses: vec![1000, 1500, 2100, 2700, 3400, 4200, 5000],
+                downbeats: vec![1000],
+                start: 0,
+                end: 8000,
+                meter: Meter::common()
+            })
+            .is_err()
+    );
+}
+#[test]
+fn numbering_and_tempo_are_derived_without_changing_source_bounds() {
+    let map = build(0, 8000, 2, Meter::common());
+    let changed = map.edit(Edit::SetOrigin { first_number: 17 }).unwrap().map;
+    assert_eq!(changed.boundaries, map.boundaries);
+    assert_eq!(changed.view().measures[0].label, "17");
+    assert_eq!(changed.view().measures[0].tempo_bpm, 60.0);
+    let changed = changed
+        .edit(Edit::SetBeat {
+            measure: changed.measures[0].id.clone(),
+            id: None,
+            frame: 500,
+            offset: Fraction::new(1, 1),
+        })
+        .unwrap()
+        .map;
+    assert_eq!(changed.position(250).unwrap().tempo_bpm, 120.0);
+    assert!((changed.position(1000).unwrap().tempo_bpm - 60.0 * 3.0 / 3.5).abs() < 1e-8);
+}
+
+#[test]
+fn following_meter_changes_preserve_explicit_partial_measures() {
+    let map = build(0, 8000, 2, Meter::common());
+    let map = map
+        .edit(Edit::SetNotation {
+            id: map.measures[1].id.clone(),
+            meter: Meter::common(),
+            kind: MeasureKind::Incomplete,
+            length: Fraction::new(1, 1),
+            following: false,
+        })
+        .unwrap()
+        .map;
+    let mut triple = Meter::common();
+    triple.numerator = 3;
+    let changed = map
+        .edit(Edit::SetNotation {
+            id: map.measures[0].id.clone(),
+            meter: triple,
+            kind: MeasureKind::Full,
+            length: Fraction::new(3, 1),
+            following: true,
+        })
+        .unwrap()
+        .map;
+    assert_eq!(changed.boundaries, map.boundaries);
+    assert_eq!(changed.measures[1].kind, MeasureKind::Incomplete);
+    assert_eq!(changed.measures[1].length, Fraction::new(1, 1));
+    assert_eq!(changed.measures[1].meter.numerator, 3);
+}
+
+#[test]
+fn detected_draft_derives_count_and_snaps_first_downbeat_without_even_spacing() {
+    let old = build(0, 8000, 2, Meter::common());
+    let pulses = vec![1000, 1500, 2100, 2700, 3400, 4200, 5000, 5700, 6200, 7000];
+    let make = |meter| {
+        old.edit(Edit::BuildFromPulses {
+            pulses: pulses.clone(),
+            downbeats: vec![2700, 5700],
+            first_downbeat: Some(2500),
+            start: 0,
+            end: 8000,
+            meter,
+        })
+        .unwrap()
+    };
+    let preview = make(Meter::common());
+    let summary = preview.draft.as_ref().unwrap();
+    assert_eq!(
+        (
+            summary.pulse_count,
+            summary.pulses_per_measure,
+            summary.full_measures,
+            summary.partial_pulses,
+            summary.measure_count
+        ),
+        (7, 4, 1, 2, 2)
+    );
+    assert_eq!((summary.first_frame, summary.last_frame), (2700, 7000));
+    assert_eq!(
+        preview
+            .map
+            .boundaries
+            .iter()
+            .map(|b| b.frame)
+            .collect::<Vec<_>>(),
+        [2700, 5700, 7000]
+    );
+    assert_eq!(
+        preview.map.measures[0]
+            .beats
+            .iter()
+            .map(|b| b.frame)
+            .collect::<Vec<_>>(),
+        [3400, 4200, 5000]
+    );
+    assert!(preview.map.position(1000).is_none());
+    let compound = make(Meter {
+        numerator: 6,
+        denominator: 8,
+        pulse: Fraction::new(3, 2),
+        grouping: vec![],
+    });
+    assert_eq!(compound.draft.unwrap().measure_count, 3);
+    assert_eq!(
+        compound
+            .map
+            .boundaries
+            .iter()
+            .map(|b| b.frame)
+            .collect::<Vec<_>>(),
+        [2700, 4200, 5700, 7000]
+    );
+    assert_eq!(old.measures.len(), 2);
+}
+#[test]
+fn explicit_clear_removes_protected_annotations_and_preserves_source_and_id_counter() {
+    let map = build(0, 8000, 2, Meter::common());
+    let map = map
+        .edit(Edit::SetProtected {
+            id: map.measures[0].id.clone(),
+            protected: true,
+        })
+        .unwrap()
+        .map;
+    let map = map.edit(Edit::SetOrigin { first_number: 17 }).unwrap().map;
+    let cleared = map.edit(Edit::Clear).unwrap();
+    assert!(cleared.map.measures.is_empty() && cleared.map.boundaries.is_empty());
+    assert_eq!(
+        (cleared.map.rate, cleared.map.frames, cleared.map.next_id),
+        (map.rate, map.frames, map.next_id)
+    );
+    assert_eq!(cleared.map.first_number, 1);
+    assert_eq!(cleared.map.revision, map.revision + 1);
+    assert!(cleared.view.measures.is_empty());
+    assert!(cleared.map.position(1000).is_none());
+    assert_eq!(map.measures.len(), 2);
+    assert!(map.measures[0].protected);
 }

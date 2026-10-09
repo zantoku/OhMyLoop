@@ -10,6 +10,7 @@
   import { ActionDispatcher, type ActionPayload } from './action-dispatcher';
   import { MAPPING_ACTIONS, type ActionId, type ButtonId, type MappingActionId } from './actions';
   import { clamp, editing, ordered, range, sectionColor, time, zoom } from './model';
+  import { pageForPlayhead } from './timeline';
   import type { Action, Loop, PracticeDocument, Section, Snapshot, Song, Transport, View } from './types';
 
   let song = $state<Song | null>(null);
@@ -23,8 +24,8 @@
   let keymapPath = $state<string | null>(null);
   let keymapWarning = $state<string | null>(null);
   let keymapLoading = $state(false);
-  const shortcuts = $derived(keymap.shortcuts());
   let screen = $state<'practice' | 'mapping'>('practice');
+  const shortcuts = $derived(keymap.shortcuts(screen));
   let mapView = $state<MapView | null>(null);
   let measureEditor = $state<MeasureEditor>();
   let measureNumber = $state(1);
@@ -62,7 +63,7 @@
     if (busy) return;
     busy = demo ? 'Loading demo…' : 'Opening song…'; error = '';
     try {
-      flushControls(); await saves;
+      flushControls(); await saves.catch(()=>{});
       const snapshot = demo ? await bridge.loadDemo() : await bridge.openSong();
       if (snapshot) { revision++; apply(snapshot); saved = true; undo = []; screen = 'practice'; }
     } catch (e) { error = String(e); }
@@ -82,7 +83,16 @@
   }
   async function action(action: Action) {
     if (!song || busy) return;
-    try { flushControls(); await saves; const actionRevision = revision; apply(await bridge.action(action), actionRevision); }
+    try {
+      flushControls(); await saves.catch(()=>{}); const actionRevision = revision;
+      const snapshot=await bridge.action(action);apply(snapshot,actionRevision);
+      // Explicit navigation reveals the resulting native position even when
+      // paused or continuous following is off, preserving each screen's zoom.
+      if(action.type==='seek'&&snapshot.transport.song_key===song?.key){
+        if(screen==='mapping')measureEditor?.revealPlayhead(snapshot.transport.position);
+        else view=pageForPlayhead(view,song.duration,snapshot.transport.position);
+      }
+    }
     catch (e) { error = String(e); }
   }
   function controls(nextSpeed: number, nextPitch: number) {
@@ -158,23 +168,27 @@
   }
   async function commitMap(value: MapPreview, songKey:string) {
     if(busy||song?.key!==songKey)throw new Error('The song changed. Please reopen the measure map.');
-    flushControls(); await saves;
-    if(busy||song?.key!==songKey)throw new Error('The song changed. Please try again.');
-    await update({ measure_map: value.map });
-    mapView = value.view;
+    flushControls(); await saves.catch(()=>{});
+    if(busy||song?.key!==songKey||!project)throw new Error('The song changed. Please try again.');
+    busy='Saving measure map…';const document={...$state.snapshot(project),measure_map:value.map};
+    const thisRevision=++revision;
+    try {
+      saves=saves.catch(()=>{}).then(async()=>{apply(await bridge.update(document),thisRevision);});
+      await saves;mapView=value.view;saved=true;
+    } finally {busy='';}
   }
   function nextMeasure(direction:number) {
     if(!song||!mapView?.measures.length)return;
     const frame=Math.round(transport.position*song.rate), measures=mapView.measures;
     const target=direction>0?measures.find(m=>m.start>frame):[...measures].reverse().find(m=>m.start<frame);
-    if(target)return action({type:'seek',seconds:target.start/song.rate});
+    if(target){if(screen==='mapping')measureEditor?.selectMeasure(target.id);return action({type:'seek',seconds:target.start/song.rate});}
   }
   const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
   const dispatcher = new ActionDispatcher({
     ...mappingHandlers,
     show_measure_map:()=>{screen='mapping';}, show_practice:()=>{screen='practice';},
     previous_measure:()=>nextMeasure(-1), next_measure:()=>nextMeasure(1),
-    goto_measure:()=>{const measure=mapView?.measures.find(m=>m.number===measureNumber);if(measure&&song)return action({type:'seek',seconds:measure.start/song.rate});},
+    goto_measure:()=>{const measure=mapView?.measures.find(m=>m.number===measureNumber);if(measure&&song){if(screen==='mapping')measureEditor?.selectMeasure(measure.id);return action({type:'seek',seconds:measure.start/song.rate});}},
     play_pause: () => action({ type: 'toggle_play' }), toggle_loop: toggleLoop,
     set_loop_start: () => setBoundary('start'), set_loop_end: () => setBoundary('end'),
     jump_loop_start: () => action({ type: 'seek', seconds: selection!.start }),
@@ -212,8 +226,9 @@
   }
   function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
   function keyboard(event: KeyboardEvent) {
+    if (['Enter',' '].includes(event.key) && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
     if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open) return;
-    const id = keymap.match(event);
+    const id = keymap.match(event,screen);
     if (!id || !actionAvailable(id)) return;
     event.preventDefault(); void runAction(id);
   }
@@ -225,7 +240,7 @@
     const timer = setInterval(async () => {
       if (!song || busy || polling) return;
       polling = true;
-      try { const status = await bridge.status(); if (mounted && status.song_key === song?.key) transport = status; }
+      try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.song_key === song?.key) transport = status; }
       catch (e) { if (mounted) error = String(e); } finally { polling = false; }
     }, 50);
     return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); };
@@ -288,7 +303,7 @@
           <button class:active={project.loop_enabled} class="loop-toggle" onclick={() => runButton('loop')} aria-pressed={project.loop_enabled} title={keymap.title('loop')}><Icon name="loop"/>{keymap.buttonLabel('loop', project.loop_enabled ? 'Loop on' : 'Loop off')}</button>
         </div>
 
-        <PlaybackSettings {speed} {pitch} {keymap} {controls} {runButton}/>
+        <PlaybackSettings disabled={!!busy} {speed} {pitch} {keymap} {controls} {runButton}/>
 
       {:else}
         <div class="empty-workbench"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M10 45h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12m17 4h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12" fill="none" stroke="#9caed1" stroke-width="3" stroke-linecap="round"/></svg><h2>A good place to get it right.</h2><p>Open a song, find your passage, and play it at your pace.</p><div><button class="button primary" title={keymap.title('open_song')} onclick={() => runButton('open_song')} disabled={!buttonAvailable('open_song')}><Icon name="folder"/>Open a song</button><button class="text-button" title={keymap.title('demo')} onclick={() => runButton('demo')} disabled={!buttonAvailable('demo')}>Try the demo</button></div><span>WAV, MP3, FLAC, M4A and Ogg</span></div>
@@ -308,8 +323,8 @@
     </div>
     {#if screen==='mapping'}
       <div class="mapping-playback" role="group" aria-label="Measure mapping playback">
-        <div class="mapping-transport"><button class="play-button" aria-label={keymap.buttonLabel('play',transport.playing?'Pause':'Play')} disabled={!buttonAvailable('play')} title={keymap.title('play')} onclick={()=>runButton('play')}><Icon name={transport.playing?'pause':'play'} size={25}/></button><strong>{time(transport.position,2)}</strong><span>/ {time(song.duration,0)}</span><button class="text-button" disabled={!project?.loop_enabled} title={keymap.actionTitle('disable_loop')} onclick={()=>runAction('disable_loop')}>{project?.loop_enabled?'Turn looping off':'Loop off'}</button></div>
-        <PlaybackSettings {speed} {pitch} {keymap} {controls} {runButton}/>
+        <div class="mapping-transport"><button class="play-button" aria-label={keymap.buttonLabel('play',transport.playing?'Pause':'Play')} disabled={!buttonAvailable('play')} title={keymap.title('play')} onclick={()=>runButton('play')}><Icon name={transport.playing?'pause':'play'} size={25}/></button><strong>{time(transport.position,2)}</strong><span>/ {time(song.duration,0)}</span><button class="text-button" disabled={!buttonAvailable('mapping_loop_off')} title={keymap.title('mapping_loop_off')} onclick={()=>runButton('mapping_loop_off')}>{keymap.buttonLabel('mapping_loop_off',project?.loop_enabled?'Turn looping off':'Loop off')}</button></div>
+        <PlaybackSettings disabled={!!busy} {speed} {pitch} {keymap} {controls} {runButton}/>
       </div>
     {/if}
   {/if}

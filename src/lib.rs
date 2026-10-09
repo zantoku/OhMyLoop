@@ -10,3 +10,5 @@ pub mod playback;
 pub mod project;
 pub mod session;
 pub mod timing;
+
+pub mod metronome;

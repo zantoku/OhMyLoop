@@ -202,3 +202,89 @@ fn endpoint_seeks_keep_ranges_and_disable_looping_at_b_or_outside() {
     assert!(at_start.transport.position < 0.001);
     desktop.shutdown();
 }
+
+#[test]
+fn loading_a_map_with_the_wrong_decoded_rate_preserves_the_saved_file() {
+    let temp = Temp::new("wrong-map-rate");
+    let path = temp.0.join("source.wav");
+    write_wav(&path, 44_100, &Audio::tone(44_100, 1.0, 440.0).frames).unwrap();
+    let key = song_key(&path).unwrap();
+    let directory = temp.0.join("practice");
+    let store = Store::new(directory.clone()).unwrap();
+    let mut document = Document::new(key.clone());
+    document.measure_map = Some(ohmyloop::timing::MeasureMap::empty(48_000, 48_000));
+    store.save(&document, 1.0).unwrap();
+    let file = directory.join(format!("{key}.json"));
+    let before = fs::read(&file).unwrap();
+    let desktop = Desktop::start(directory).unwrap();
+    assert!(
+        desktop
+            .load(Some(path.to_string_lossy().into_owned()))
+            .is_err()
+    );
+    assert_eq!(fs::read(file).unwrap(), before);
+    desktop.shutdown();
+}
+
+#[test]
+fn review_maps_are_source_bound_and_ephemeral_even_when_clicks_are_off() {
+    use ohmyloop::timing::{Edit, MeasureMap, Meter};
+    let temp = Temp::new("review-map");
+    let desktop = Desktop::start(temp.0.clone()).unwrap();
+    let loaded = desktop.load(None).unwrap();
+    let song = loaded.song.unwrap();
+    let mut doc = loaded.document.unwrap();
+    let accepted = MeasureMap::empty(
+        song.rate,
+        (song.duration * f64::from(song.rate)).round() as u64,
+    )
+    .edit(Edit::Build {
+        start: 0,
+        end: 8 * u64::from(song.rate),
+        count: 2,
+        meter: Meter::common(),
+    })
+    .unwrap()
+    .map;
+    doc.measure_map = Some(accepted.clone());
+    desktop.update(doc).unwrap();
+    desktop.act(Action::Seek { seconds: 5.0 }).unwrap();
+    let draft = accepted
+        .edit(Edit::SetOrigin { first_number: 17 })
+        .unwrap()
+        .map;
+    let status = desktop
+        .metronome(song.key.clone(), false, 0.5, Some(draft))
+        .unwrap();
+    assert_eq!(status.musical_position.unwrap().label, "18");
+    assert_eq!(
+        Store::new(temp.0.clone())
+            .unwrap()
+            .load(&song.key, song.duration)
+            .unwrap()
+            .measure_map,
+        Some(accepted.clone())
+    );
+    assert!(
+        desktop
+            .metronome("old-song".into(), false, 0.5, None)
+            .is_err()
+    );
+    assert_eq!(
+        desktop.status().unwrap().musical_position.unwrap().label,
+        "18"
+    );
+    assert!(
+        desktop
+            .metronome(song.key.clone(), false, f32::NAN, None)
+            .is_err()
+    );
+    assert!(
+        desktop
+            .metronome(song.key.clone(), false, 0.5, Some(MeasureMap::empty(1, 12)))
+            .is_err()
+    );
+    let status = desktop.metronome(song.key, false, 0.5, None).unwrap();
+    assert_eq!(status.musical_position.unwrap().label, "2");
+    desktop.shutdown();
+}

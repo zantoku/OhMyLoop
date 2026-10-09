@@ -24,6 +24,7 @@ function demo(): Snapshot {
 }
 
 export const bridge = {
+  metronome:(songKey:string,enabled:boolean,volume:number,map:MeasureMap|null)=>native?invoke<Transport>('set_map_metronome',{songKey,enabled,volume,map}):Promise.reject(new Error('The map metronome is available in the desktop app.')),
   analysisStatus: () => native ? invoke<AnalysisStatus>('analysis_status') : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
   installModel: () => native ? invoke<AnalysisStatus>('install_analysis_model') : Promise.reject(new Error('Install the model in the desktop app.')),
   startAnalysis: (songKey:string, revision:number) => native ? invoke<AnalysisStatus>('start_analysis', {songKey,revision}) : Promise.reject(new Error('Beat analysis is available in the desktop app.')),

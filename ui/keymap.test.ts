@@ -64,3 +64,11 @@ describe('keymap configuration model', () => {
     expect(failure.model.match(key('Enter'))).toBe('jump_song_start');
   });
 });
+
+it('allows the same key in different screens and matches only the active screen',()=>{
+  const map=new Keymap(false,{version:1,keys:{map_beat:['a']}});
+  const event=new KeyboardEvent('keydown',{key:'a'});
+  expect(map.match(event,'practice')).toBe('set_loop_start');expect(map.match(event,'mapping')).toBe('map_beat');
+  expect(map.shortcuts('mapping').some(row=>row.action==='set_loop_start')).toBe(false);
+  expect(()=>new Keymap(false,{version:1,keys:{map_beat:['Space']}})).toThrow(/conflict/);
+});

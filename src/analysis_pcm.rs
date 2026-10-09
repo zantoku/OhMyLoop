@@ -12,6 +12,14 @@ pub const MODEL_RATE: u32 = 22_050;
 pub const PREPROCESSING: &str = "mono-average-rubato016-phase-align-v1";
 
 pub fn write_model_pcm(audio: &Audio, path: &Path, cancelled: &AtomicBool) -> Result<()> {
+    write_model_pcm_with_progress(audio, path, cancelled, |_, _| {})
+}
+pub fn write_model_pcm_with_progress(
+    audio: &Audio,
+    path: &Path,
+    cancelled: &AtomicBool,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<()> {
     ensure!(
         audio.rate > 0 && !audio.frames.is_empty(),
         "No source audio to analyze"
@@ -28,15 +36,18 @@ pub fn write_model_pcm(audio: &Audio, path: &Path, cancelled: &AtomicBool) -> Re
             sample_format: hound::SampleFormat::Float,
         },
     )?;
+    let total = audio.frames.len() as u64;
+    progress(0, total);
     let mono = |frame: &[f32; 2]| (frame[0] + frame[1]) * 0.5;
     if audio.rate == MODEL_RATE {
-        for chunk in audio.frames.chunks(4096) {
+        for (index, chunk) in audio.frames.chunks(4096).enumerate() {
             ensure!(!cancelled.load(Ordering::Acquire), "Analysis cancelled");
             for frame in chunk {
                 let sample = mono(frame);
                 ensure!(sample.is_finite(), "Invalid source audio");
                 writer.write_sample(sample)?;
             }
+            progress(((index + 1) * 4096).min(audio.frames.len()) as u64, total);
         }
     } else {
         let mut converter = SincFixedIn::<f32>::new(
@@ -87,6 +98,7 @@ pub fn write_model_pcm(audio: &Audio, path: &Path, cancelled: &AtomicBool) -> Re
                 writer.write_sample(sample)?;
                 written += 1;
             }
+            progress(cursor.min(audio.frames.len()) as u64, total);
             if written == target {
                 break;
             }
