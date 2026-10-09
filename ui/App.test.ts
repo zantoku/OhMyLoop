@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import App from './App.svelte';
+import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn() }));
+const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), previewMap: vi.fn(), mapView: vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -11,8 +12,9 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_ready:false,song_key:null,map_revision:0,error:null,result:null});
   mock.readKeymap.mockResolvedValue({ path: '/test/keymap.json', configuration: null, warning: null });
-  document = { version: 2, song_key: 'test', controls: { speed: 1, semitones: 0 },
+  document = { version: 3, song_key: 'test', controls: { speed: 1, semitones: 0 },
     sections: [{ id: 'verse', name: 'Verse', start: 0, end: 8 }, { id: 'chorus', name: 'Chorus', start: 3, end: 6 }],
     selected_section: null, loop_selection: null, loop_enabled: false, last_position: 0 };
   transport = { song_key: 'test', position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: 'Test output' };
@@ -192,5 +194,20 @@ describe('single-song practice workflow', () => {
     expect(screen.getByRole('button', { name: 'Play' }).getAttribute('title')).toBe('Play / pause (P)');
     await fireEvent.keyDown(window, { key: 'p', code: 'KeyP' });
     await waitFor(() => expect(transport.playing).toBe(true));
+  });
+});
+
+describe('measure-map screen integration',()=>{
+  it('preserves transport and loops across screen changes and saves only an applied preview',async()=>{
+    document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;transport.playing=true;transport.position=4;
+    mock.initialize.mockResolvedValue({...response(),song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+    mock.previewMap.mockResolvedValue(timingFixture(48000));await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+    const workspace=screen.getByRole('region',{name:'Measure mapping workspace'});expect(workspace).toBeTruthy();expect(transport.playing).toBe(true);expect(document.loop_enabled).toBe(true);
+    await fireEvent.keyDown(window,{key:'x'});await fireEvent.keyDown(window,{key:'a'});expect(mock.update).not.toHaveBeenCalled();
+    await fireEvent.input(screen.getByLabelText('Span end (seconds)'),{target:{value:'8'}});await fireEvent.input(screen.getByLabelText('Number of measures'),{target:{value:'2'}});
+    await fireEvent.click(screen.getByRole('button',{name:'Preview measures'}));await screen.findByRole('button',{name:'Apply map'});expect(mock.update).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button',{name:'Apply map'}));await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));expect(document.loop_enabled).toBe(true);expect(transport.playing).toBe(true);
+    await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));expect(screen.getByRole('region',{name:'Measure ruler'})).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false);
   });
 });

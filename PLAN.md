@@ -1,7 +1,9 @@
 # OhMyLoop product and implementation plan
 
 Recorded: 2026-10-08.
-Validated prototype baseline: `f65fde8` — Build validated Rust audio practice prototype.
+Updated: 2026-10-09.
+Validated prototype baseline: `1ada9f4` — Build validated Rust audio practice prototype.
+Desktop/keymap baseline: `3f48398` — Add configurable actions and refine timeline navigation.
 
 ## Product direction
 
@@ -15,13 +17,14 @@ reports excellent sound quality from the Rust/Rubber Band R3 prototype and
 has approved this technical direction.
 
 Rust, CPAL, Symphonia, and Rubber Band remain the audio foundation. Tauri with
-a Svelte/TypeScript interface is the proposed desktop UI stack. Project code
+a Svelte/TypeScript interface is the desktop UI stack. Project code
 uses GPL-3.0-or-later. Detailed prototype evidence and remaining technical
 risks are recorded in `docs/RISKS.md`.
 
 ## First implementation pass: a complete single-song workflow
 
-Build a usable desktop player around the validated engine:
+Implemented; evidence and remaining platform limits are in
+[docs/DESKTOP.md](docs/DESKTOP.md). The desktop player provides:
 
 - Open a local song and display its waveform.
 - Play, pause, and seek by interacting with the waveform.
@@ -37,14 +40,37 @@ Named sections and temporary loops should coexist. A guitarist should be able
 to navigate a whole song, then isolate a few difficult notes without having
 to restructure the saved sections.
 
-Agree on the main screen and interaction rules before implementing the UI.
-Then build a working desktop slice connected to the real Rust engine.
-Improve playhead synchronization, sample-rate conversion, and device error
-handling as needed for that slice. Run Linux and Windows validation alongside
-macOS work, then exercise the app with real recordings and practice sessions.
+The implementation uses Tauri and Svelte/TypeScript with the native Rust
+engine. Playhead synchronization and broader Linux/Windows/device validation
+remain evidence-driven work; completed local checks do not settle all risks.
 
-The features below are deliberately outside this first implementation pass.
-Their requirements should guide the data model and engine boundaries now.
+## Next implementation pass: editable measure mapping
+
+Create a dedicated **Measure map** screen, opened from a button in the practice
+screen's header. Give it its own minimap, detailed waveform and musical ruler,
+with tools for building and correcting a measure map. Share the loaded song
+and transport so screen changes do not reset playback or practice settings.
+
+Use Beat This! through the existing Rust port as the first automatic-draft
+candidate. The user defines meter, pulse note value and the first full
+downbeat; detected beats/downbeats are suggestions. Derive measure numbering
+from the accepted map, accounting for tempo variation, time-signature changes,
+odd/compound meters, pickups, incomplete measures and free-time spans.
+
+Keep a complete manual workflow available without a model. Provide local
+boundary/beat edits, selected-range measure construction, meter changes,
+protected corrections and undo/redo. Automatic reruns preview candidates and
+must preserve accepted edits. Persist a versioned map anchored to source audio
+and add measure navigation/ruler display to the practice screen.
+
+Detailed scope, proposed domain model, work packages, and acceptance evidence:
+[docs/MEASURE_MAPPING.md](docs/MEASURE_MAPPING.md). Technical research and
+primary sources: [docs/BEAT_MAPPING_RESEARCH.md](docs/BEAT_MAPPING_RESEARCH.md).
+Implementation is in progress; the current pause checkpoint and remaining
+verification are in [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+
+The remaining features below are outside the measure-mapping pass. The map
+will supply their musical timing foundation.
 
 ## Later: musical timing and loop practice controls
 
@@ -62,16 +88,17 @@ Provide an optional pause of **one measure** between repetitions of a loop.
 This is a timed rest between passes, distinct from the transport's manual
 pause. Whether the rest includes an audible click remains a UX decision.
 
-### Song BPM detection
+### Musical timing foundation
 
-Add automatic song BPM detection at a later stage to support musical timing.
-Allow the detected value to be corrected or overridden; incorrect detection
-must not make count-in and rest timing unusable.
+The next measure-mapping pass introduces best-effort beat/downbeat analysis
+and an editable source-to-musical-time map. Tempo and meter may change within
+a song; a single steady BPM is no longer the proposed foundation. The accepted
+map, including user corrections and pulse interpretation, owns musical timing.
 
-BPM alone does not define a measure. The timing model also needs a time
-signature and a beat/downbeat reference if features must align to song bars.
-A single steady tempo can be the initial model; support for tempo changes
-within a song remains an open future decision.
+BPM alone does not define a measure. Future count-ins/rests must resolve the
+local meter, pulse/grouping and source map at the relevant loop boundary.
+Behavior at a meter/tempo change or free-time boundary remains to be specified
+when those scheduling features are implemented.
 
 Proposed timing rule: count-in and inter-loop rests follow the effective
 playback tempo, including speed changes. For a source at 120 BPM played at
@@ -190,11 +217,13 @@ outside the playback worker and report progress to the UI.
 
 ## Scope discipline and next decisions
 
-The next deliverable is the first-pass single-song desktop workflow. Count-in,
-rests, BPM detection, ladders, section settings, sequences, export UI,
+The next deliverable is the editable measure-mapping workflow described in
+docs/MEASURE_MAPPING.md, including automatic draft generation and measure
+navigation. Count-ins, rests, ladders, section settings, sequences, export UI,
 recording, stems, and transcription remain later work.
 
-Before implementation, agree on section/marker semantics, waveform selection
-and loop interactions, keyboard controls, and the placement of transport,
-speed, and pitch controls. Preserve both phrase practice and longer-section
-navigation as first-class uses of the same screen.
+Finalize timing invariants with generated fixtures, then build the manual
+editor before wiring automatic suggestions. Preserve both phrase practice
+and longer-section navigation in the existing practice screen. Keep analyzer
+evidence, accepted musical definitions, persistence, and playback scheduling
+separate.

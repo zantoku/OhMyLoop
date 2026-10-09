@@ -1,0 +1,285 @@
+use super::{
+    models,
+    worker::{Candidates, read_result},
+};
+use crate::{analysis_pcm::write_model_pcm, audio::Audio};
+use anyhow::{Context, Result, ensure};
+use serde::Serialize;
+use std::{
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::Duration,
+};
+#[derive(Clone, Serialize)]
+pub struct JobStatus {
+    pub id: u64,
+    pub running: bool,
+    pub kind: String,
+    pub phase: String,
+    pub model_ready: bool,
+    pub song_key: Option<String>,
+    pub map_revision: u64,
+    pub error: Option<String>,
+    pub result: Option<Candidates>,
+}
+struct Inner {
+    state: Mutex<JobStatus>,
+    cancel: AtomicBool,
+    child: Mutex<Option<Child>>,
+    models: PathBuf,
+    cache: PathBuf,
+}
+#[derive(Clone)]
+pub struct AnalysisManager(Arc<Inner>);
+impl AnalysisManager {
+    pub fn new(models: PathBuf, cache: PathBuf) -> Result<Self> {
+        fs::create_dir_all(&cache)?;
+        let model_ready = models::present(&models);
+        Ok(Self(Arc::new(Inner {
+            state: Mutex::new(JobStatus {
+                id: 0,
+                running: false,
+                kind: "idle".into(),
+                phase: "Ready".into(),
+                model_ready,
+                song_key: None,
+                map_revision: 0,
+                error: None,
+                result: None,
+            }),
+            cancel: AtomicBool::new(false),
+            child: Mutex::new(None),
+            models,
+            cache,
+        })))
+    }
+    pub fn status(&self) -> JobStatus {
+        self.0.state.lock().unwrap().clone()
+    }
+    fn begin(&self, kind: &str, key: Option<String>, revision: u64) -> Result<u64> {
+        let mut state = self.0.state.lock().unwrap();
+        ensure!(
+            !state.running,
+            "An analysis or model installation is already running"
+        );
+        state.id += 1;
+        state.running = true;
+        state.kind = kind.into();
+        state.phase = "Starting".into();
+        state.song_key = key;
+        state.map_revision = revision;
+        state.error = None;
+        state.result = None;
+        self.0.cancel.store(false, Ordering::Release);
+        Ok(state.id)
+    }
+    fn phase(&self, phase: &str) {
+        self.0.state.lock().unwrap().phase = phase.into();
+    }
+    fn finish(&self, result: Result<Option<Candidates>>) {
+        let mut state = self.0.state.lock().unwrap();
+        state.running = false;
+        if self.0.cancel.load(Ordering::Acquire) {
+            state.phase = "Cancelled".into();
+            state.result = None;
+            state.error = None;
+        } else {
+            match result {
+                Ok(candidates) => {
+                    state.phase = "Complete".into();
+                    state.result = candidates;
+                    state.error = None;
+                }
+                Err(e) => {
+                    state.phase = "Failed".into();
+                    state.error = Some(format!("{e:#}"));
+                    state.result = None;
+                }
+            }
+        }
+        state.model_ready = models::present(&self.0.models);
+    }
+    pub fn install(&self) -> Result<JobStatus> {
+        self.begin("install", None, 0)?;
+        let manager = self.clone();
+        if let Err(e) = thread::Builder::new()
+            .name("ohmyloop-model-install".into())
+            .spawn(move || {
+                let result =
+                    models::install(&manager.0.models, &manager.0.cancel, |s| manager.phase(s))
+                        .map(|()| None);
+                manager.finish(result);
+            })
+        {
+            self.finish(Err(e.into()));
+        }
+        Ok(self.status())
+    }
+    pub fn analyze(
+        &self,
+        executable: PathBuf,
+        audio: Arc<Audio>,
+        key: String,
+        revision: u64,
+    ) -> Result<JobStatus> {
+        ensure!(
+            audio.duration() <= 3600.0,
+            "Automatic analysis is limited to one hour; manual mapping remains available"
+        );
+        ensure!(
+            models::present(&self.0.models),
+            "Install the analysis model first. Manual mapping remains available."
+        );
+        let id = self.begin("analysis", Some(key.clone()), revision)?;
+        let manager = self.clone();
+        if let Err(e) = thread::Builder::new()
+            .name("ohmyloop-analysis".into())
+            .spawn(move || {
+                let directory = manager
+                    .0
+                    .cache
+                    .join(format!("job-{}-{id}", std::process::id()));
+                let input = directory.join("source.wav");
+                let output = directory.join("detections.json");
+                let errors = directory.join("worker-error.txt");
+                let result = (|| -> Result<Option<Candidates>> {
+                    fs::create_dir(&directory).context("Could not create analysis job cache")?;
+                    manager.phase("Verifying model files");
+                    models::verify_models(&manager.0.models)?;
+                    manager.phase("Preparing source-aligned audio");
+                    write_model_pcm(&audio, &input, &manager.0.cancel)?;
+                    ensure!(
+                        !manager.0.cancel.load(Ordering::Acquire),
+                        "Analysis cancelled"
+                    );
+                    manager.phase("Analyzing beats and downbeats");
+                    let mut command = Command::new(&executable);
+                    command
+                        .arg("--analysis-worker")
+                        .arg(&input)
+                        .arg(&output)
+                        .arg(&manager.0.models)
+                        .arg(&key)
+                        .arg(audio.rate.to_string())
+                        .arg(audio.frames.len().to_string())
+                        .arg(revision.to_string())
+                        .env("RAYON_NUM_THREADS", "2")
+                        .env("RTEN_NUM_THREADS", "2")
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::from(fs::File::create(&errors)?));
+                    #[cfg(target_os = "windows")]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        command.creation_flags(0x08000000);
+                    }
+                    // Hold the child slot across spawn so cancellation cannot miss it.
+                    {
+                        let mut slot = manager.0.child.lock().unwrap();
+                        ensure!(
+                            !manager.0.cancel.load(Ordering::Acquire),
+                            "Analysis cancelled"
+                        );
+                        *slot = Some(
+                            command
+                                .spawn()
+                                .context("Could not start the analysis process")?,
+                        );
+                    }
+                    loop {
+                        let status = {
+                            let mut slot = manager.0.child.lock().unwrap();
+                            let child = slot.as_mut().context("Analysis process disappeared")?;
+                            if manager.0.cancel.load(Ordering::Acquire) {
+                                let _ = child.kill();
+                            }
+                            child.try_wait()?
+                        };
+                        if let Some(status) = status {
+                            manager.0.child.lock().unwrap().take();
+                            if !status.success() {
+                                let mut message = String::new();
+                                fs::File::open(&errors)?
+                                    .take(16 * 1024)
+                                    .read_to_string(&mut message)?;
+                                anyhow::bail!("Beat analysis stopped: {message}");
+                            }
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                    ensure!(
+                        !manager.0.cancel.load(Ordering::Acquire),
+                        "Analysis cancelled"
+                    );
+                    manager.phase("Reading detected beats");
+                    let result = read_result(&output)?;
+                    ensure!(
+                        result.song_key == key
+                            && result.rate == audio.rate
+                            && result.frames == audio.frames.len() as u64
+                            && result.map_revision == revision,
+                        "Analysis result belongs to another source"
+                    );
+                    Ok(Some(result))
+                })();
+                // Always reap our subprocess, including errors in monitoring/reading.
+                if let Some(mut child) = manager.0.child.lock().unwrap().take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+                let _ = fs::remove_file(input);
+                let _ = fs::remove_file(errors);
+                if result.is_ok() && !manager.0.cancel.load(Ordering::Acquire) {
+                    let stable = manager.0.cache.join(format!(
+                        "{}-{}-{}.json",
+                        key,
+                        models::MODEL_ID,
+                        crate::analysis_pcm::PREPROCESSING
+                    ));
+                    if fs::rename(&output, stable).is_ok() {
+                        let _ = fs::remove_dir(&directory);
+                    }
+                }
+                if result.is_err() || manager.0.cancel.load(Ordering::Acquire) {
+                    let _ = fs::remove_file(output);
+                    let _ = fs::remove_dir(&directory);
+                }
+                manager.finish(result);
+            })
+        {
+            self.finish(Err(e.into()));
+        }
+        Ok(self.status())
+    }
+    pub fn cancel(&self, id: u64) -> JobStatus {
+        let mut state = self.0.state.lock().unwrap();
+        if state.id == id && state.running {
+            self.0.cancel.store(true, Ordering::Release);
+            state.phase = "Cancelling".into();
+            if let Some(child) = self.0.child.lock().unwrap().as_mut() {
+                let _ = child.kill();
+            }
+        }
+        drop(state);
+        self.status()
+    }
+    pub fn shutdown(&self) {
+        let id = self.status().id;
+        self.cancel(id);
+        if let Some(mut child) = self.0.child.lock().unwrap().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    pub fn model_directory(&self) -> &Path {
+        &self.0.models
+    }
+}

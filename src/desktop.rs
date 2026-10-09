@@ -27,6 +27,7 @@ pub struct Transport {
     pub audio_error: Option<String>,
     pub save_error: Option<String>,
     pub device: Option<String>,
+    pub musical_position: Option<crate::timing::Position>,
 }
 
 #[derive(Serialize)]
@@ -34,6 +35,7 @@ pub struct Snapshot {
     pub song: Option<Song>,
     pub document: Option<Document>,
     pub transport: Transport,
+    pub map_view: Option<crate::timing::MapView>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -52,10 +54,12 @@ enum Command {
     Act(Action),
     Status,
     Shutdown,
+    Source(String),
 }
 enum Response {
     Snapshot(Box<Snapshot>),
     Status(Transport),
+    Source(Arc<Audio>),
 }
 struct Request {
     command: Command,
@@ -71,6 +75,12 @@ pub struct Desktop {
 }
 
 impl Desktop {
+    pub fn source(&self, song_key: String) -> Result<Arc<Audio>> {
+        match self.request(Command::Source(song_key))? {
+            Response::Source(audio) => Ok(audio),
+            _ => unreachable!(),
+        }
+    }
     pub fn start(directory: PathBuf) -> Result<Self> {
         let store = Store::new(directory)?;
         let (requests, receiver) = mpsc::sync_channel::<Request>(8);
@@ -165,6 +175,13 @@ impl Controller {
             Command::Update(mut document) => {
                 let song = self.song.as_ref().context("Open a song first")?;
                 document.validate(&song.key, song.duration)?;
+                if let Some(map) = &document.measure_map {
+                    let audio = self.audio.as_ref().unwrap();
+                    ensure!(
+                        map.rate == audio.rate && map.frames == audio.frames.len() as u64,
+                        "Musical map belongs to a different decoded source"
+                    );
+                }
                 document.last_position = self.transport().position;
                 self.store
                     .save(&document, self.song.as_ref().unwrap().duration)?;
@@ -194,6 +211,15 @@ impl Controller {
                     self.persist_position();
                 }
                 return Ok(Response::Status(status));
+            }
+            Command::Source(key) => {
+                ensure!(
+                    self.song.as_ref().is_some_and(|s| s.key == key),
+                    "Song changed; discard this analysis or mapping command"
+                );
+                return Ok(Response::Source(
+                    self.audio.as_ref().context("Open a song first")?.clone(),
+                ));
             }
             Command::Shutdown => unreachable!(),
         }
@@ -338,6 +364,12 @@ impl Controller {
     }
 
     fn transport(&mut self) -> Transport {
+        let musical_position = |seconds: f64| {
+            self.document
+                .as_ref()
+                .and_then(|d| d.measure_map.as_ref())
+                .and_then(|map| map.position((seconds * f64::from(map.rate)).round() as u64))
+        };
         if let Some(player) = &self.player {
             if player.shared.device_errors.load(Ordering::Relaxed) > 0
                 || player.shared.worker_error.lock().unwrap().is_some()
@@ -357,6 +389,7 @@ impl Controller {
                 audio_error: self.audio_error.clone(),
                 save_error: self.save_error.clone(),
                 device: Some(player.device_name.clone()),
+                musical_position: musical_position(player.shared.position() / player.rate as f64),
             }
         } else {
             Transport {
@@ -367,6 +400,9 @@ impl Controller {
                 audio_error: self.audio_error.clone(),
                 save_error: self.save_error.clone(),
                 device: None,
+                musical_position: musical_position(
+                    self.document.as_ref().map_or(0.0, |d| d.last_position),
+                ),
             }
         }
     }
@@ -389,6 +425,11 @@ impl Controller {
             song: self.song.clone().filter(|_| include_song),
             document: self.document.clone(),
             transport: self.transport(),
+            map_view: self
+                .document
+                .as_ref()
+                .and_then(|d| d.measure_map.as_ref())
+                .map(|m| m.view()),
         }
     }
 }

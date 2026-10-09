@@ -1,11 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import MeasureRuler from './MeasureRuler.svelte';
+  import type { MapView } from './timing';
   import type { Loop, Section, View } from './types';
-  import { clamp, range, sectionColor, time, zoom } from './model';
+  import { clamp, range, sectionColor, time } from './model';
 
-  let { peaks, duration, sections, selection, position, view, onseek, onselection, onsection, onview }:
+  import { drawWaveform, sourcePoint, panView, overviewView, wheelView } from './timeline';
+
+  let { peaks, duration, sections, selection, position, view, mapView = null, rate = 48000, onseek, onselection, onsection, onview }:
     { peaks: [number, number][]; duration: number; sections: Section[]; selection: Loop | null;
-      position: number; view: View; onseek: (value: number) => void; onselection: (value: Loop) => void;
+      position: number; view: View; mapView?: MapView | null; rate?: number; onseek: (value: number) => void; onselection: (value: Loop) => void;
       onsection: (section: Section) => void; onview: (view: View) => void } = $props();
   let canvas: HTMLCanvasElement;
   let overview: HTMLCanvasElement;
@@ -25,27 +29,7 @@
   const percent = (seconds: number) => (seconds - view.start) / span * 100;
   const ticks = $derived(Array.from({ length: 7 }, (_, i) => view.start + span * i / 6));
 
-  function draw(target: HTMLCanvasElement | undefined, start: number, end: number) {
-    if (!target || !peaks.length) return;
-    const ctx = target.getContext('2d'); if (!ctx) return;
-    const box = target.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-    target.width = Math.round(box.width * dpr); target.height = Math.round(box.height * dpr);
-    ctx.scale(dpr, dpr); const w = box.width, h = box.height;
-    ctx.clearRect(0, 0, w, h);
-    const max = Math.max(.01, ...peaks.filter((_, i) => i % 16 === 0).map(p => Math.max(-p[0], p[1])));
-    const scale = h * .39 / max;
-    ctx.strokeStyle = 'rgba(209,221,245,.12)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
-    ctx.fillStyle = target === overview ? '#adbcdb' : '#bccceb';
-    for (let x = 0; x < w; x += 2) {
-      const first = Math.floor((start + (end - start) * x / w) / duration * peaks.length);
-      const last = Math.min(peaks.length, Math.max(first + 1, Math.ceil((start + (end - start) * (x + 2) / w) / duration * peaks.length)));
-      let low = 0, high = 0;
-      for (let i = first; i < last; i++) { const p = peaks[i]; if (p) { low = Math.min(low, p[0]); high = Math.max(high, p[1]); } }
-      ctx.fillRect(x, h / 2 - high * scale, 1.4, Math.max(1, (high - low) * scale));
-    }
-  }
-  $effect(() => { void width; void height; void peaks; draw(canvas, view.start, view.end); draw(overview, 0, duration); });
+  $effect(() => { void width; void height; void peaks; drawWaveform(canvas, peaks, duration, view.start, view.end); drawWaveform(overview, peaks, duration, 0, duration, true); });
   onMount(() => {
     const observer = new ResizeObserver(() => { width = field.clientWidth; height = field.clientHeight; });
     observer.observe(field);
@@ -63,7 +47,7 @@
     };
   });
   function point(event: MouseEvent): number {
-    const box = field.getBoundingClientRect(); return clamp(view.start + (event.clientX - box.left) / box.width * span, 0, duration);
+    return sourcePoint(view, duration, field.getBoundingClientRect(), event.clientX);
   }
   function wheel(event: WheelEvent) {
     if (!event.deltaY) return;
@@ -71,10 +55,7 @@
     if (drag || overviewPointer !== null) return;
     const box = field.getBoundingClientRect();
     if (!box.width) return;
-    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? box.height : 1;
-    const factor = Math.exp(clamp(event.deltaY * unit, -240, 240) * .0025);
-    const anchor = clamp((event.clientX - box.left) / box.width, 0, 1);
-    onview(zoom(view, duration, factor, point(event), anchor));
+    onview(wheelView(view, duration, box, event));
   }
   function down(event: PointerEvent) {
     if (drag || overviewPointer !== null || (event.button !== 0 && event.button !== 1)) return;
@@ -92,9 +73,7 @@
   function move(event: PointerEvent) {
     if (!drag || event.pointerId !== drag.pointer) return;
     if (drag.mode === 'pan') {
-      const originalSpan = drag.view.end - drag.view.start;
-      const start = clamp(drag.view.start - (event.clientX - drag.x) / drag.width * originalSpan, 0, duration - originalSpan);
-      onview({ start, end: start + originalSpan });
+      onview(panView(drag.view, duration, event.clientX - drag.x, drag.width));
       return;
     }
     const p = point(event);
@@ -126,8 +105,7 @@
   function panOverview(event: MouseEvent) {
     const box = event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : overview.getBoundingClientRect();
     if (!box.width) return;
-    const center = (event.clientX - box.left) / box.width * duration;
-    const start = clamp(center - span / 2, 0, duration - span); onview({ start, end: start + span });
+    onview(overviewView(view, duration, box, event.clientX));
   }
   function overviewDown(event: PointerEvent) {
     if (event.button !== 0 || drag || overviewPointer !== null) return;
@@ -164,6 +142,8 @@
   </button>
   <span class="overview-label">Whole song</span><span class="overview-duration">{time(duration, 0)}</span>
 </div>
+
+{#if mapView?.measures.length}<MeasureRuler {mapView} {rate} {view} {onseek}/>{/if}
 
 <div class="section-lane" aria-label="Sections on timeline">
   {#each sections.filter(s => s.end > view.start && s.start < view.end) as section (section.id)}

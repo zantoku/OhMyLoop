@@ -6,7 +6,7 @@ license = "GPL-3.0-or-later"
 description = "OhMyLoop desktop music practice player"
 
 [dependencies]
-ohmyloop = { path = ".." }
+ohmyloop = { path = "..", features = ["beat-analysis"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 anyhow = "1.0"

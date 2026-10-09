@@ -2,10 +2,13 @@
   import { onMount } from 'svelte';
   import Waveform from './Waveform.svelte';
   import Icon from './Icon.svelte';
+  import PlaybackSettings from './PlaybackSettings.svelte';
+  import MeasureEditor from './MeasureEditor.svelte';
+  import type { MapView, MapPreview } from './timing';
   import { bridge, native } from './bridge';
   import { Keymap, loadKeymap } from './keymap';
   import { ActionDispatcher, type ActionPayload } from './action-dispatcher';
-  import type { ActionId, ButtonId } from './actions';
+  import { MAPPING_ACTIONS, type ActionId, type ButtonId, type MappingActionId } from './actions';
   import { clamp, editing, ordered, range, sectionColor, time, zoom } from './model';
   import type { Action, Loop, PracticeDocument, Section, Snapshot, Song, Transport, View } from './types';
 
@@ -21,6 +24,10 @@
   let keymapWarning = $state<string | null>(null);
   let keymapLoading = $state(false);
   const shortcuts = $derived(keymap.shortcuts());
+  let screen = $state<'practice' | 'mapping'>('practice');
+  let mapView = $state<MapView | null>(null);
+  let measureEditor = $state<MeasureEditor>();
+  let measureNumber = $state(1);
   let view = $state<View>({ start: 0, end: 12 });
   let sectionDialog: HTMLDialogElement;
   let helpDialog: HTMLDialogElement;
@@ -42,7 +49,7 @@
 
   function apply(snapshot: Snapshot, documentRevision = revision) {
     if (snapshot.song) { song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
-    if (documentRevision === revision) project = snapshot.document;
+    if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
   function flushControls() {
@@ -57,7 +64,7 @@
     try {
       flushControls(); await saves;
       const snapshot = demo ? await bridge.loadDemo() : await bridge.openSong();
-      if (snapshot) { revision++; apply(snapshot); saved = true; undo = []; }
+      if (snapshot) { revision++; apply(snapshot); saved = true; undo = []; screen = 'practice'; }
     } catch (e) { error = String(e); }
     finally { busy = ''; }
   }
@@ -149,7 +156,25 @@
       if (mounted) { keymap = loaded.model; keymapPath = loaded.path; keymapWarning = loaded.warning; }
     } finally { keymapLoading = false; }
   }
+  async function commitMap(value: MapPreview, songKey:string) {
+    if(busy||song?.key!==songKey)throw new Error('The song changed. Please reopen the measure map.');
+    flushControls(); await saves;
+    if(busy||song?.key!==songKey)throw new Error('The song changed. Please try again.');
+    await update({ measure_map: value.map });
+    mapView = value.view;
+  }
+  function nextMeasure(direction:number) {
+    if(!song||!mapView?.measures.length)return;
+    const frame=Math.round(transport.position*song.rate), measures=mapView.measures;
+    const target=direction>0?measures.find(m=>m.start>frame):[...measures].reverse().find(m=>m.start<frame);
+    if(target)return action({type:'seek',seconds:target.start/song.rate});
+  }
+  const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
   const dispatcher = new ActionDispatcher({
+    ...mappingHandlers,
+    show_measure_map:()=>{screen='mapping';}, show_practice:()=>{screen='practice';},
+    previous_measure:()=>nextMeasure(-1), next_measure:()=>nextMeasure(1),
+    goto_measure:()=>{const measure=mapView?.measures.find(m=>m.number===measureNumber);if(measure&&song)return action({type:'seek',seconds:measure.start/song.rate});},
     play_pause: () => action({ type: 'toggle_play' }), toggle_loop: toggleLoop,
     set_loop_start: () => setBoundary('start'), set_loop_end: () => setBoundary('end'),
     jump_loop_start: () => action({ type: 'seek', seconds: selection!.start }),
@@ -170,20 +195,26 @@
     select_section: ({ section }) => selectSection(section!), edit_section: ({ section }) => startSection(section),
     delete_section: ({ section }) => removeSection(section!.id), speed_preset: ({ speed }) => controls(speed!, pitch),
     save_section: saveSection, close_editor: () => sectionDialog.close(), close_shortcuts: () => helpDialog.close()
-  }, () => ({ busy: !!busy, song: !!song, range: !!selection, sections: !!sections.length,
+  }, () => ({ context: screen, busy: !!busy, song: !!song, range: !!selection, sections: !!sections.length,
     audio: !!song && native && !transport.audio_error, loop_on: !!project?.loop_enabled,
     undo: !!undo.length, editor: !!sectionDialog?.open, help: !!helpDialog?.open,
     zoom_out: !!song && view.end - view.start < song.duration }));
 
   async function runAction(id: ActionId, payload: ActionPayload = {}) {
-    try { await dispatcher.run(id, payload); } catch (e) { error = String(e); }
+    try { if (actionAvailable(id)) await dispatcher.run(id, payload); } catch (e) { error = String(e); }
   }
   function runButton(id: ButtonId, payload: ActionPayload = {}) { return runAction(keymap.actionFor(id), payload); }
-  function buttonAvailable(id: ButtonId) { return dispatcher.available(keymap.actionFor(id)); }
+  function actionAvailable(id:ActionId) {
+    if(!dispatcher.available(id))return false;
+    if(id in MAPPING_ACTIONS)return !!measureEditor?.canRun(id as MappingActionId);
+    if(['previous_measure','next_measure','goto_measure'].includes(id))return !!mapView?.measures.length;
+    return true;
+  }
+  function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
   function keyboard(event: KeyboardEvent) {
     if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open) return;
     const id = keymap.match(event);
-    if (!id || !dispatcher.available(id)) return;
+    if (!id || !actionAvailable(id)) return;
     event.preventDefault(); void runAction(id);
   }
   onMount(() => {
@@ -209,6 +240,7 @@
       <span>OhMyLoop</span>
     </div>
     <div class="song-heading"><h1>{song?.title ?? 'Make room for practice'}</h1><span>{song ? `${time(song.duration, 0)} • ${song.path ? 'Local song' : 'Built-in demo'}` : 'One song. As many tries as it takes.'}</span></div>
+    <button class="button map-screen-button" disabled={!buttonAvailable(screen==='practice'?'show_measure_map':'show_practice')} title={keymap.title(screen==='practice'?'show_measure_map':'show_practice')} onclick={()=>runButton(screen==='practice'?'show_measure_map':'show_practice')}>{keymap.buttonLabel(screen==='practice'?'show_measure_map':'show_practice',screen==='practice'?'Measure map':'Back to practice')}</button>
     <button class="button open-button" title={keymap.title('open_song')} onclick={() => runButton('open_song')} disabled={!buttonAvailable('open_song')}><Icon name="folder"/>Open song</button>
     <button class="icon-button" aria-label="Keyboard shortcuts" title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}><Icon name="help"/></button>
   </header>
@@ -219,7 +251,7 @@
   {#if transport.save_error}<div class="notice error" role="alert"><span>{transport.save_error}</span><button class="text-button" title={keymap.title('retry_save')} onclick={() => runButton('retry_save')}>Retry save</button></div>{/if}
   {#if !native}<div class="preview-note">Interface preview · Audio playback and file opening are available in the desktop app.</div>{/if}
 
-  <main class="practice-layout" aria-busy={!!busy}>
+  <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>
     <aside class="sections-panel">
       <div class="panel-title"><h2>Sections</h2><span>{sections.length || ''}</span></div>
       <p class="panel-intro">Find your place. Work on what needs it.</p>
@@ -242,7 +274,7 @@
     <section class="workbench" aria-label="Practice workspace">
       {#if song && project}
         <div class="workspace-heading"><div><h2>Your practice space</h2><p>Click to seek. Drag to loop. Scroll to zoom; middle-drag to pan.</p></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
-        <Waveform peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
+        <Waveform {mapView} rate={song.rate} peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
         <div class="selection-bar">
           {#if selection}
             <div class="loop-times"><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_start'))} title={keymap.title('jump_loop_start')} onclick={() => runButton('jump_loop_start')}>A</button><input aria-label="Loop start seconds" type="number" min="0" max={selection.end - .1} step="any" value={selection.start.toFixed(2)} onchange={e => { const r = range(Number(e.currentTarget.value), selection.end, song!.duration); if (r) void chooseLoop(r); }}/><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_end'))} title={keymap.title('jump_loop_end')} onclick={() => runButton('jump_loop_end')}>B</button><input aria-label="Loop end seconds" type="number" min={selection.start + .1} max={song.duration} step="any" value={selection.end.toFixed(2)} onchange={e => { const r = range(selection.start, Number(e.currentTarget.value), song!.duration); if (r) void chooseLoop(r); }}/><span class="unit">seconds</span><span class="loop-length">{(selection.end - selection.start).toFixed(2)}s passage</span></div>
@@ -256,15 +288,31 @@
           <button class:active={project.loop_enabled} class="loop-toggle" onclick={() => runButton('loop')} aria-pressed={project.loop_enabled} title={keymap.title('loop')}><Icon name="loop"/>{keymap.buttonLabel('loop', project.loop_enabled ? 'Loop on' : 'Loop off')}</button>
         </div>
 
-        <div class="practice-controls">
-          <section class="practice-control" aria-label="Playback speed"><div class="control-heading"><h3>Speed</h3><button class="icon-button" aria-label={keymap.buttonLabel('reset_speed', 'Reset speed')} title={keymap.title('reset_speed')} onclick={() => runButton('reset_speed')}><Icon name="reset" size={17}/></button></div><div class="control-number"><input aria-label="Speed percent" type="number" min="25" max="200" step="1" value={Math.round(speed * 100)} onchange={e => controls(Number(e.currentTarget.value) / 100, pitch)}/><span>%</span><small>of original tempo</small></div><input class="control-slider speed-slider" aria-label="Playback speed" type="range" min="25" max="200" step="1" value={speed * 100} oninput={e => controls(Number(e.currentTarget.value) / 100, pitch)}/><div class="control-bottom"><span>25%</span><div class="speed-presets">{#each [.5, .75, 1] as preset}<button class:chosen={Math.abs(speed - preset) < .005} title={keymap.title('speed_preset')} onclick={() => runButton('speed_preset', { speed: preset })}>{preset * 100}%</button>{/each}</div><span>200%</span></div></section>
-          <section class="practice-control" aria-label="Playback pitch"><div class="control-heading"><h3>Pitch</h3><button class="icon-button" aria-label={keymap.buttonLabel('reset_pitch', 'Reset pitch')} title={keymap.title('reset_pitch')} onclick={() => runButton('reset_pitch')}><Icon name="reset" size={17}/></button></div><div class="control-number"><input aria-label="Pitch semitones" type="number" min="-12" max="12" step="0.01" value={pitch} onchange={e => controls(speed, Number(e.currentTarget.value))}/><span>st</span><small>{pitch === 0 ? 'Original pitch' : pitch > 0 ? 'Above original pitch' : 'Below original pitch'}</small></div><input class="control-slider pitch-slider" aria-label="Playback pitch" type="range" min="-12" max="12" step="0.1" value={pitch} oninput={e => controls(speed, Number(e.currentTarget.value))}/><div class="control-bottom"><span>−12 st</span><button class="pitch-home" title={keymap.title('original_pitch')} onclick={() => runButton('original_pitch')}>Original</button><span>+12 st</span></div></section>
-        </div>
+        <PlaybackSettings {speed} {pitch} {keymap} {controls} {runButton}/>
+
       {:else}
         <div class="empty-workbench"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M10 45h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12m17 4h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12" fill="none" stroke="#9caed1" stroke-width="3" stroke-linecap="round"/></svg><h2>A good place to get it right.</h2><p>Open a song, find your passage, and play it at your pace.</p><div><button class="button primary" title={keymap.title('open_song')} onclick={() => runButton('open_song')} disabled={!buttonAvailable('open_song')}><Icon name="folder"/>Open a song</button><button class="text-button" title={keymap.title('demo')} onclick={() => runButton('demo')} disabled={!buttonAvailable('demo')}>Try the demo</button></div><span>WAV, MP3, FLAC, M4A and Ogg</span></div>
       {/if}
     </section>
   </main>
+  {#if song}
+    {#key song.key}
+      <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
+    {/key}
+    <div class="musical-navigation" hidden={!mapView?.measures.length}>
+      <span>{transport.musical_position?`Measure ${transport.musical_position.label}, beat ${transport.musical_position.beat.toFixed(2)}`:'Unmapped position'}</span>
+      <button class="text-button" disabled={!buttonAvailable('previous_measure')} title={keymap.title('previous_measure')} onclick={()=>runButton('previous_measure')}>{keymap.buttonLabel('previous_measure','Previous measure')}</button>
+      <button class="text-button" disabled={!buttonAvailable('next_measure')} title={keymap.title('next_measure')} onclick={()=>runButton('next_measure')}>{keymap.buttonLabel('next_measure','Next measure')}</button>
+      <label>Measure <input aria-label="Go to measure number" type="number" min="1" step="1" bind:value={measureNumber}/></label>
+      <button class="text-button" disabled={!buttonAvailable('goto_measure')} title={keymap.title('goto_measure')} onclick={()=>runButton('goto_measure')}>{keymap.buttonLabel('goto_measure','Go')}</button>
+    </div>
+    {#if screen==='mapping'}
+      <div class="mapping-playback" role="group" aria-label="Measure mapping playback">
+        <div class="mapping-transport"><button class="play-button" aria-label={keymap.buttonLabel('play',transport.playing?'Pause':'Play')} disabled={!buttonAvailable('play')} title={keymap.title('play')} onclick={()=>runButton('play')}><Icon name={transport.playing?'pause':'play'} size={25}/></button><strong>{time(transport.position,2)}</strong><span>/ {time(song.duration,0)}</span><button class="text-button" disabled={!project?.loop_enabled} title={keymap.actionTitle('disable_loop')} onclick={()=>runAction('disable_loop')}>{project?.loop_enabled?'Turn looping off':'Loop off'}</button></div>
+        <PlaybackSettings {speed} {pitch} {keymap} {controls} {runButton}/>
+      </div>
+    {/if}
+  {/if}
   <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><button title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts <span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}</button></footer>
 </div>
 

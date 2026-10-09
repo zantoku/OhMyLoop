@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "model_id": "beat-this-final0-onnx-5f810deb-v1",
+  "upstream": "https://github.com/CPJKU/beat_this",
+  "checkpoint": "final0",
+  "weights_license": "MIT",
+  "conversion": "https://github.com/danigb/beat-this-rs",
+  "conversion_source_revision": "1ae768e78f1ad83b0ed3886241dc29ffde853c40",
+  "runtime_crate": "beat-this 1.1.0 (RTen)",
+  "preprocessing": "mono-average-rubato016-phase-align-v1",
+  "files": [
+    {"name": "mel_spectrogram.onnx", "sha256": "fdd59e65c515331308e4c8841edf99972deca646bdf6197744c2a5b7755e3de9", "url": "https://raw.githubusercontent.com/danigb/beat-this-rs/1ae768e78f1ad83b0ed3886241dc29ffde853c40/models/mel_spectrogram.onnx"},
+    {"name": "beat_this.onnx", "sha256": "5f810debe53459b559127fb55bbad40035bb47cc567b20e501670f968c770f02", "url": "https://github.com/danigb/beat-this-rs/releases/download/model-large/beat_this.onnx"}
+  ]
+}

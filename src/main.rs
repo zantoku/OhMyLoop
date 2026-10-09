@@ -18,6 +18,8 @@ use std::{
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        #[cfg(feature = "beat-analysis")]
+        Some("--analysis-worker") => ohmyloop::analysis::worker(&args[1..]),
         Some("play") => interactive(&args[1..]),
         Some("render") => render_command(&args[1..]),
         Some("probe") => probe(&args[1..]),

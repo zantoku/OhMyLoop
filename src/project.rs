@@ -29,12 +29,14 @@ pub struct Document {
     pub loop_selection: Option<LoopRegion>,
     pub loop_enabled: bool,
     pub last_position: f64,
+    #[serde(default)]
+    pub measure_map: Option<crate::timing::MeasureMap>,
 }
 
 impl Document {
     pub fn new(song_key: String) -> Self {
         Self {
-            version: 2,
+            version: 3,
             song_key,
             controls: Controls::default(),
             sections: Vec::new(),
@@ -42,12 +44,13 @@ impl Document {
             loop_selection: None,
             loop_enabled: false,
             last_position: 0.0,
+            measure_map: None,
         }
     }
 
     pub fn validate(&self, key: &str, duration: f64) -> Result<()> {
         ensure!(
-            self.version == 2,
+            self.version == 3,
             "Saved practice settings use an unsupported version"
         );
         ensure!(
@@ -55,6 +58,13 @@ impl Document {
             "Practice settings belong to a different song"
         );
         self.controls.validate()?;
+        if let Some(map) = &self.measure_map {
+            map.validate()?;
+            ensure!(
+                (map.frames as f64 / map.rate as f64 - duration).abs() < 1e-6,
+                "Musical map belongs to a different source duration"
+            );
+        }
         ensure!(self.sections.len() <= 1000, "Too many sections");
         let mut ids = HashSet::new();
         for section in &self.sections {
@@ -161,9 +171,16 @@ impl Store {
         if !path.exists() {
             return Ok(Document::new(key.into()));
         }
-        let document: Document = serde_json::from_slice(&fs::read(&path)?).context(
+        let mut document: Document = serde_json::from_slice(&fs::read(&path)?).context(
             "Saved practice settings could not be read; the original file was left intact",
         )?;
+        if document.version == 2 {
+            ensure!(
+                document.measure_map.is_none(),
+                "Version-2 settings cannot contain a musical map"
+            );
+            document.version = 3;
+        }
         document.validate(key, duration)?;
         Ok(document)
     }

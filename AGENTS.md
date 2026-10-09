@@ -6,9 +6,10 @@ OhMyLoop is a free, open-source music practice desktop app for Linux, macOS,
 and Windows. Its core features are independent playback speed and pitch,
 named song-section markers, precise seeking, and repeatable loops.
 
-The audio risk prototype is validated. The current milestone is the first
-single-song desktop implementation described in PLAN.md. Preserve the CLI
-prototype and its audio tests while building the desktop UI.
+The audio risk prototype and first single-song desktop workflow are in place.
+The next milestone is editable measure mapping described in PLAN.md and
+docs/MEASURE_MAPPING.md. Preserve the CLI prototype, its audio tests, and
+existing practice workflows while extending the desktop UI.
 
 ## Technical direction
 
@@ -54,8 +55,14 @@ prototype and its audio tests while building the desktop UI.
   behavior, tooltips, and shortcut documentation stay consistent. Validate
   versioned configuration at its boundary and preserve invalid user files.
 - Prefer small modules, explicit state, and narrowly scoped unsafe FFI.
-- Follow the first-pass scope in PLAN.md. Defer count-ins, musical rests, tempo
-  detection, speed ladders, sequences, export UI, recording, stems, and tabs.
+- Follow the current milestone scope in PLAN.md and docs/MEASURE_MAPPING.md.
+  Beat/downbeat analysis and editable variable-tempo/meter mapping are now
+  in scope. Defer count-ins, musical rests, speed ladders, sequences, export
+  UI, recording, stems, and tabs.
+- Keep automatic timing suggestions separate from the accepted musical map.
+  Preserve user corrections during reanalysis; keep analysis outside the
+  playback worker and device callback. Musical coordinates map to original
+  source frames, independently of playback speed and pitch.
 - Persist stable section identities and source coordinates. Keep temporary
   loops independent from saved sections. Version saved song documents.
 - Preserve user changes and keep generated assets reproducible.

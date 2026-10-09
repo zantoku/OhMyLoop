@@ -8,6 +8,39 @@ use tauri_plugin_dialog::DialogExt;
 
 struct KeymapPath(std::path::PathBuf);
 
+#[tauri::command]
+async fn preview_measure_map(
+    song_key: String,
+    map: Option<ohmyloop::timing::MeasureMap>,
+    edit: ohmyloop::timing::Edit,
+    state: State<'_, Desktop>,
+) -> Result<ohmyloop::timing::Preview, String> {
+    let desktop = state.inner().clone();
+    work(move || {
+        let audio = desktop.source(song_key)?;
+        let map = map.unwrap_or_else(|| {
+            ohmyloop::timing::MeasureMap::empty(audio.rate, audio.frames.len() as u64)
+        });
+        anyhow::ensure!(
+            map.rate == audio.rate && map.frames == audio.frames.len() as u64,
+            "Musical map belongs to a different source"
+        );
+        map.edit(edit)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn measure_map_view(
+    map: ohmyloop::timing::MeasureMap,
+) -> Result<ohmyloop::timing::MapView, String> {
+    work(move || {
+        map.validate()?;
+        Ok(map.view())
+    })
+    .await
+}
+
 async fn work<T: Send + 'static>(
     job: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
 ) -> Result<T, String> {
@@ -77,7 +110,50 @@ async fn transport_status(state: State<'_, Desktop>) -> Result<Transport, String
     work(move || desktop.status()).await
 }
 
+#[tauri::command]
+async fn analysis_status(
+    state: State<'_, ohmyloop::analysis::AnalysisManager>,
+) -> Result<ohmyloop::analysis::JobStatus, String> {
+    Ok(state.status())
+}
+#[tauri::command]
+async fn install_analysis_model(
+    state: State<'_, ohmyloop::analysis::AnalysisManager>,
+) -> Result<ohmyloop::analysis::JobStatus, String> {
+    state.install().map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn cancel_analysis(
+    id: u64,
+    state: State<'_, ohmyloop::analysis::AnalysisManager>,
+) -> Result<ohmyloop::analysis::JobStatus, String> {
+    Ok(state.cancel(id))
+}
+#[tauri::command]
+async fn start_analysis(
+    song_key: String,
+    revision: u64,
+    desktop: State<'_, Desktop>,
+    state: State<'_, ohmyloop::analysis::AnalysisManager>,
+) -> Result<ohmyloop::analysis::JobStatus, String> {
+    let desktop = desktop.inner().clone();
+    let manager = state.inner().clone();
+    work(move || {
+        let audio = desktop.source(song_key.clone())?;
+        manager.analyze(std::env::current_exe()?, audio, song_key, revision)
+    })
+    .await
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--analysis-worker") {
+        if let Err(error) = ohmyloop::analysis::worker(&args[1..]) {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -88,6 +164,11 @@ fn main() {
             let directory = std::env::var_os("OHMYLOOP_DATA_DIR")
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?.join("practice"));
+            let models = std::env::var_os("OHMYLOOP_MODEL_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or(app.path().app_data_dir()?.join("models/beat-this-v1"));
+            let cache = directory.parent().unwrap_or(&directory).join("analysis");
+            app.manage(ohmyloop::analysis::AnalysisManager::new(models, cache)?);
             let desktop = Desktop::start(directory)?;
             if std::env::args().any(|arg| arg == "--demo") {
                 desktop.load(None)?;
@@ -97,6 +178,12 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             read_keymap,
+            analysis_status,
+            install_analysis_model,
+            cancel_analysis,
+            start_analysis,
+            preview_measure_map,
+            measure_map_view,
             initialize,
             load_demo,
             open_song,
@@ -126,7 +213,11 @@ fn main() {
                     let _ = window.set_focus();
                 }
             }
-            tauri::RunEvent::Exit => app.state::<Desktop>().shutdown(),
+            tauri::RunEvent::Exit => {
+                app.state::<ohmyloop::analysis::AnalysisManager>()
+                    .shutdown();
+                app.state::<Desktop>().shutdown();
+            }
             _ => {}
         });
 }

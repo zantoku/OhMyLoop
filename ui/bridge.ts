@@ -1,6 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Action, PracticeDocument, Snapshot, Song, Transport } from './types';
 import type { KeymapFile } from './keymap';
+import type { MapEdit, MeasureMap, MapPreview, MapView, AnalysisStatus } from './timing';
 
 export const native = isTauri();
 const empty: Transport = { song_key: null, position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: null };
@@ -15,7 +16,7 @@ function demo(): Snapshot {
   previewSong = { key: 'builtin-demo', title: 'Practice sketch', path: null, duration: 12, rate: 48000,
     peaks: Array.from({ length: 4096 }, (_, i) => { const t = i / 4096 * 12; const level = 0.06 + 0.21 * Math.exp(-5 * (t % .5)); return [-level, level]; }) };
   const saved = localStorage.getItem('ohmyloop-ui-preview');
-  previewDocument = saved ? JSON.parse(saved) : { version: 2, song_key: 'builtin-demo', controls: { speed: 1, semitones: 0 },
+  previewDocument = saved ? JSON.parse(saved) : { version: 3, song_key: 'builtin-demo', controls: { speed: 1, semitones: 0 },
     sections: ['Verse', 'Chorus', 'Bridge', 'Outro'].map((name, i) => ({ id: `demo-${i}`, name, start: i * 3, end: (i + 1) * 3 })),
     selected_section: null, loop_selection: null, loop_enabled: false, last_position: 0 };
   previewTransport = { ...empty, song_key: 'builtin-demo', position: previewDocument!.last_position };
@@ -23,6 +24,12 @@ function demo(): Snapshot {
 }
 
 export const bridge = {
+  analysisStatus: () => native ? invoke<AnalysisStatus>('analysis_status') : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
+  installModel: () => native ? invoke<AnalysisStatus>('install_analysis_model') : Promise.reject(new Error('Install the model in the desktop app.')),
+  startAnalysis: (songKey:string, revision:number) => native ? invoke<AnalysisStatus>('start_analysis', {songKey,revision}) : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
+  cancelAnalysis: (id:number) => native ? invoke<AnalysisStatus>('cancel_analysis',{id}) : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
+  previewMap: (songKey: string, map: MeasureMap | null, edit: MapEdit) => native ? invoke<MapPreview>('preview_measure_map', { songKey, map, edit }) : Promise.reject(new Error('Musical map editing is available in the desktop app.')),
+  mapView: (map: MeasureMap) => native ? invoke<MapView>('measure_map_view', { map }) : Promise.reject(new Error('Musical map editing is available in the desktop app.')),
   readKeymap: () => native ? invoke<KeymapFile>('read_keymap') : Promise.resolve({ path: null, configuration: null, warning: null }),
   initialize: () => native ? invoke<Snapshot>('initialize') : Promise.resolve(snapshot()),
   loadDemo: () => native ? invoke<Snapshot>('load_demo') : Promise.resolve(demo()),

@@ -75,8 +75,12 @@ it an estimate.
 `npm run dev` opens a frontend-only development preview. It uses explicit demo
 fixtures and disables audio playback; the desktop app uses the real Rust engine.
 
-Count-ins, inter-loop rests, BPM detection, speed ladders, section automation,
-sequences, export UI, recording, stems, and tabs remain future work in
+The next planned pass is a dedicated measure-mapping screen with editable
+tempo/meter interpretation and automatic beat/downbeat draft generation.
+See the [implementation plan](docs/MEASURE_MAPPING.md) and
+[technology research](docs/BEAT_MAPPING_RESEARCH.md); these features are not
+complete or verified yet; see the [implementation checkpoint](docs/IMPLEMENTATION_STATUS.md). Count-ins, inter-loop rests, speed ladders, section automation,
+sequences, export UI, recording, stems, and tabs remain later work in
 [PLAN.md](PLAN.md).
 
 Desktop checks:

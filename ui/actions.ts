@@ -1,52 +1,87 @@
 // Stable action identities and presentation metadata. No UI or device access.
+export type ActionScope = 'all' | 'practice' | 'mapping';
 export type Requirement = 'none' | 'song' | 'range' | 'sections' | 'audio' | 'loop_on' | 'undo' | 'editor' | 'help' | 'zoom_out';
 export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close';
 function define(description: string, keys: readonly string[] = [], requires: Requirement = 'song', payload: PayloadKind = 'command', repeat = false) {
-  return { description, keys, requires, payload, repeat, duringBusy: false };
+  return { description, keys, requires, payload, repeat, duringBusy: false, scope: 'all' as ActionScope };
 }
 
+const practice = (...args: Parameters<typeof define>) => ({ ...define(...args), scope: 'practice' as ActionScope });
+const mapping = (description: string, keys: readonly string[] = []) => ({ ...define(description, keys), scope: 'mapping' as ActionScope });
+export const MAPPING_ACTIONS = {
+  map_build: mapping('Preview measures in the selected span'),
+  map_apply: mapping('Apply the measure-map preview'),
+  map_discard: mapping('Discard the measure-map preview'),
+  map_notation: mapping('Preview meter and measure extent'),
+  map_boundary: mapping('Move the selected boundary'),
+  map_beat: mapping('Add or update a beat anchor'),
+  map_remove_beat: mapping('Remove the selected beat anchor'),
+  map_split: mapping('Split the selected measure'),
+  map_merge: mapping('Merge with the following measure'),
+  map_remove: mapping('Make the selected measure free time'),
+  map_protect: mapping('Protect or unprotect this measure'),
+  map_respace: mapping('Respace the selected measures'),
+  map_undo: mapping('Undo a measure-map edit'),
+  map_redo: mapping('Redo a measure-map edit'),
+  map_fit: mapping('Fit the selected measure'),
+  map_whole: mapping('Show the whole song in the measure map'),
+  map_analyze: mapping('Analyze beats and downbeats'),
+  map_cancel_analysis: mapping('Cancel beat analysis'),
+  map_install_model: mapping('Install the beat-analysis model'),
+  map_use_analysis: mapping('Preview measures from detected beats')
+} as const;
+export type MappingActionId = keyof typeof MAPPING_ACTIONS;
+
 export const ACTIONS = {
+  ...MAPPING_ACTIONS,
+  show_measure_map: { ...define('Open the measure map'), scope: 'practice' as ActionScope },
+  show_practice: mapping('Back to practice'),
+  previous_measure: define('Previous measure'), next_measure: define('Next measure'),
+  goto_measure: define('Go to the chosen measure'),
   play_pause: define('Play / pause', ['Space'], 'audio'),
-  toggle_loop: define('Loop on / off', ['l']),
-  set_loop_start: define('Set A at the playhead', ['a']),
-  set_loop_end: define('Set B at the playhead', ['b']),
+  toggle_loop: practice('Loop on / off', ['l']),
+  set_loop_start: practice('Set A at the playhead', ['a']),
+  set_loop_end: practice('Set B at the playhead', ['b']),
   jump_loop_start: define('Jump to A', [','], 'range'),
   jump_loop_end: define('Jump to B', ['.'], 'range'),
   jump_song_start: define('Rewind to song start', ['Enter']),
-  clear_loop: define('Clear A–B range', ['x'], 'range'),
+  clear_loop: practice('Clear A–B range', ['x'], 'range'),
   seek_backward: define('Seek back 5 seconds', ['ArrowLeft'], 'song', 'command', true),
   seek_forward: define('Seek forward 5 seconds', ['ArrowRight'], 'song', 'command', true),
   seek_backward_fine: define('Seek back 0.1 seconds', ['Shift+ArrowLeft'], 'song', 'command', true),
   seek_forward_fine: define('Seek forward 0.1 seconds', ['Shift+ArrowRight'], 'song', 'command', true),
-  previous_section: define('Previous section', ['['], 'sections'),
-  next_section: define('Next section', [']'], 'sections'),
-  add_section: define('Save a named section', ['n']),
+  previous_section: practice('Previous section', ['['], 'sections'),
+  next_section: practice('Next section', [']'], 'sections'),
+  add_section: practice('Save a named section', ['n']),
   open_song: define('Open a song', ['Mod+o'], 'none'),
   disable_loop: define('Turn looping off', ['Escape'], 'loop_on'),
   show_shortcuts: { ...define('Show keyboard shortcuts', [], 'none'), duringBusy: true },
   reload_keymap: define('Reload shortcut configuration', [], 'none'),
   load_demo: define('Try the demo', [], 'none'),
-  fit_loop: define('Fit the A–B passage in the view', [], 'range'),
-  zoom_in: define('Zoom in'),
-  zoom_out: define('Zoom out', [], 'zoom_out'),
-  show_whole_song: define('Show the whole song'),
+  fit_loop: practice('Fit the A–B passage in the view', [], 'range'),
+  zoom_in: practice('Zoom in'),
+  zoom_out: practice('Zoom out', [], 'zoom_out'),
+  show_whole_song: practice('Show the whole song'),
   reset_speed: define('Reset to original speed'),
   reset_pitch: define('Reset to original pitch'),
   retry_audio: define('Retry audio output'),
   retry_save: define('Retry saving practice settings'),
-  undo_delete: define('Restore the removed section', [], 'undo'),
+  undo_delete: practice('Restore the removed section', [], 'undo'),
   dismiss_error: { ...define('Dismiss this message', [], 'none'), duringBusy: true },
-  select_section: define('Jump to this section', [], 'song', 'section'),
-  edit_section: define('Edit this section', [], 'song', 'section'),
-  delete_section: define('Delete this section', [], 'song', 'section'),
+  select_section: practice('Jump to this section', [], 'song', 'section'),
+  edit_section: practice('Edit this section', [], 'song', 'section'),
+  delete_section: practice('Delete this section', [], 'song', 'section'),
   speed_preset: define('Set playback speed', [], 'song', 'speed'),
-  save_section: define('Save section', [], 'editor', 'editor_submit'),
-  close_editor: define('Close section editor', [], 'editor', 'editor_close'),
+  save_section: practice('Save section', [], 'editor', 'editor_submit'),
+  close_editor: practice('Close section editor', [], 'editor', 'editor_close'),
   close_shortcuts: { ...define('Close shortcuts', [], 'help', 'help_close'), duringBusy: true }
 } as const;
 
 export type ActionId = keyof typeof ACTIONS;
 export const BUTTONS = {
+  ...Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id => [id, id])) as { [K in MappingActionId]: K },
+  show_measure_map: 'show_measure_map', show_practice: 'show_practice',
+  previous_measure: 'previous_measure', next_measure: 'next_measure', goto_measure: 'goto_measure',
   open_song: 'open_song', demo: 'load_demo', shortcuts: 'show_shortcuts',
   previous_section: 'previous_section', play: 'play_pause', next_section: 'next_section',
   loop: 'toggle_loop', clear_loop: 'clear_loop', fit_loop: 'fit_loop',

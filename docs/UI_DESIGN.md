@@ -61,3 +61,17 @@ This differs from a generic media player by giving equal space to phrase
 selection and section navigation. A single waveform workspace, two prominent
 independent practice controls, and restrained section colors serve the guitar
 practice workflow without turning the screen into a DAW mixer.
+
+## Planned measure-mapping screen
+
+The next pass adds **Measure map** in the practice header and **Back to
+practice** on a dedicated screen in the same window. It shares the song and
+transport, but has a separate viewport and editing selection. Its waveform
+uses the existing zoom, pan and minimap conventions while showing measure
+boundaries, beat anchors and meter changes instead of A–B editing handles.
+
+A musical ruler and inspector support pulse interpretation, pickups,
+incomplete measures and protected corrections. Automatic analysis supplies
+an editable draft; manual mapping remains available without a model. The
+interaction contract and implementation scope are recorded in
+[MEASURE_MAPPING.md](MEASURE_MAPPING.md). This screen is not implemented yet.
