@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Action, PracticeDocument, Snapshot, Song, Transport } from './types';
+import type { KeymapFile } from './keymap';
 
 export const native = isTauri();
 const empty: Transport = { song_key: null, position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: null };
@@ -22,6 +23,7 @@ function demo(): Snapshot {
 }
 
 export const bridge = {
+  readKeymap: () => native ? invoke<KeymapFile>('read_keymap') : Promise.resolve({ path: null, configuration: null, warning: null }),
   initialize: () => native ? invoke<Snapshot>('initialize') : Promise.resolve(snapshot()),
   loadDemo: () => native ? invoke<Snapshot>('load_demo') : Promise.resolve(demo()),
   openSong: () => native ? invoke<Snapshot | null>('open_song') : Promise.reject(new Error('Open songs in the desktop app. This browser preview has no audio device.')),
@@ -32,7 +34,14 @@ export const bridge = {
   },
   action: (action: Action) => {
     if (native) return invoke<Snapshot>('transport_action', { action });
-    if (action.type === 'seek') { previewTransport.position = action.seconds; if (previewDocument) previewDocument.last_position = action.seconds; }
+    if (action.type === 'seek') {
+      previewTransport.position = action.seconds;
+      if (previewDocument) {
+        previewDocument.last_position = action.seconds;
+        const loop = previewDocument.loop_selection;
+        if (previewDocument.loop_enabled && loop && (action.seconds < loop.start || action.seconds >= loop.end)) previewDocument.loop_enabled = false;
+      }
+    }
     return Promise.resolve(snapshot());
   },
   status: () => native ? invoke<Transport>('transport_status') : Promise.resolve({ ...previewTransport })

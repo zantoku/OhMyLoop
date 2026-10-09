@@ -1,0 +1,100 @@
+# Actions and shortcut configuration
+
+Default endpoint navigation is `,` → A, `.` → B, and Enter → song start.
+The A/B labels beside the time fields also invoke the same actions when clicked.
+Seeking to B turns looping off because B is the exclusive end. Seeking to
+the song start also turns looping off when it lies outside the enabled range.
+Seeking preserves play/pause state; reaching the file's natural end can finish
+playback. A range remains saved when looping is turned off.
+
+## Configuration file
+
+The app reads `keymap.json` on startup. The exact path is shown under
+**Shortcuts → Customize shortcuts**. Usual locations:
+
+- macOS: `~/Library/Application Support/org.ohmyloop.desktop/keymap.json`
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/org.ohmyloop.desktop/keymap.json`
+- Windows: `%APPDATA%\org.ohmyloop.desktop\keymap.json`
+
+Copy [config/keymap.example.json](../config/keymap.example.json) to that path
+and edit it. Use **Reload configuration** in the shortcut dialog to apply
+changes without restarting. The application reads configuration without
+creating or overwriting it. Missing files use built-in defaults. Invalid JSON,
+unsupported versions, unknown fields/actions, conflicting bindings, incompatible
+button mappings, or files larger than 64 KiB produce a warning and restore the
+complete default keymap. Correct the file and reload to clear the warning.
+
+For isolated development or testing, `OHMYLOOP_KEYMAP_FILE` selects a different
+file at application startup. It does not change the song-settings directory.
+
+```json
+{
+  "version": 1,
+  "keys": {
+    "play_pause": ["p"],
+    "jump_loop_start": ["q"],
+    "jump_loop_end": ["w"],
+    "jump_song_start": ["Enter"]
+  },
+  "buttons": {
+    "previous_section": "jump_loop_start",
+    "next_section": "jump_loop_end"
+  },
+  "descriptions": {
+    "jump_loop_start": "Back to the riff",
+    "jump_loop_end": "Continue after the riff"
+  }
+}
+```
+
+`keys` replaces the whole binding list for each named action. Omitted actions
+inherit their defaults; `[]` disables a shortcut. Each action may have up to
+eight bindings. If a reassigned key was already used, also remove or replace
+the other action's binding. Conflicts include inherited defaults.
+
+Bindings use the produced `KeyboardEvent.key` character, independent of physical
+keyboard position. Letters are case-insensitive, and Shift may be used to produce
+an unmodified character. With Ctrl, Meta, or Alt, Shift is matched explicitly,
+so `Mod+p` and `Mod+Shift+p` can invoke different actions. Named keys include
+Space, Enter, Escape, ArrowLeft/Right/Up/Down,
+Home, End, PageUp/Down, Delete, Backspace, and F1–F12. Use `Plus` for a literal
+`+`. Modifiers are `Ctrl`, `Meta`, `Alt`, `Shift`, and `Mod`, separated by `+`;
+`Mod` means Command on macOS and Control elsewhere. For example, `Mod+o` opens
+a song and `Shift+ArrowLeft` performs fine seeking. Tab remains keyboard focus
+navigation. Bindings that overlap after modifier/platform resolution are rejected.
+
+`buttons` maps a stable control ID to an action. Actions requiring contextual
+data, such as a section or speed preset, can only replace actions accepting the
+same kind of payload. Form submit and dialog-close controls retain their own
+payload categories. Layout and icons belong to the view; execution, availability,
+tooltips, and remapped accessible labels use the resolved action.
+
+`descriptions` overrides the text used in hover descriptions and shortcut help.
+It does not alter action identity or behavior. Descriptions are plain text,
+limited to 160 characters. All action/button IDs and default descriptions live
+in [ui/actions.ts](../ui/actions.ts); the documentation does not maintain a second
+action catalog.
+
+Practice shortcuts are suspended inside editable fields and dialogs and during
+IME composition. Holding a transport toggle does not repeatedly toggle it;
+seek actions permit key repeat. Standard widget keyboard behavior (waveform
+slider navigation, loop-handle adjustment, and numeric input editing) remains
+local to those widgets.
+
+## Architecture
+
+- `ui/actions.ts`: stable action IDs, default bindings, descriptions, payload
+  categories, requirements, and button-to-action mappings.
+- `ui/keymap.ts`: pure configuration validation, override resolution, key
+  matching, platform formatting, and descriptions for the view.
+- `ui/action-dispatcher.ts`: shared availability, payload checks, and execution.
+- `ui/App.svelte`: state-aware handler adapters and presentation. Its keyboard
+  handler resolves a binding and dispatches an action; it contains no key list.
+- `src/keymap.rs`: bounded, read-only JSON file loading. It does not know UI
+  actions or duplicate their definitions.
+- `src-tauri`: resolves the app configuration path and reads the file off the
+  UI/audio threads through the command bridge.
+
+The model is replaced atomically after complete validation. Failed reloads do
+not apply a partial configuration. A future settings editor can edit the same
+versioned format rather than introducing another action or binding system.

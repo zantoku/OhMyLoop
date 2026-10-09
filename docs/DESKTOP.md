@@ -13,6 +13,9 @@ controls, keyboard navigation, and restored practice settings.
   UI commands are handled away from the device callback. It does not require
   unsafe Send/Sync implementations for native audio objects.
 - `src-tauri`: native file picker, command bridge, and app lifecycle.
+- `src/keymap.rs`: bounded, read-only configuration-file loading.
+- `ui/actions.ts`, `ui/keymap.ts`, `ui/action-dispatcher.ts`: shared command
+  metadata, validated bindings, and execution/availability independent of the view.
 - `ui`: Svelte screen, canvas waveforms, range interactions, and shortcuts.
 
 The source timeline remains independent from playback speed and output sample
@@ -29,17 +32,27 @@ sections are seeded only on first use, so removing them remains persistent.
 
 ## Verification
 
-Local macOS checks cover the existing eleven audio tests plus seven tests
+Local macOS checks cover the existing eleven audio tests plus eight tests
 for document restoration, nested sections, transient-preserving waveform peaks,
-file identity, invalid document preservation, and resampling. The frontend
-suite has eighteen passing tests covering coordinates, shortcuts, section/loop
+file identity, invalid document preservation, resampling, and loop-endpoint seek
+semantics. One additional Rust test covers bounded keymap file reads and
+preservation of invalid configuration. The frontend
+suite has thirty-nine passing tests covering coordinates, shortcuts, section/loop
 behavior, independent control updates, nested phrase creation, Undo preserving
 section identity, and exact dragged boundaries passing browser validation.
 Gesture checks cover pointer-anchored wheel zoom with pixel/line/page deltas,
 middle-button panning across viewport updates and at song boundaries, pointer
-cancellation, and preserved left-button selection/seeking. X clears an active
+cancellation, and preserved left-button selection/seeking. Minimap checks cover
+click navigation, continuous dragging at a fixed zoom, edge clamping, cancellation,
+and avoiding seek/loop changes. X clears an active
 range during playback without changing saved sections, and is suspended while
-editing fields or dialogs. Svelte/TypeScript checks report no errors or warnings.
+editing fields or dialogs. Comma seeks to the exact A start; period seeks to B
+and disables looping; Enter rewinds to the song start. Configuration tests cover
+platform modifiers, conflict validation, file-error fallback, command availability,
+contextual payloads, remapped buttons, synchronized hover/help descriptions,
+and corrected-file reloads. A/B shortcuts do nothing without a range or while
+editing decimal inputs or dialogs.
+Svelte/TypeScript checks report no errors or warnings.
 
 The native macOS app builds into a roughly 15 MiB app bundle. The first window
 inspection found lower controls falling outside the initial viewport; the
@@ -69,6 +82,26 @@ Native UI verification on macOS with `KT_USB_AUDIO`:
   Middle-button dragging has automated component coverage; physical mouse
   verification remains pending because desktop automation supports only
   left-button dragging.
+- Left-button minimap dragging moved a 4× viewport across the song and
+  remained captured outside both minimap edges, clamping to the source start
+  and end. Playback stayed paused at approximately 27.884 source seconds,
+  with the temporary loop and playback controls unchanged.
+- Pointer focus on the waveform and minimap no longer paints a focus outline.
+  A native middle click focused the waveform without changing playback or
+  loop bounds; minimap dragging stayed free of focus rings. Tab navigation
+  still showed a visible outline on the song-position slider. Timeline input
+  tracking handles WebKit's scripted-focus behavior while retaining keyboard
+  focus indicators.
+- Comma moved the paused native playhead to approximately 39.377 source
+  seconds at A. With looping enabled, period moved to B at approximately
+  64.390 seconds and turned looping off. Enter then moved to zero. The range,
+  speed, and pitch were preserved throughout.
+- A temporary on-disk keymap reassigned A to Q, mapped the previous-section
+  button to the A jump, and supplied the description "Back to the riff".
+  Reloading changed the help row, button label, and hover description together.
+  Comma became inactive, Q jumped to A, and the remapped button executed the
+  same seek. The unchanged test file was removed and another reload restored
+  the defaults. The final native app remains open, paused at A, using defaults.
 
 The window is shown/focused at startup and macOS reopen, and closing the main
 window requests app exit. This addresses the background-without-visible-window
@@ -76,7 +109,7 @@ state encountered during repeated automation relaunches. The rebuilt app was
 left open, paused, on the song that was open before the gesture checks.
 
 Linux and Windows builds and tests are configured in the desktop CI workflow.
-They have not been executed locally and are not yet verified. Code signing,
+This revision has not been verified on those platforms. Code signing,
 installer distribution, automatic device reconnection, streaming long files,
 and sample-accurate synchronization through adaptive stretching remain later
 work. None of the musical practice features deferred in PLAN.md have been

@@ -36,7 +36,8 @@ the WebKitGTK and desktop integration packages listed in
 Open a song or try the built-in demo. Click the waveform to seek; drag to
 choose a temporary loop. The A/B handles and numeric fields adjust the bounds.
 Scroll over the waveform to zoom at the pointer; hold the middle mouse button
-and drag to pan. Zoom buttons and the overview also let you move around the song.
+and drag to pan. Click or drag the whole-song minimap to move the detailed
+view while keeping its zoom level. Zoom buttons also let you adjust the view.
 
 Named sections have explicit start/end ranges and may overlap. Selecting a
 section prepares its range and seeks to its start while preserving play/pause
@@ -44,11 +45,19 @@ and loop on/off state. Adjusting a temporary loop does not modify the saved
 section. Sections can be renamed, resized, and deleted; Undo restores deleted
 sections during the current app session.
 
-Space toggles playback, L toggles looping, A/B set loop boundaries, X clears
-the A–B range and turns looping off, brackets navigate sections, N adds a
-section, and Cmd/Ctrl+O opens a song. Arrow keys
+Space toggles playback, L toggles looping, and A/B set loop boundaries.
+Comma jumps to A, period jumps to B, and Enter rewinds to the song start.
+Jumping to B turns looping off; seeking preserves play/pause state.
+X clears the A–B range and turns looping off, brackets navigate sections,
+N adds a section, and Cmd/Ctrl+O opens a song. Arrow keys
 seek five seconds; Shift+arrows seek 0.1 seconds. Shortcuts are suspended while
 editing fields or dialogs. The in-app shortcut panel lists these controls.
+
+Shortcuts, command-button mappings, and hover/help descriptions come from a
+shared action model. Optional `keymap.json` overrides load from the app's
+configuration directory and can be reloaded from **Shortcuts → Customize
+shortcuts**. See [docs/KEYMAP.md](docs/KEYMAP.md) for the format, file locations,
+validation rules, and [example configuration](config/keymap.example.json).
 
 Practice documents are saved in the app's per-user data directory, under
 `practice`. They contain stable section IDs, source coordinates, controls,

@@ -47,6 +47,12 @@ prototype and its audio tests while building the desktop UI.
 
 ## Working practices
 
+- Treat clean architecture and maintainability as requirements. Keep domain
+  models, persistence, action execution, and UI presentation separate; prefer
+  small, cohesive modules and explicit interfaces over growing event handlers.
+  Centralize action identities, input/button bindings, and help descriptions so
+  behavior, tooltips, and shortcut documentation stay consistent. Validate
+  versioned configuration at its boundary and preserve invalid user files.
 - Prefer small modules, explicit state, and narrowly scoped unsafe FFI.
 - Follow the first-pass scope in PLAN.md. Defer count-ins, musical rests, tempo
   detection, speed ladders, sequences, export UI, recording, stems, and tabs.

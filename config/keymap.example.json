@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "keys": {
+    "jump_loop_start": [","],
+    "jump_loop_end": ["."],
+    "jump_song_start": ["Enter"]
+  },
+  "buttons": {
+    "play": "play_pause",
+    "previous_section": "previous_section",
+    "next_section": "next_section"
+  },
+  "descriptions": {
+    "jump_loop_start": "Jump to A",
+    "jump_loop_end": "Jump to B"
+  }
+}

@@ -3,6 +3,9 @@
   import Waveform from './Waveform.svelte';
   import Icon from './Icon.svelte';
   import { bridge, native } from './bridge';
+  import { Keymap, loadKeymap } from './keymap';
+  import { ActionDispatcher, type ActionPayload } from './action-dispatcher';
+  import type { ActionId, ButtonId } from './actions';
   import { clamp, editing, ordered, range, sectionColor, time, zoom } from './model';
   import type { Action, Loop, PracticeDocument, Section, Snapshot, Song, Transport, View } from './types';
 
@@ -12,6 +15,12 @@
   let busy = $state('');
   let error = $state('');
   let saved = $state(true);
+  const mac = navigator.platform.includes('Mac');
+  let keymap = $state(new Keymap(mac));
+  let keymapPath = $state<string | null>(null);
+  let keymapWarning = $state<string | null>(null);
+  let keymapLoading = $state(false);
+  const shortcuts = $derived(keymap.shortcuts());
   let view = $state<View>({ start: 0, end: 12 });
   let sectionDialog: HTMLDialogElement;
   let helpDialog: HTMLDialogElement;
@@ -95,7 +104,7 @@
     if (!sections.length) return;
     const index = sections.findIndex(s => s.id === project?.selected_section);
     const selected = index < 0 ? (direction > 0 ? 0 : sections.length - 1) : clamp(index + direction, 0, sections.length - 1);
-    void selectSection(sections[selected]);
+    return selectSection(sections[selected]);
   }
   function startSection(section?: Section) {
     if (!song) return;
@@ -104,8 +113,8 @@
     sectionEnd = section?.end ?? selection?.end ?? song.duration;
     dialogError = ''; sectionDialog.showModal(); requestAnimationFrame(() => nameInput?.focus());
   }
-  async function saveSection(event: SubmitEvent) {
-    event.preventDefault(); if (!song || !project) return;
+  async function saveSection() {
+    if (!song || !project) return;
     const selected = range(sectionStart, sectionEnd, song.duration);
     if (!sectionName.trim() || sectionName.length > 128) { dialogError = 'Give this section a name (up to 128 characters).'; return; }
     if (!selected || sectionStart >= sectionEnd || sectionStart < 0 || sectionEnd > song.duration) { dialogError = 'Choose a start and end inside the song, at least 0.1 seconds apart.'; return; }
@@ -131,23 +140,56 @@
     const end = edge === 'end' ? transport.position : selection?.end ?? Math.min(song.duration, transport.position + 4);
     const loop = range(start, end, song.duration); if (loop) void chooseLoop(loop);
   }
+  function seekBy(seconds: number) { if (song) return action({ type: 'seek', seconds: clamp(transport.position + seconds, 0, song.duration) }); }
+  async function reloadKeymap() {
+    if (keymapLoading) return;
+    keymapLoading = true;
+    try {
+      const loaded = await loadKeymap(bridge.readKeymap, mac);
+      if (mounted) { keymap = loaded.model; keymapPath = loaded.path; keymapWarning = loaded.warning; }
+    } finally { keymapLoading = false; }
+  }
+  const dispatcher = new ActionDispatcher({
+    play_pause: () => action({ type: 'toggle_play' }), toggle_loop: toggleLoop,
+    set_loop_start: () => setBoundary('start'), set_loop_end: () => setBoundary('end'),
+    jump_loop_start: () => action({ type: 'seek', seconds: selection!.start }),
+    jump_loop_end: () => action({ type: 'seek', seconds: selection!.end }),
+    jump_song_start: () => action({ type: 'seek', seconds: 0 }), clear_loop: clearLoop,
+    seek_backward: () => seekBy(-5), seek_forward: () => seekBy(5),
+    seek_backward_fine: () => seekBy(-.1), seek_forward_fine: () => seekBy(.1),
+    previous_section: () => nextSection(-1), next_section: () => nextSection(1),
+    add_section: () => startSection(), open_song: () => open(),
+    disable_loop: () => update({ loop_enabled: false }), show_shortcuts: () => helpDialog.showModal(),
+    reload_keymap: reloadKeymap, load_demo: () => open(true), fit_loop: fitLoop,
+    zoom_in: () => { view = zoom(view, song!.duration, .5, selection ? (selection.start + selection.end) / 2 : transport.position); },
+    zoom_out: () => { view = zoom(view, song!.duration, 2, (view.start + view.end) / 2); },
+    show_whole_song: () => { view = { start: 0, end: song!.duration }; },
+    reset_speed: () => controls(1, pitch), reset_pitch: () => controls(speed, 0),
+    retry_audio: () => action({ type: 'retry_audio' }), retry_save: () => update({}),
+    undo_delete: undoDelete, dismiss_error: () => { error = ''; },
+    select_section: ({ section }) => selectSection(section!), edit_section: ({ section }) => startSection(section),
+    delete_section: ({ section }) => removeSection(section!.id), speed_preset: ({ speed }) => controls(speed!, pitch),
+    save_section: saveSection, close_editor: () => sectionDialog.close(), close_shortcuts: () => helpDialog.close()
+  }, () => ({ busy: !!busy, song: !!song, range: !!selection, sections: !!sections.length,
+    audio: !!song && native && !transport.audio_error, loop_on: !!project?.loop_enabled,
+    undo: !!undo.length, editor: !!sectionDialog?.open, help: !!helpDialog?.open,
+    zoom_out: !!song && view.end - view.start < song.duration }));
+
+  async function runAction(id: ActionId, payload: ActionPayload = {}) {
+    try { await dispatcher.run(id, payload); } catch (e) { error = String(e); }
+  }
+  function runButton(id: ButtonId, payload: ActionPayload = {}) { return runAction(keymap.actionFor(id), payload); }
+  function buttonAvailable(id: ButtonId) { return dispatcher.available(keymap.actionFor(id)); }
   function keyboard(event: KeyboardEvent) {
     if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open) return;
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); void open(); return; }
-    if (!song || event.metaKey || event.ctrlKey || event.altKey) return;
-    const key = event.key.toLowerCase();
-    if (event.code === 'Space') { event.preventDefault(); if (native && !transport.audio_error) void action({ type: 'toggle_play' }); }
-    else if (key === 'l') { event.preventDefault(); void toggleLoop(); }
-    else if (key === 'x') { event.preventDefault(); void clearLoop(); }
-    else if (key === 'a' || key === 'b') { event.preventDefault(); setBoundary(key === 'a' ? 'start' : 'end'); }
-    else if (key === '[' || key === ']') { event.preventDefault(); nextSection(key === '[' ? -1 : 1); }
-    else if (key === 'n') { event.preventDefault(); startSection(); }
-    else if (key === 'arrowleft' || key === 'arrowright') { event.preventDefault(); void action({ type: 'seek', seconds: clamp(transport.position + (key === 'arrowright' ? 1 : -1) * (event.shiftKey ? .1 : 5), 0, song.duration) }); }
-    else if (key === 'escape' && project?.loop_enabled) void update({ loop_enabled: false });
+    const id = keymap.match(event);
+    if (!id || !dispatcher.available(id)) return;
+    event.preventDefault(); void runAction(id);
   }
   onMount(() => {
     mounted = true; busy = 'Restoring practice…';
-    bridge.initialize().then(apply).catch(e => { error = String(e); }).finally(() => { busy = ''; });
+    const restore = bridge.initialize().then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
+    Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
     let polling = false;
     const timer = setInterval(async () => {
       if (!song || busy || polling) return;
@@ -167,13 +209,14 @@
       <span>OhMyLoop</span>
     </div>
     <div class="song-heading"><h1>{song?.title ?? 'Make room for practice'}</h1><span>{song ? `${time(song.duration, 0)} • ${song.path ? 'Local song' : 'Built-in demo'}` : 'One song. As many tries as it takes.'}</span></div>
-    <button class="button open-button" onclick={() => open()} disabled={!!busy}><Icon name="folder"/>Open song</button>
-    <button class="icon-button" aria-label="Keyboard shortcuts" title="Keyboard shortcuts" onclick={() => helpDialog.showModal()}><Icon name="help"/></button>
+    <button class="button open-button" title={keymap.title('open_song')} onclick={() => runButton('open_song')} disabled={!buttonAvailable('open_song')}><Icon name="folder"/>Open song</button>
+    <button class="icon-button" aria-label="Keyboard shortcuts" title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}><Icon name="help"/></button>
   </header>
 
-  {#if error}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" onclick={() => { error = ''; }}>Dismiss</button></div>{/if}
-  {#if transport.audio_error && song}<div class="notice audio-notice" role="status"><span>Audio output is unavailable. Reconnect your output device, then retry.</span><button class="text-button" onclick={() => action({ type: 'retry_audio' })}>Retry audio</button></div>{/if}
-  {#if transport.save_error}<div class="notice error" role="alert"><span>{transport.save_error}</span><button class="text-button" onclick={() => update({})}>Retry save</button></div>{/if}
+  {#if error}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
+  {#if keymapWarning}<div class="notice" role="alert"><span>{keymapWarning}</span><button class="text-button" title={keymap.title('reload_keymap')} disabled={keymapLoading} onclick={() => runButton('reload_keymap')}>Reload configuration</button></div>{/if}
+  {#if transport.audio_error && song}<div class="notice audio-notice" role="status"><span>Audio output is unavailable. Reconnect your output device, then retry.</span><button class="text-button" title={keymap.title('retry_audio')} onclick={() => runButton('retry_audio')}>Retry audio</button></div>{/if}
+  {#if transport.save_error}<div class="notice error" role="alert"><span>{transport.save_error}</span><button class="text-button" title={keymap.title('retry_save')} onclick={() => runButton('retry_save')}>Retry save</button></div>{/if}
   {#if !native}<div class="preview-note">Interface preview · Audio playback and file opening are available in the desktop app.</div>{/if}
 
   <main class="practice-layout" aria-busy={!!busy}>
@@ -184,48 +227,57 @@
         <div class="section-list">
           {#each sections as section (section.id)}
             <div class:selected={project?.selected_section === section.id} class="section-row" style:--section-color={sectionColor(section.id)}>
-              <button class="section-select" onclick={() => selectSection(section)} aria-pressed={project?.selected_section === section.id}>
+              <button class="section-select" title={keymap.title('select_section')} onclick={() => runButton('select_section', { section })} aria-pressed={project?.selected_section === section.id}>
                 <span class="section-dot"></span><span class="section-text"><strong>{section.name}</strong><span>{time(section.start)} – {time(section.end)}</span></span><span class="section-duration">{time(section.end - section.start, 0)}</span>
               </button>
-              <div class="section-actions"><button class="icon-button" aria-label={`Edit ${section.name}`} onclick={() => startSection(section)}><Icon name="edit" size={15}/></button><button class="icon-button" aria-label={`Delete ${section.name}`} onclick={() => removeSection(section.id)}><Icon name="trash" size={15}/></button></div>
+              <div class="section-actions"><button class="icon-button" aria-label={`Edit ${section.name}`} title={keymap.title('edit_section')} onclick={() => runButton('edit_section', { section })}><Icon name="edit" size={15}/></button><button class="icon-button" aria-label={`Delete ${section.name}`} title={keymap.title('delete_section')} onclick={() => runButton('delete_section', { section })}><Icon name="trash" size={15}/></button></div>
             </div>
           {/each}
         </div>
       {:else}<div class="sections-empty">{song ? 'Save a passage as a section to jump back to it.' : 'Your song’s sections will live here.'}</div>{/if}
-      <button class="button add-section" disabled={!song || !!busy} onclick={() => startSection()}><Icon name="plus" size={17}/>Add section</button>
-      <div class="sidebar-tip"><span class="keycap">[</span><span class="keycap">]</span><span>Move between sections</span></div>
+      <button class="button add-section" disabled={!buttonAvailable('add_section')} title={keymap.title('add_section')} onclick={() => runButton('add_section')}><Icon name="plus" size={17}/>Add section</button>
+      <div class="sidebar-tip"><span class="keycap">{keymap.shortcut('previous_section')}</span><span class="keycap">{keymap.shortcut('next_section')}</span><span>Move between sections</span></div>
     </aside>
 
     <section class="workbench" aria-label="Practice workspace">
       {#if song && project}
-        <div class="workspace-heading"><div><h2>Your practice space</h2><p>Click to seek. Drag to loop. Scroll to zoom; middle-drag to pan.</p></div><div class="zoom-controls"><button class="icon-button" aria-label="Zoom out" disabled={view.end - view.start >= song.duration} onclick={() => { view = zoom(view, song!.duration, 2, (view.start + view.end) / 2); }}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label="Zoom in" onclick={() => { view = zoom(view, song!.duration, .5, selection ? (selection.start + selection.end) / 2 : transport.position); }}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label="Show whole song" title="Show whole song" onclick={() => { view = { start: 0, end: song!.duration }; }}><Icon name="fit" size={17}/></button></div></div>
-        <Waveform peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={selectSection} onview={next => { view = next; }}/>
+        <div class="workspace-heading"><div><h2>Your practice space</h2><p>Click to seek. Drag to loop. Scroll to zoom; middle-drag to pan.</p></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
+        <Waveform peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
         <div class="selection-bar">
           {#if selection}
-            <div class="loop-times"><span class="endpoint">A</span><input aria-label="Loop start seconds" type="number" min="0" max={selection.end - .1} step="any" value={selection.start.toFixed(2)} onchange={e => { const r = range(Number(e.currentTarget.value), selection.end, song!.duration); if (r) void chooseLoop(r); }}/><span class="endpoint">B</span><input aria-label="Loop end seconds" type="number" min={selection.start + .1} max={song.duration} step="any" value={selection.end.toFixed(2)} onchange={e => { const r = range(selection.start, Number(e.currentTarget.value), song!.duration); if (r) void chooseLoop(r); }}/><span class="unit">seconds</span><span class="loop-length">{(selection.end - selection.start).toFixed(2)}s passage</span></div>
-            <div class="selection-actions"><button class="text-button" onclick={fitLoop}>Fit passage</button><button class="text-button" onclick={() => startSection()}>Save as section</button><button class="icon-button" aria-label="Clear loop selection" title="X" onclick={clearLoop}><Icon name="close" size={16}/></button></div>
-          {:else}<span class="selection-hint">Choose any passage to loop, or save it as a named section.</span><span class="selection-shortcut"><span class="keycap">A</span><span class="keycap">B</span>Set boundaries at the playhead</span>{/if}
+            <div class="loop-times"><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_start'))} title={keymap.title('jump_loop_start')} onclick={() => runButton('jump_loop_start')}>A</button><input aria-label="Loop start seconds" type="number" min="0" max={selection.end - .1} step="any" value={selection.start.toFixed(2)} onchange={e => { const r = range(Number(e.currentTarget.value), selection.end, song!.duration); if (r) void chooseLoop(r); }}/><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_end'))} title={keymap.title('jump_loop_end')} onclick={() => runButton('jump_loop_end')}>B</button><input aria-label="Loop end seconds" type="number" min={selection.start + .1} max={song.duration} step="any" value={selection.end.toFixed(2)} onchange={e => { const r = range(selection.start, Number(e.currentTarget.value), song!.duration); if (r) void chooseLoop(r); }}/><span class="unit">seconds</span><span class="loop-length">{(selection.end - selection.start).toFixed(2)}s passage</span></div>
+            <div class="selection-actions"><button class="text-button" title={keymap.title('fit_loop')} onclick={() => runButton('fit_loop')}>Fit passage</button><button class="text-button" title={keymap.title('save_selection')} onclick={() => runButton('save_selection')}>Save as section</button><button class="icon-button" aria-label={keymap.buttonLabel('clear_loop', 'Clear loop selection')} title={keymap.title('clear_loop')} onclick={() => runButton('clear_loop')}><Icon name="close" size={16}/></button></div>
+          {:else}<span class="selection-hint">Choose any passage to loop, or save it as a named section.</span><span class="selection-shortcut"><span class="keycap">{keymap.shortcut('set_loop_start')}</span><span class="keycap">{keymap.shortcut('set_loop_end')}</span>Set boundaries at the playhead</span>{/if}
         </div>
 
         <div class="transport-row">
-          <div class="transport-buttons"><button class="icon-button" aria-label="Previous section" disabled={!sections.length} onclick={() => nextSection(-1)}><Icon name="back"/></button><button class="play-button" aria-label={transport.playing ? 'Pause' : 'Play'} title="Space" disabled={!native || !!transport.audio_error || !!busy} onclick={() => action({ type: 'toggle_play' })}><Icon name={transport.playing ? 'pause' : 'play'} size={27}/></button><button class="icon-button" aria-label="Next section" disabled={!sections.length} onclick={() => nextSection(1)}><Icon name="next"/></button></div>
+          <div class="transport-buttons" role="group" aria-label="Playback controls"><button class="icon-button" aria-label={keymap.buttonLabel('previous_section', 'Previous section')} disabled={!buttonAvailable('previous_section')} title={keymap.title('previous_section')} onclick={() => runButton('previous_section')}><Icon name="back"/></button><button class="play-button" aria-label={keymap.buttonLabel('play', transport.playing ? 'Pause' : 'Play')} title={keymap.title('play')} disabled={!buttonAvailable('play')} onclick={() => runButton('play')}><Icon name={transport.playing ? 'pause' : 'play'} size={27}/></button><button class="icon-button" aria-label={keymap.buttonLabel('next_section', 'Next section')} disabled={!buttonAvailable('next_section')} title={keymap.title('next_section')} onclick={() => runButton('next_section')}><Icon name="next"/></button></div>
           <div class="transport-time"><strong>{time(transport.position)}</strong><span>/ {time(song.duration)}</span><small>{transport.playing ? 'Playing' : transport.finished ? 'End of song' : 'Paused'}</small></div>
-          <button class:active={project.loop_enabled} class="loop-toggle" onclick={toggleLoop} aria-pressed={project.loop_enabled} title="L"><Icon name="loop"/>{project.loop_enabled ? 'Loop on' : 'Loop off'}</button>
+          <button class:active={project.loop_enabled} class="loop-toggle" onclick={() => runButton('loop')} aria-pressed={project.loop_enabled} title={keymap.title('loop')}><Icon name="loop"/>{keymap.buttonLabel('loop', project.loop_enabled ? 'Loop on' : 'Loop off')}</button>
         </div>
 
         <div class="practice-controls">
-          <section class="practice-control" aria-label="Playback speed"><div class="control-heading"><h3>Speed</h3><button class="icon-button" aria-label="Reset speed" title="Reset to original speed" onclick={() => controls(1, pitch)}><Icon name="reset" size={17}/></button></div><div class="control-number"><input aria-label="Speed percent" type="number" min="25" max="200" step="1" value={Math.round(speed * 100)} onchange={e => controls(Number(e.currentTarget.value) / 100, pitch)}/><span>%</span><small>of original tempo</small></div><input class="control-slider speed-slider" aria-label="Playback speed" type="range" min="25" max="200" step="1" value={speed * 100} oninput={e => controls(Number(e.currentTarget.value) / 100, pitch)}/><div class="control-bottom"><span>25%</span><div class="speed-presets">{#each [.5, .75, 1] as preset}<button class:chosen={Math.abs(speed - preset) < .005} onclick={() => controls(preset, pitch)}>{preset * 100}%</button>{/each}</div><span>200%</span></div></section>
-          <section class="practice-control" aria-label="Playback pitch"><div class="control-heading"><h3>Pitch</h3><button class="icon-button" aria-label="Reset pitch" title="Reset to original pitch" onclick={() => controls(speed, 0)}><Icon name="reset" size={17}/></button></div><div class="control-number"><input aria-label="Pitch semitones" type="number" min="-12" max="12" step="0.01" value={pitch} onchange={e => controls(speed, Number(e.currentTarget.value))}/><span>st</span><small>{pitch === 0 ? 'Original pitch' : pitch > 0 ? 'Above original pitch' : 'Below original pitch'}</small></div><input class="control-slider pitch-slider" aria-label="Playback pitch" type="range" min="-12" max="12" step="0.1" value={pitch} oninput={e => controls(speed, Number(e.currentTarget.value))}/><div class="control-bottom"><span>−12 st</span><button class="pitch-home" onclick={() => controls(speed, 0)}>Original</button><span>+12 st</span></div></section>
+          <section class="practice-control" aria-label="Playback speed"><div class="control-heading"><h3>Speed</h3><button class="icon-button" aria-label={keymap.buttonLabel('reset_speed', 'Reset speed')} title={keymap.title('reset_speed')} onclick={() => runButton('reset_speed')}><Icon name="reset" size={17}/></button></div><div class="control-number"><input aria-label="Speed percent" type="number" min="25" max="200" step="1" value={Math.round(speed * 100)} onchange={e => controls(Number(e.currentTarget.value) / 100, pitch)}/><span>%</span><small>of original tempo</small></div><input class="control-slider speed-slider" aria-label="Playback speed" type="range" min="25" max="200" step="1" value={speed * 100} oninput={e => controls(Number(e.currentTarget.value) / 100, pitch)}/><div class="control-bottom"><span>25%</span><div class="speed-presets">{#each [.5, .75, 1] as preset}<button class:chosen={Math.abs(speed - preset) < .005} title={keymap.title('speed_preset')} onclick={() => runButton('speed_preset', { speed: preset })}>{preset * 100}%</button>{/each}</div><span>200%</span></div></section>
+          <section class="practice-control" aria-label="Playback pitch"><div class="control-heading"><h3>Pitch</h3><button class="icon-button" aria-label={keymap.buttonLabel('reset_pitch', 'Reset pitch')} title={keymap.title('reset_pitch')} onclick={() => runButton('reset_pitch')}><Icon name="reset" size={17}/></button></div><div class="control-number"><input aria-label="Pitch semitones" type="number" min="-12" max="12" step="0.01" value={pitch} onchange={e => controls(speed, Number(e.currentTarget.value))}/><span>st</span><small>{pitch === 0 ? 'Original pitch' : pitch > 0 ? 'Above original pitch' : 'Below original pitch'}</small></div><input class="control-slider pitch-slider" aria-label="Playback pitch" type="range" min="-12" max="12" step="0.1" value={pitch} oninput={e => controls(speed, Number(e.currentTarget.value))}/><div class="control-bottom"><span>−12 st</span><button class="pitch-home" title={keymap.title('original_pitch')} onclick={() => runButton('original_pitch')}>Original</button><span>+12 st</span></div></section>
         </div>
       {:else}
-        <div class="empty-workbench"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M10 45h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12m17 4h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12" fill="none" stroke="#9caed1" stroke-width="3" stroke-linecap="round"/></svg><h2>A good place to get it right.</h2><p>Open a song, find your passage, and play it at your pace.</p><div><button class="button primary" onclick={() => open()} disabled={!!busy}><Icon name="folder"/>Open a song</button><button class="text-button" onclick={() => open(true)} disabled={!!busy}>Try the demo</button></div><span>WAV, MP3, FLAC, M4A and Ogg</span></div>
+        <div class="empty-workbench"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M10 45h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12m17 4h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12" fill="none" stroke="#9caed1" stroke-width="3" stroke-linecap="round"/></svg><h2>A good place to get it right.</h2><p>Open a song, find your passage, and play it at your pace.</p><div><button class="button primary" title={keymap.title('open_song')} onclick={() => runButton('open_song')} disabled={!buttonAvailable('open_song')}><Icon name="folder"/>Open a song</button><button class="text-button" title={keymap.title('demo')} onclick={() => runButton('demo')} disabled={!buttonAvailable('demo')}>Try the demo</button></div><span>WAV, MP3, FLAC, M4A and Ogg</span></div>
       {/if}
     </section>
   </main>
-  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" onclick={undoDelete}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><button onclick={() => helpDialog.showModal()}>Shortcuts <span class="keycap">Space</span>Play / pause</button></footer>
+  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><button title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts <span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}</button></footer>
 </div>
 
 <dialog class="section-dialog" bind:this={sectionDialog} onclose={() => { dialogError = ''; }}>
-  <form onsubmit={saveSection}><div class="dialog-heading"><h2>{sectionId ? 'Edit section' : 'Save a section'}</h2><button type="button" class="icon-button" aria-label="Close section editor" onclick={() => sectionDialog.close()}><Icon name="close"/></button></div><p>Keep a passage you’ll want to come back to.</p><label>Section name<input bind:this={nameInput} bind:value={sectionName} maxlength="128" placeholder="Verse, solo, a tricky phrase…" required/></label><div class="dialog-times"><label>Start (seconds)<input type="number" min="0" max={song?.duration ?? 0} step="any" bind:value={sectionStart} required/></label><label>End (seconds)<input type="number" min="0" max={song?.duration ?? 0} step="any" bind:value={sectionEnd} required/></label></div>{#if dialogError}<p class="form-error" role="alert">{dialogError}</p>{/if}<div class="dialog-actions"><button type="button" class="button" onclick={() => sectionDialog.close()}>Cancel</button><button class="button primary" type="submit">Save section</button></div></form>
+  <form onsubmit={event => { event.preventDefault(); void runButton('save_section'); }}><div class="dialog-heading"><h2>{sectionId ? 'Edit section' : 'Save a section'}</h2><button type="button" class="icon-button" aria-label="Close section editor" title={keymap.title('close_editor')} onclick={() => runButton('close_editor')}><Icon name="close"/></button></div><p>Keep a passage you’ll want to come back to.</p><label>Section name<input bind:this={nameInput} bind:value={sectionName} maxlength="128" placeholder="Verse, solo, a tricky phrase…" required/></label><div class="dialog-times"><label>Start (seconds)<input type="number" min="0" max={song?.duration ?? 0} step="any" bind:value={sectionStart} required/></label><label>End (seconds)<input type="number" min="0" max={song?.duration ?? 0} step="any" bind:value={sectionEnd} required/></label></div>{#if dialogError}<p class="form-error" role="alert">{dialogError}</p>{/if}<div class="dialog-actions"><button type="button" class="button" title={keymap.title('cancel_editor')} onclick={() => runButton('cancel_editor')}>Cancel</button><button class="button primary" type="submit" title={keymap.title('save_section')}>Save section</button></div></form>
 </dialog>
-<dialog class="help-dialog" bind:this={helpDialog}><div class="dialog-heading"><h2>Keep your hands on the guitar</h2><button class="icon-button" aria-label="Close shortcuts" onclick={() => helpDialog.close()}><Icon name="close"/></button></div><p>Shortcuts work when you’re not editing a field.</p><dl>{#each [['Space','Play / pause'],['L','Loop on / off'],['A / B','Set loop start / end'],['X','Clear A–B range'],['← / →','Seek 5 seconds'],['Shift + ← / →','Seek 0.1 seconds'],['[ / ]','Previous / next section'],['N','Add a section'],[native && navigator.platform.includes('Mac') ? '⌘ O' : 'Ctrl + O','Open a song'],['Esc','Turn looping off']] as shortcut}<div><dt>{shortcut[0]}</dt><dd>{shortcut[1]}</dd></div>{/each}</dl></dialog>
+<dialog class="help-dialog" bind:this={helpDialog}>
+  <div class="dialog-heading"><h2>Keep your hands on the guitar</h2><button class="icon-button" aria-label="Close shortcuts" title={keymap.title('close_shortcuts')} onclick={() => runButton('close_shortcuts')}><Icon name="close"/></button></div>
+  <p>Shortcuts work when you’re not editing a field.</p>
+  <dl>{#each shortcuts as shortcut (shortcut.action)}<div><dt>{shortcut.keys}</dt><dd>{shortcut.description}</dd></div>{/each}</dl>
+  <details class="keymap-settings"><summary>Customize shortcuts</summary>
+    {#if keymapPath}<p>Edit your configuration file, then reload it.</p><code class="keymap-path">{keymapPath}</code>
+    <button class="text-button" title={keymap.title('reload_keymap')} disabled={keymapLoading} onclick={() => runButton('reload_keymap')}>{keymapLoading ? 'Reloading…' : 'Reload configuration'}</button>
+    {:else}<p>Configuration files are available in the desktop app.</p>{/if}
+  </details>
+</dialog>

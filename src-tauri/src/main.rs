@@ -6,6 +6,8 @@ use ohmyloop::{
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+struct KeymapPath(std::path::PathBuf);
+
 async fn work<T: Send + 'static>(
     job: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
 ) -> Result<T, String> {
@@ -13,6 +15,12 @@ async fn work<T: Send + 'static>(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn read_keymap(state: State<'_, KeymapPath>) -> Result<ohmyloop::keymap::KeymapFile, String> {
+    let path = state.inner().0.clone();
+    work(move || Ok(ohmyloop::keymap::read(&path))).await
 }
 
 #[tauri::command]
@@ -73,6 +81,10 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let keymap = std::env::var_os("OHMYLOOP_KEYMAP_FILE")
+                .map(std::path::PathBuf::from)
+                .unwrap_or(app.path().app_config_dir()?.join("keymap.json"));
+            app.manage(KeymapPath(keymap));
             let directory = std::env::var_os("OHMYLOOP_DATA_DIR")
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?.join("practice"));
@@ -84,6 +96,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            read_keymap,
             initialize,
             load_demo,
             open_song,

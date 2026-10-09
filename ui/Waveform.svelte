@@ -16,6 +16,8 @@
     { mode: 'create' | 'start' | 'end'; at: number }
   );
   let drag = $state<Drag | null>(null);
+  let overviewPointer = $state<number | null>(null);
+  let keyboardFocus = $state(false);
   let width = $state(800);
   let height = $state(200);
   const current = $derived(preview ?? selection);
@@ -47,9 +49,18 @@
   onMount(() => {
     const observer = new ResizeObserver(() => { width = field.clientWidth; height = field.clientHeight; });
     observer.observe(field);
+    // Scripted focus during dragging can retain WebKit's keyboard focus ring.
+    const pointerInput = () => { keyboardFocus = false; };
+    const keyboardInput = () => { keyboardFocus = true; };
+    window.addEventListener('pointerdown', pointerInput, true);
+    window.addEventListener('keydown', keyboardInput, true);
     // Cancel page scrolling even on WebViews that make wheel listeners passive by default.
     field.addEventListener('wheel', wheel, { passive: false });
-    return () => { observer.disconnect(); field.removeEventListener('wheel', wheel); };
+    return () => {
+      observer.disconnect(); field.removeEventListener('wheel', wheel);
+      window.removeEventListener('pointerdown', pointerInput, true);
+      window.removeEventListener('keydown', keyboardInput, true);
+    };
   });
   function point(event: MouseEvent): number {
     const box = field.getBoundingClientRect(); return clamp(view.start + (event.clientX - box.left) / box.width * span, 0, duration);
@@ -57,7 +68,7 @@
   function wheel(event: WheelEvent) {
     if (!event.deltaY) return;
     event.preventDefault();
-    if (drag) return;
+    if (drag || overviewPointer !== null) return;
     const box = field.getBoundingClientRect();
     if (!box.width) return;
     const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? box.height : 1;
@@ -66,7 +77,7 @@
     onview(zoom(view, duration, factor, point(event), anchor));
   }
   function down(event: PointerEvent) {
-    if (drag || (event.button !== 0 && event.button !== 1)) return;
+    if (drag || overviewPointer !== null || (event.button !== 0 && event.button !== 1)) return;
     if (event.button === 1) {
       const box = field.getBoundingClientRect();
       if (!box.width) return;
@@ -114,13 +125,39 @@
   }
   function panOverview(event: MouseEvent) {
     const box = event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : overview.getBoundingClientRect();
+    if (!box.width) return;
     const center = (event.clientX - box.left) / box.width * duration;
     const start = clamp(center - span / 2, 0, duration - span); onview({ start, end: start + span });
+  }
+  function overviewDown(event: PointerEvent) {
+    if (event.button !== 0 || drag || overviewPointer !== null) return;
+    const target = event.currentTarget as HTMLButtonElement;
+    overviewPointer = event.pointerId;
+    target.setPointerCapture(event.pointerId);
+    target.focus(); event.preventDefault();
+    panOverview(event);
+  }
+  function overviewMove(event: PointerEvent) {
+    if (event.pointerId === overviewPointer) panOverview(event);
+  }
+  function overviewUp(event: PointerEvent) {
+    if (event.pointerId !== overviewPointer) return;
+    panOverview(event);
+    overviewCancel(event);
+  }
+  function overviewCancel(event: PointerEvent) {
+    if (event.pointerId !== overviewPointer) return;
+    overviewPointer = null;
+    const target = event.currentTarget as HTMLButtonElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
   }
 </script>
 
 <div class="overview-wrap">
-  <button class="overview" onclick={panOverview} aria-label="Move waveform view" title="Click to move the detailed view">
+  <button class="overview" class:keyboard-focus={keyboardFocus} class:panning={overviewPointer !== null} onclick={panOverview}
+    onpointerdown={overviewDown} onpointermove={overviewMove} onpointerup={overviewUp}
+    onpointercancel={overviewCancel} onlostpointercapture={overviewCancel}
+    aria-label="Move waveform view" title="Click or drag to move the detailed view">
     <canvas bind:this={overview}></canvas>
     <span class="viewport" style:left={`${view.start / duration * 100}%`} style:width={`${span / duration * 100}%`}></span>
     <span class="overview-playhead" style:left={`${position / duration * 100}%`}></span>
@@ -136,7 +173,7 @@
   {/each}
 </div>
 
-<div class="wave-field" class:panning={drag?.mode === 'pan'} bind:this={field} role="region" tabindex="-1"
+<div class="wave-field" class:keyboard-focus={keyboardFocus} class:panning={drag?.mode === 'pan'} bind:this={field} role="region" tabindex="-1"
   aria-label="Waveform. Click to seek, drag to choose a loop. Scroll to zoom, middle-drag to pan."
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel}
   onauxclick={e => { if (e.button === 1) e.preventDefault(); }}>
@@ -160,8 +197,11 @@
 </div>
 
 <style>
+  .overview:not(.keyboard-focus):focus,.wave-field:not(.keyboard-focus):focus,.wave-field:not(.keyboard-focus) :focus{outline:none}
+  .seek-surface:focus-visible{outline:3px solid #8297d2}
   .wave-field.panning,.wave-field.panning .loop-handle{cursor:grabbing}
   .seek-surface{position:absolute;inset:0;outline-offset:-3px}.wave-canvas,.time-ruler{pointer-events:none}
   .overview-wrap{position:relative;padding-bottom:22px;margin-bottom:8px;flex-shrink:0}.overview{display:block;width:100%;height:42px;border:0;padding:5px 0;background:#e8edf6;position:relative;overflow:hidden;border-radius:5px;cursor:pointer}.overview canvas{width:100%;height:100%;display:block}.viewport{position:absolute;inset-block:0;border:1px solid #6d82bb;background:#526fc013;pointer-events:none;min-width:3px}.overview-playhead{position:absolute;inset-block:0;border-left:2px solid #526fc0}.overview-label,.overview-duration{position:absolute;bottom:3px;color:#758098;font-size:11px}.overview-duration{right:0;font-variant-numeric:tabular-nums}.section-lane{position:relative;height:25px;flex-shrink:0;background:#eef1f7;border-radius:4px 4px 0 0;overflow:hidden}.section-lane button{position:absolute;height:100%;padding:0 9px;border:0;border-right:2px solid #f3f5fa;text-align:left;font:500 11px inherit;color:#27334c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.wave-field{position:relative;height:auto;flex:1;min-height:120px;background:#233552;border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;cursor:crosshair;user-select:none}.wave-field:focus-visible{outline:3px solid #7e92cd;outline-offset:3px}.wave-canvas{position:absolute;left:0;top:31px;width:100%;height:calc(100% - 46px)}.time-ruler{height:30px;position:absolute;inset:0 0 auto;font-size:11px;color:#bbcae2;font-variant-numeric:tabular-nums}.time-ruler span{position:absolute;top:8px;transform:translateX(-50%)}.time-ruler span:first-child{transform:none;padding-left:8px}.time-ruler span:last-child{transform:translateX(-100%);padding-right:8px}.wave-grid{position:absolute;inset:30px 0 0;pointer-events:none}.wave-grid i{position:absolute;height:100%;border-left:1px solid #bbccea0b}.loop-shade{position:absolute;inset-block:30px 0;background:#dda54e29;pointer-events:none}.loop-handle{position:absolute;top:29px;bottom:0;width:20px;padding:0;border:0;border-left:2px solid #e6b65e;background:transparent;cursor:ew-resize;touch-action:none;border-radius:0;color:#233552}.loop-handle span{position:absolute;top:1px;left:-2px;background:#e6b65e;border-radius:0 0 3px 0;font-size:10px;font-weight:700;padding:3px 5px}.loop-handle.end{transform:translateX(-18px);border-left:0;border-right:2px solid #e6b65e}.loop-handle.end span{left:auto;right:-2px;border-radius:0 0 0 3px}.playhead{position:absolute;inset-block:26px 0;border-left:2px solid #f9fcff;pointer-events:none}.playhead span{position:absolute;top:-1px;left:-5px;width:8px;height:8px;background:#fff;transform:rotate(45deg)}
+  .overview{touch-action:none;user-select:none;cursor:grab}.overview.panning{cursor:grabbing}
   @media(max-height:740px){.overview-wrap{display:none}.wave-field{min-height:90px}}
 </style>

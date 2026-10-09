@@ -39,14 +39,23 @@ Interaction defaults:
 - Click the waveform to seek; drag to select a temporary loop.
 - Scroll over the waveform to zoom at the pointer; middle-button drag pans
   the view without seeking or editing loop boundaries.
+- Click or left-button drag the whole-song minimap to move the detailed
+  viewport at its current zoom level, bounded by the start and end of the song.
 - Resize loop boundaries using handles or exact time inputs.
 - Select a saved section to seek to its start, preserving play/pause state.
   With loop mode enabled, selecting a section moves the loop to that range.
 - Save the current range as a named section; edit its name and bounds later.
 - Space toggles playback; L toggles looping; A/B set loop boundaries;
+  comma jumps to A, period jumps to B, and Enter rewinds to song start;
+  seeking to B turns looping off while preserving play/pause state;
   X clears the temporary A–B range and turns looping off;
   arrow keys seek; brackets navigate sections; Cmd/Ctrl+O opens a song.
 - Shortcuts do not fire while typing into an input or dialog.
+- Timeline focus outlines appear during keyboard navigation; pointer clicks
+  and dragging keep the minimap and waveform free of focus outlines.
+- Command buttons, hover descriptions, shortcut hints, and the shortcut dialog
+  resolve from the shared action/keymap model. File overrides can be reloaded
+  from the dialog, and invalid configuration falls back to defaults with a warning.
 
 This differs from a generic media player by giving equal space to phrase
 selection and section navigation. A single waveform workspace, two prominent

@@ -163,3 +163,42 @@ fn desktop_controller_restores_sections_controls_and_source_position() {
     assert!((snapshot.transport.position - 2.125).abs() < 0.001);
     restored.shutdown();
 }
+
+#[test]
+fn endpoint_seeks_keep_ranges_and_disable_looping_at_b_or_outside() {
+    let temp = Temp::new("endpoint-seeks");
+    let desktop = Desktop::start(temp.0.clone()).unwrap();
+    let loaded = desktop.load(None).unwrap();
+    let mut doc = loaded.document.unwrap();
+    let region = ohmyloop::engine::LoopRegion {
+        start: 1.25,
+        end: 2.5,
+        fade_ms: 5.0,
+    };
+    doc.loop_selection = Some(region);
+    doc.loop_enabled = true;
+    desktop.update(doc).unwrap();
+    let at_a = desktop
+        .act(Action::Seek {
+            seconds: region.start,
+        })
+        .unwrap();
+    assert!(at_a.document.as_ref().unwrap().loop_enabled);
+    assert!(!at_a.transport.playing);
+    assert!((at_a.transport.position - region.start).abs() < 0.001);
+    let at_b = desktop
+        .act(Action::Seek {
+            seconds: region.end,
+        })
+        .unwrap();
+    let mut doc = at_b.document.unwrap();
+    assert!(!doc.loop_enabled);
+    assert_eq!(doc.loop_selection.unwrap(), region);
+    assert!((at_b.transport.position - region.end).abs() < 0.001);
+    doc.loop_enabled = true;
+    desktop.update(doc).unwrap();
+    let at_start = desktop.act(Action::Seek { seconds: 0.0 }).unwrap();
+    assert!(!at_start.document.unwrap().loop_enabled);
+    assert!(at_start.transport.position < 0.001);
+    desktop.shutdown();
+}
