@@ -237,8 +237,15 @@ it('uses detected beats by default, derives count from the preview, and prevents
   mock.previewMap.mockResolvedValue({...timingFixture(48000),draft:{pulse_count:9,pulses_per_measure:4,full_measures:2,partial_pulses:0,measure_count:2,first_frame:0,last_frame:384000}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const source=await screen.findByLabelText('Measure source');await waitFor(()=>expect((source as HTMLSelectElement).value).toBe('detected'));
+  const sidebar=screen.getByRole('complementary',{name:'Measure-map inspector'}),workspace=screen.getByRole('region',{name:'Measure mapping workspace'});
+  expect(within(sidebar).getByRole('button',{name:'Analyze song'})).toBeTruthy();
+  const showDetected=within(sidebar).getByRole('checkbox',{name:'Show detected beats'}) as HTMLInputElement;
+  expect(showDetected.checked).toBe(true);expect(workspace.querySelectorAll('.candidate-line')).toHaveLength(9);
   expect(screen.queryByLabelText('Number of measures')).toBeNull();
   await fireEvent.click(screen.getByRole('button',{name:'Preview detected measures'}));await screen.findByText('9 detected pulses, including the end boundary');
+  expect(showDetected.checked).toBe(false);expect(workspace.querySelectorAll('.candidate-line')).toHaveLength(0);
+  await fireEvent.click(showDetected);expect(showDetected.checked).toBe(true);expect(workspace.querySelectorAll('.candidate-line')).toHaveLength(9);
+  expect(document.measure_map).toBeUndefined();
   expect(screen.getByLabelText('Derived measure count').textContent).toBe('2 measures');
   expect(mock.previewMap.mock.lastCall?.[2]).toMatchObject({type:'build_from_pulses',first_downbeat:0,start:0,end:576000,pulses:result.beats.map(b=>b.frame)});
   await fireEvent.input(screen.getByLabelText('Draft Meter numerator'),{target:{value:'3'}});
@@ -251,6 +258,44 @@ it('uses detected beats by default, derives count from the preview, and prevents
   expect(screen.getByText(/This mode does not use detected beats/)).toBeTruthy();
   await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await waitFor(()=>expect(mock.analysisStatus.mock.calls.length).toBeGreaterThan(1));expect((screen.getByLabelText('Measure source') as HTMLSelectElement).value).toBe('manual');
+  expect(showDetected.checked).toBe(true);
+});
+
+it('keeps compact playback over the waveform without turning its controls into seeks',async()=>{
+  document.controls={speed:.75,semitones:-3};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
+  mock.initialize.mockResolvedValue({...response(),song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const waveform=screen.getByRole('region',{name:/Measure-map waveform/}),playback=within(waveform).getByRole('group',{name:'Measure mapping playback'});
+  expect(within(screen.getByRole('region',{name:'Measure mapping workspace'})).queryByLabelText('Pitch semitones')).toBeNull();
+  const slider=within(playback).getByRole('slider',{name:'Playback speed'});
+  for(const type of ['pointerdown','pointerup']){const event=new MouseEvent(type,{bubbles:true,button:0});Object.defineProperty(event,'pointerId',{value:1});await fireEvent(slider,event);}
+  await fireEvent.input(slider,{target:{value:'50'}});
+  await waitFor(()=>expect(document.controls).toEqual({speed:.5,semitones:-3}));
+  await fireEvent.click(within(playback).getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
+  expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'toggle_play'});
+  const wheel=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-100});await fireEvent(slider,wheel);expect(wheel.defaultPrevented).toBe(false);
+  await fireEvent.click(within(playback).getByRole('button',{name:'Turn looping off'}));await waitFor(()=>expect(document.loop_enabled).toBe(false));
+});
+
+it('edits measure timing and anchors in the panel below the waveform',async()=>{
+  const original=timingFixture(48000);document.measure_map=original.map;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  const moved=structuredClone(original);moved.map.boundaries[0].frame=12000;moved.map.revision=2;moved.view.revision=2;moved.view.measures[0].start=12000;
+  mock.previewMap.mockResolvedValue(moved);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const tools=screen.getByRole('region',{name:'Measure editing tools'});expect(tools.closest('aside')).toBeNull();
+  expect(within(screen.getByRole('complementary',{name:'Measure-map inspector'})).queryByLabelText('Position (seconds)')).toBeNull();
+  await fireEvent.input(within(tools).getByLabelText('Position (seconds)'),{target:{value:'.25'}});
+  await fireEvent.click(within(tools).getByRole('button',{name:'Move boundary'}));
+  await waitFor(()=>expect(document.measure_map?.boundaries[0].frame).toBe(12000));
+  expect(mock.previewMap.mock.lastCall?.[2]).toEqual({type:'move_boundary',id:'map-1',frame:12000});
+  await fireEvent.click(within(tools).getByRole('button',{name:'Beat anchors and splits'}));
+  const anchored=structuredClone(moved);anchored.map.revision=3;anchored.view.revision=3;anchored.map.measures[0].beats=[{id:'map-6',frame:57600,offset:{num:1,den:1}}];anchored.map.next_id=7;
+  mock.previewMap.mockResolvedValue(anchored);
+  await fireEvent.input(within(tools).getByLabelText('Anchor position (seconds)'),{target:{value:'1.2'}});
+  await fireEvent.click(within(tools).getByRole('button',{name:'Add anchor'}));
+  await waitFor(()=>expect(document.measure_map?.measures[0].beats[0].frame).toBe(57600));
+  expect(mock.previewMap.mock.lastCall?.[2]).toEqual({type:'set_beat',measure:'map-3',id:null,frame:57600,offset:{num:1,den:1}});
 });
 it('clears a protected map, keeps practice settings, and restores the exact map through Undo',async()=>{
   const original=timingFixture(48000);original.map.measures[0].protected=true;

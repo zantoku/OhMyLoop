@@ -62,16 +62,24 @@ selection and section navigation. A single waveform workspace, two prominent
 independent practice controls, and restrained section colors serve the guitar
 practice workflow without turning the screen into a DAW mixer.
 
-## Planned measure-mapping screen
+## Measure-mapping screen
 
-The next pass adds **Measure map** in the practice header and **Back to
+**Measure map** in the practice header and **Back to
 practice** on a dedicated screen in the same window. It shares the song and
 transport, but has a separate viewport and editing selection. Its waveform
 uses the existing zoom, pan and minimap conventions while showing measure
 boundaries, beat anchors and meter changes instead of A–B editing handles.
 
-A musical ruler and inspector support pulse interpretation, pickups,
+A musical ruler and editing panel support pulse interpretation, pickups,
 incomplete measures and protected corrections. Automatic analysis supplies
 an editable draft; manual mapping remains available without a model. The
 interaction contract and implementation scope are recorded in
-[MEASURE_MAPPING.md](MEASURE_MAPPING.md). This screen is not implemented yet.
+[MEASURE_MAPPING.md](MEASURE_MAPPING.md).
+
+The waveform carries the map review. Detected suggestions are optional and beat
+lines thin with density instead of overlapping labels. Analysis and draft creation
+live in the right sidebar; model installation is a secondary disclosure. A compact
+play/speed overlay sits at the waveform's lower left. The full-width panel beneath
+it holds selected-measure tools, grouped into Measure, Beat anchors and splits,
+and Respace or free time. Keep the existing palette and type hierarchy; give
+vertical space to the waveform rather than a second large speed/pitch panel.

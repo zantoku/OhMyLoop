@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import type {Snippet} from 'svelte';
+  import {markersForView} from './marker-density';
   import { clamp, time } from './model';
   import { drawWaveform, sourcePoint, panView, overviewView, wheelView } from './timeline';
   import type { View } from './types';
   import type { MapEdit, MapView, MeasureView, GridPoint } from './timing';
-  let { peaks, duration, rate, position, view, mapView, selected, disabled = false, candidates = [], onview, onseek, onselect, onedit }:
+  let { peaks, duration, rate, position, view, mapView, selected, disabled = false, candidates = [], playback, onview, onseek, onselect, onedit }:
     { peaks: [number, number][]; duration: number; rate: number; position: number; view: View; mapView: MapView | null; selected: string | null; disabled?: boolean; candidates?: { frame: number; downbeat: boolean }[];
-      onview: (view: View, navigation: 'zoom' | 'pan') => void; onseek: (seconds: number) => void; onselect: (id: string) => void; onedit: (edit: MapEdit) => void } = $props();
+      playback?:Snippet;onview: (view: View, navigation: 'zoom' | 'pan') => void; onseek: (seconds: number) => void; onselect: (id: string) => void; onedit: (edit: MapEdit) => void } = $props();
   let canvas: HTMLCanvasElement, overview: HTMLCanvasElement, field: HTMLDivElement;
   let size = $state(0), width = $state(800), keyboard = $state(false), overviewPointer = $state<number | null>(null);
   type Drag = { pointer: number; x: number; width: number; view: View; edit: Extract<MapEdit, {type:'move_boundary'|'set_beat'}> | null; selected: string | null; pan: boolean };
@@ -17,14 +19,13 @@
   const visible = $derived(measures.filter(m => m.end/rate > view.start && m.start/rate < view.end));
   const startIds = $derived(new Set(measures.map(m=>m.start_id)));
   const measurePixels=(m:MeasureView)=>(m.end-m.start)/rate/span*width;
-  function visibleBeats(m:MeasureView){
-    if(measurePixels(m)<60)return [];
-    let previous=-Infinity;
-    return m.grid.filter(p=>{if(p.quarter<=0||p.frame/rate<view.start||p.frame/rate>view.end)return false;const x=pct(p.frame)*width/100;if(x-previous<22&&!p.id)return false;previous=x;return true;});
-  }
-  const shownCandidates=$derived.by(()=>{
-    let last=-Infinity;return candidates.filter(p=>{if(p.frame/rate<view.start||p.frame/rate>view.end)return false;const x=pct(p.frame)*width/100;if(x-last<3&&!p.downbeat)return false;last=x;return true;});
+  const beatPoints=$derived(measures.flatMap(m=>m.grid.map(p=>({...p,measure:m.id}))));
+  const beatLayout=$derived(markersForView(beatPoints,view.start*rate,view.end*rate,width));
+  const beatsByMeasure=$derived.by(()=>{
+    const groups=new Map<string,GridPoint[]>();
+    for(const p of beatLayout.markers){if(p.quarter<=0)continue;const group=groups.get(p.measure)??[];group.push(p);groups.set(p.measure,group);}return groups;
   });
+  const shownCandidates=$derived(markersForView(candidates,view.start*rate,view.end*rate,width,12).markers);
   const ticks = $derived(Array.from({length:7},(_,i)=>view.start+span*i/6));
   const gaps = $derived.by(() => {
     const result: {start:number;end:number}[]=[];let at=0;
@@ -38,11 +39,13 @@
     const observer=new ResizeObserver(()=>{size++;width=Math.max(1,field.clientWidth);});observer.observe(field);
     const pointer=()=>{keyboard=false;},key=()=>{keyboard=true;};
     window.addEventListener('pointerdown',pointer,true);window.addEventListener('keydown',key,true);
-    const wheel=(event:WheelEvent)=>{event.preventDefault();if(!drag&&overviewPointer===null)onview(wheelView(view,duration,field.getBoundingClientRect(),event),'zoom');};
+    const wheel=(event:WheelEvent)=>{if(inPlayback(event.target))return;event.preventDefault();if(!drag&&overviewPointer===null)onview(wheelView(view,duration,field.getBoundingClientRect(),event),'zoom');};
     field.addEventListener('wheel',wheel,{passive:false});
     return()=>{observer.disconnect();field.removeEventListener('wheel',wheel);window.removeEventListener('pointerdown',pointer,true);window.removeEventListener('keydown',key,true);};
   });
+  function inPlayback(target:EventTarget|null){return target instanceof Element&&!!target.closest('[data-timeline-playback]');}
   function down(event:PointerEvent){
+    if(inPlayback(event.target))return;
     if(drag||overviewPointer!==null||![0,1].includes(event.button))return;
     const target=(event.target as HTMLElement).closest<HTMLElement>('[data-boundary],[data-beat]');
     const id=target?.dataset.measure??null;
@@ -110,7 +113,7 @@
       <button class="measure-handle" data-boundary={m.start_id} data-measure={m.id} style:left={`${pct(displayed(m.start_id,m.start))}%`} aria-label={`Measure ${m.label} start`} aria-disabled={disabled||m.protected}
         title="Drag measure boundary; arrow keys adjust; Shift gives fine adjustment" onclick={()=>onselect(m.id)} onkeydown={e=>nudge(e,m,m.start_id,m.start)}><span>{m.label}</span></button>
     {/if}
-    {#each visibleBeats(m) as p}
+    {#each beatsByMeasure.get(m.id)??[] as p}
       <button class="beat-handle" class:anchor={!!p.id} data-beat={p.id??''} data-quarter={p.quarter} data-measure={m.id}
         style:left={`${pct(drag?.edit?.type==='set_beat'&&drag.edit.measure===m.id&&drag.edit.offset.num/drag.edit.offset.den===p.quarter&&draggedFrame!==null?draggedFrame:p.frame)}%`}
         aria-label={`Measure ${m.label} beat ${p.label}`} aria-disabled={disabled||m.protected} title={`${p.id?'Fixed anchor':'Interpolated beat'}: drag to correct timing`}
@@ -122,11 +125,14 @@
     {/if}
   {/each}
   {#if position>=view.start&&position<=view.end}<div class="map-playhead" style:left={`${(position-view.start)/span*100}%`} aria-hidden="true"></div>{/if}
+  {#if playback}<div class="playback-overlay" data-timeline-playback>{@render playback()}</div>{/if}
+  {#if beatLayout.stride>1}<span class="detail-level" aria-hidden="true">Every {beatLayout.stride} beats · zoom in for detail</span>{/if}
 </div>
 <style>
+  .playback-overlay{position:absolute;left:12px;bottom:12px;z-index:5;max-width:calc(100% - 24px);cursor:default}.detail-level{position:absolute;right:10px;top:32px;color:#afbdd4;font-size:10px;pointer-events:none;background:#233552d9;padding:3px 5px;border-radius:3px}
   .map-overview-wrap{position:relative;padding-bottom:23px;flex-shrink:0}.map-overview{position:relative;display:block;width:100%;height:46px;padding:5px 0;border:0;border-radius:5px;background:#e8edf6;overflow:hidden;touch-action:none;cursor:grab}.map-overview canvas{width:100%;height:100%;display:block}.map-viewport{position:absolute;inset-block:0;border:1px solid #6d82bb;background:#526fc013;min-width:3px;pointer-events:none}.map-overview i{position:absolute;inset-block:0;border-left:2px solid #526fc0}.map-overview-wrap>span{position:absolute;bottom:4px;font-size:11px;color:#758098}.map-overview-wrap>span:last-child{right:0}
   .measure-lane{position:relative;height:44px;background:#edf1f7;border-radius:5px 5px 0 0;overflow:hidden;flex-shrink:0}.measure-lane button{position:absolute;inset-block:0;border:0;border-right:1px solid #fff;text-align:left;background:#dce8e2;color:#334c47;padding:4px 9px;overflow:hidden;white-space:nowrap}.measure-lane button.dense{padding-inline:1px}.measure-lane button.dense span{display:none}.measure-lane button.selected{background:#a7c9bd}.measure-lane button.protected{box-shadow:inset 0 -3px #6b8c80}.measure-lane strong{display:block;font-size:13px}.measure-lane span{font-size:10px}
-  .map-wave-field{position:relative;flex:1;min-height:230px;background:#233552;border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;user-select:none;cursor:crosshair}.map-wave-field.panning{cursor:grabbing}.map-seek{position:absolute;inset:0;outline-offset:-3px}.map-wave-canvas{position:absolute;left:0;top:70px;width:100%;height:calc(100% - 86px);pointer-events:none}.map-time-ruler{position:absolute;inset:0 0 auto;height:30px;color:#bbcae2;font-size:11px;pointer-events:none}.map-time-ruler span{position:absolute;top:8px;transform:translateX(-50%)}.map-time-ruler span:first-child{transform:none;padding-left:8px}.map-time-ruler span:last-child{transform:translateX(-100%);padding-right:8px}
+  .map-wave-field{position:relative;flex:1;min-height:190px;background:#233552;border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;user-select:none;cursor:crosshair}.map-wave-field.panning{cursor:grabbing}.map-seek{position:absolute;inset:0;outline-offset:-3px}.map-wave-canvas{position:absolute;left:0;top:70px;width:100%;height:calc(100% - 86px);pointer-events:none}.map-time-ruler{position:absolute;inset:0 0 auto;height:30px;color:#bbcae2;font-size:11px;pointer-events:none}.map-time-ruler span{position:absolute;top:8px;transform:translateX(-50%)}.map-time-ruler span:first-child{transform:none;padding-left:8px}.map-time-ruler span:last-child{transform:translateX(-100%);padding-right:8px}
   .free-time{position:absolute;inset-block:30px 0;background:repeating-linear-gradient(135deg,#ffffff06,#ffffff06 5px,transparent 5px,transparent 12px);pointer-events:none}.free-time span{position:absolute;bottom:10px;left:8px;font-size:10px;color:#a7b6d0;white-space:nowrap}.selected-measure{position:absolute;inset-block:30px 0;background:#a7c9bd13;pointer-events:none}.measure-handle{position:absolute;top:30px;bottom:0;width:14px;padding:0;border:0;border-left:2px solid #a7c9bd;border-radius:0;background:transparent;color:#233552;cursor:ew-resize;touch-action:none}.measure-handle span{position:absolute;top:0;left:-2px;min-width:22px;padding:3px 5px;background:#a7c9bd;border-radius:0 0 3px 0;font-size:11px;font-weight:600}.measure-handle.end{transform:translateX(-12px);border-left:0;border-right:2px solid #a7c9bd}.measure-handle.end span{left:auto;right:-2px}.beat-handle{position:absolute;top:57px;bottom:0;width:10px;padding:0;border:0;border-left:1px dashed #adbcdb75;border-radius:0;background:transparent;color:#adbcdb;cursor:ew-resize;touch-action:none}.beat-handle span{position:absolute;top:0;left:3px;font-size:10px}.beat-handle.anchor{border-left:1px solid #cad9f0}.candidate-line{position:absolute;inset-block:74px 0;border-left:1px dotted #dfbb7f99;pointer-events:none}.candidate-line.downbeat{border-left:2px dotted #dfbb7f}.map-playhead{position:absolute;inset-block:26px 0;border-left:2px solid white;pointer-events:none}
   .map-overview:not(.keyboard-focus):focus,.map-wave-field:not(.keyboard-focus):focus,.map-wave-field:not(.keyboard-focus) :focus{outline:none}.map-seek:focus-visible{outline:3px solid #8297d2}.measure-handle:focus-visible,.beat-handle:focus-visible{outline:2px solid #fff;outline-offset:2px}
   @media(max-height:740px){.map-overview{height:32px}.map-wave-field{min-height:170px}}

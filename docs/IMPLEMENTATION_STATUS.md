@@ -286,3 +286,39 @@ pending: the isolated QA app launched successfully, but the server restarted
 before inspection and desktop-control tools were unavailable afterward. The QA
 process was cleaned up; the user's existing app was left untouched. Linux and
 Windows have not been locally verified.
+
+## Map-review layout and visual detail
+
+Analysis, Analyze song, suggestion visibility and progress now occupy the sidebar;
+model installation remains a secondary disclosure with its folder path preserved.
+Create measures stays alongside analysis. Detected suggestions show before mapping
+and hide by default for an authored map or green draft; an explicit checkbox choice
+persists across screen switches. The new `map_show_detected` action shares the
+central keymap/button/help metadata. Candidate data remains available to rebuild
+drafts regardless of visibility.
+
+The timeline uses a presentation-only density helper to show every 2nd, 4th, 10th
+or larger-step beat marker. Fixed anchors and detected downbeats are thinned too.
+Stable sequence indices avoid phase changes while panning; zoom restores detail.
+Sorted-frame window lookup and a separately derived beat array avoid rebuilding
+all marker descriptors on each pan. Neither source coordinates nor click schedules
+are edited by this display rule.
+
+Play/pause, source time and speed are in a compact waveform overlay, with Loop off
+when needed. Overlay pointer/wheel input is excluded from timeline gestures, and
+speed changes retain pitch. The large mapping speed/pitch strip is removed. Measure
+notation/boundary/numbering/protection tools, anchors/splits and respace/free-time
+operations now live below the waveform, spanning both columns. `MeasureTools.svelte`
+owns their form state and parsing; the editor still owns validated edit sessions,
+preview/apply, undo and persistence. The timeline accepts playback UI as a snippet
+and has no action-execution or playback-engine dependency.
+
+Current frontend verification: 81 tests pass, zero Svelte/TypeScript diagnostics,
+clean diff whitespace, production frontend build and rebuilt macOS bundle. Tests
+cover suggestion visibility without map mutation, density thresholds/phase/gaps,
+restored detail, fixed-anchor/downbeat thinning, overlay gesture isolation,
+speed/pitch independence and relocated boundary/anchor edits through persistence.
+The prior 46 Rust tests/device evidence still applies to the unchanged native
+engine; no new hardware run was needed for these presentation changes. Native
+visual review is still pending because desktop-control tools are unavailable.
+Linux/Windows builds have not been run locally.

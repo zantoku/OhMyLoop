@@ -4,6 +4,7 @@
   import Icon from './Icon.svelte';
   import PlaybackSettings from './PlaybackSettings.svelte';
   import MeasureEditor from './MeasureEditor.svelte';
+  import MapPlayback from './MapPlayback.svelte';
   import type { MapView, MapPreview } from './timing';
   import { bridge, native } from './bridge';
   import { Keymap, loadKeymap } from './keymap';
@@ -312,7 +313,8 @@
   </main>
   {#if song}
     {#key song.key}
-      <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
+      {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls(value,pitch)} disabled={!!busy}/>{/snippet}
+      <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
     {/key}
     <div class="musical-navigation" hidden={!mapView?.measures.length}>
       <span>{transport.musical_position?`Measure ${transport.musical_position.label}, beat ${transport.musical_position.beat.toFixed(2)}`:'Unmapped position'}</span>
@@ -321,12 +323,7 @@
       <label>Measure <input aria-label="Go to measure number" type="number" min="1" step="1" bind:value={measureNumber}/></label>
       <button class="text-button" disabled={!buttonAvailable('goto_measure')} title={keymap.title('goto_measure')} onclick={()=>runButton('goto_measure')}>{keymap.buttonLabel('goto_measure','Go')}</button>
     </div>
-    {#if screen==='mapping'}
-      <div class="mapping-playback" role="group" aria-label="Measure mapping playback">
-        <div class="mapping-transport"><button class="play-button" aria-label={keymap.buttonLabel('play',transport.playing?'Pause':'Play')} disabled={!buttonAvailable('play')} title={keymap.title('play')} onclick={()=>runButton('play')}><Icon name={transport.playing?'pause':'play'} size={25}/></button><strong>{time(transport.position,2)}</strong><span>/ {time(song.duration,0)}</span><button class="text-button" disabled={!buttonAvailable('mapping_loop_off')} title={keymap.title('mapping_loop_off')} onclick={()=>runButton('mapping_loop_off')}>{keymap.buttonLabel('mapping_loop_off',project?.loop_enabled?'Turn looping off':'Loop off')}</button></div>
-        <PlaybackSettings disabled={!!busy} {speed} {pitch} {keymap} {controls} {runButton}/>
-      </div>
-    {/if}
+
   {/if}
   <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><button title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts <span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}</button></footer>
 </div>

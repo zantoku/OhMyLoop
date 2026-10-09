@@ -11,6 +11,8 @@ playback. A range remains saved when looping is turned off.
 The mapping actions `map_metronome` and `map_follow` control authored-map clicks
 and waveform paging. They have button/help metadata and no default keyboard
 bindings; custom bindings can be assigned like other mapping actions.
+`map_show_detected` toggles the Analysis checkbox for raw beat suggestions and
+also accepts a custom keyboard binding. It changes presentation only.
 
 ## Configuration file
 

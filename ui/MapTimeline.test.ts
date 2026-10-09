@@ -9,6 +9,18 @@ function setup(){const callbacks={onview:vi.fn(),onseek:vi.fn(),onselect:vi.fn()
   return{...callbacks,...result,field,overview};
 }
 describe('measure-map timeline',()=>{
+  it('thins fixed anchors and detected downbeats together and restores detail on zoom',async()=>{
+    const s=setup(),view=timingFixture().view;
+    for(const m of view.measures)m.grid=Array.from({length:20},(_,i)=>({frame:m.start+i*200,quarter:i/5,label:String(i),id:`anchor-${m.id}-${i}`}));
+    const candidates=Array.from({length:101},(_,i)=>({frame:i*80,downbeat:true}));
+    await s.rerender({mapView:view,candidates});
+    expect(s.field.querySelectorAll('.beat-handle')).toHaveLength(18);
+    expect(s.field.querySelectorAll('.candidate-line')).toHaveLength(51);
+    await s.rerender({view:{start:0,end:2}});
+    expect(s.field.querySelectorAll('.beat-handle')).toHaveLength(10);
+    expect(s.field.querySelectorAll('.candidate-line')).toHaveLength(26);
+    expect(view.measures[0].grid).toHaveLength(20);expect(candidates).toHaveLength(101);
+  });
   it('captures a boundary drag and commits one source-frame edit without seeking',async()=>{
     const s=setup();await pointer(screen.getByRole('button',{name:'Measure 2 start'}),'pointerdown',600);await pointer(s.field,'pointermove',650);expect(s.onedit).not.toHaveBeenCalled();
     await pointer(s.field,'pointerup',650);expect(s.onedit).toHaveBeenCalledExactlyOnceWith({type:'move_boundary',id:'map-2',frame:4400});expect(s.onseek).not.toHaveBeenCalled();expect(s.field.releasePointerCapture).toHaveBeenCalledWith(1);

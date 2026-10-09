@@ -11,6 +11,7 @@ const mapping = (description: string, keys: readonly string[] = []) => ({ ...def
 export const MAPPING_ACTIONS = {
   map_metronome: mapping('Toggle the metronome for the displayed authored map'),
   map_follow: mapping('Follow the playhead by paging the waveform view'),
+  map_show_detected: mapping('Show / hide detected beat suggestions'),
   map_clear: mapping('Clear all measures and anchors; Undo restores them. Keep detected beats for rebuilding'),
   map_first_downbeat: mapping('Set the first downbeat near the playhead'),
   map_origin: mapping('Preview the first full measure number'),

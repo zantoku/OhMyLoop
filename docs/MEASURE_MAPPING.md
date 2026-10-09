@@ -33,12 +33,14 @@ The mapping screen has:
 - A musical ruler displaying measure numbers and beat positions, alongside a
   time ruler. Strong measure boundaries, lighter beat lines, meter labels,
   and explicit unmapped/partial spans make the interpretation visible.
-- A toolbar for **Analyze song**, **Clear map**, adding boundaries,
+- A toolbar for **Clear map**, adding boundaries,
   undo/redo, and fitting the selected measure or whole song.
-- An inspector for the selected measure/boundary: meter, pulse unit/grouping,
+- A panel below the waveform for the selected measure/boundary: meter, pulse unit/grouping,
   full/pickup/incomplete status, exact position, and protection from reanalysis.
-- Play/pause, source position, previous/next measure, and **Go to measure**.
-  Keep speed and pitch available for listening while correcting the map.
+- A compact waveform overlay for play/pause, source position and speed, plus
+  previous/next measure and **Go to measure**. Pitch controls remain on Practice.
+- An **Analysis** sidebar with **Analyze song**, **Show detected beats**, progress
+  and model setup, followed by **Create measures** draft controls.
 - Clear analysis progress, cancellation, missing-model/error states, and a
   visible distinction between suggested and accepted annotations.
 
@@ -343,3 +345,29 @@ Clicks share the engine's nominal source-position estimate. Rubber Band's adapti
 timing can move individual transients around that estimate, particularly during
 live speed changes; this is not a claim of sample-accurate click/transient alignment.
 Count-ins, practice rests and exported clicks remain outside this review feature.
+
+## Map review detail and editing layout
+
+**Show detected beats** in Analysis controls only the raw suggestion overlay.
+Suggestions show initially, then hide by default when an authored map or green
+draft appears. An explicit checkbox choice wins for the rest of that song session,
+including screen switches. Hiding suggestions does not delete them or change
+draft construction, the accepted map, protection or the metronome.
+
+Beat markers thin at discrete density levels: every 2nd, 4th or 10th, with larger
+steps for very long songs. Fixed anchors and detected downbeats obey the same
+visual density rule; they remain intact in the map and anchor selector. Sampling
+keeps its phase while panning, and zooming restores detail. Measure boundaries
+remain separate from these beat-detail levels. This is a presentation rule only.
+
+The waveform overlay contains play/pause, source position, a speed slider and
+exact percentage. A Loop off action appears when an existing loop is enabled.
+Overlay input does not start timeline gestures or wheel zoom. Speed changes keep
+the current pitch. Full pitch controls are available on the Practice screen.
+
+Selected-measure tools occupy the full-width panel below the timeline, with
+Measure, Beat anchors and splits, and Respace or free time panels. They retain
+exact source-frame edits, preview/apply, protection and undo semantics. Analysis,
+model setup and draft creation stay in the sidebar. Form state lives in the
+cohesive `MeasureTools.svelte` component; map/session ownership stays in the editor,
+and the timeline receives playback presentation through a Svelte snippet.

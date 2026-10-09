@@ -85,6 +85,12 @@ on to resume after navigation. Leaving the mapping screen stops the metronome.
 Left, Right and Enter also reveal the playhead in
 the waveform while paused, preserving zoom. See [map review behavior and timing limits](docs/MEASURE_MAPPING.md#listening-to-the-displayed-map).
 
+The **Analysis** sidebar holds Analyze song and **Show detected beats**. Raw
+suggestions hide by default once a map or draft is displayed; the checkbox can
+restore them. Beat markers thin as you zoom out and regain detail when you zoom
+in. Play/pause and speed sit in a compact waveform overlay. The panel below the
+waveform holds measure timing, notation, beat-anchor and range-editing tools.
+
 `npm run dev` opens a frontend-only development preview. It uses explicit demo
 fixtures and disables audio playback; the desktop app uses the real Rust engine.
 
