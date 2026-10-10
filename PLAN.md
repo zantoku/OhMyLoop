@@ -1,7 +1,7 @@
 # OhMyLoop product and implementation plan
 
 Recorded: 2026-10-08.
-Updated: 2026-10-10.
+Updated: 2026-10-11.
 Validated prototype baseline: `1ada9f4` — Build validated Rust audio practice prototype.
 Desktop/keymap baseline: `3f48398` — Add configurable actions and refine timeline navigation.
 
@@ -243,3 +243,13 @@ automatic suggestions against independent evidence. Preserve both phrase practic
 and longer-section navigation in the existing practice screen. Keep analyzer
 evidence, accepted musical definitions, persistence, and playback scheduling
 separate.
+
+
+Practice refinement (2026-10-11): the section lane remains, with one waveform
+ruler showing measure numbers/barlines in mapped audio and timecodes in free time.
+Loop creation defaults to whole measures; handles/A-B use boundaries, with a
+snap toggle, Shift override and exact time inputs for phrases. Practice and
+mapping share metronome enable/level; practice follows the accepted map and
+mapping can audition its displayed draft. Both screens provide default-on paged
+playhead following with independent toggles; manual navigation preserves them.
+Preferences are session state.

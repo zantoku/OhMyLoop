@@ -3,7 +3,7 @@
 A free, open-source music practice player for Linux, macOS, and Windows.
 The first desktop implementation provides a waveform workspace, editable
 sections, temporary loops, independent speed and pitch controls, editable measure
-maps with optional beat analysis, map-review metronome and practice-state restoration. The validated terminal prototype remains available.
+maps with optional beat analysis, authored-map metronome and practice-state restoration. The validated terminal prototype remains available.
 
 The prototype uses Rust, CPAL, Symphonia, and bundled Rubber Band 4.0.0.
 Playback uses Rubber Band's R3/Finer engine. R2 remains available to the
@@ -90,10 +90,11 @@ player. Both screens share transport and retain their own viewports.
 In **Measure map**, **Metronome** defaults on to play the displayed authored map,
 including a green draft before applying it. **Click level** adjusts its volume;
 clicks follow the chosen pulse and accent measure/group starts. **Follow playhead**
-also defaults on and pages the waveform during playback without changing zoom.
+also defaults on in both screens and pages the waveform during playback without
+changing zoom. Each screen retains its own follow preference.
 Panning, minimap navigation, zoom and view-fitting preserve this setting; only
-the Follow playhead toggle turns it off. Leaving the mapping screen stops the
-metronome.
+the Follow playhead toggle turns it off. Returning to practice uses accepted-map
+clicks and preserves the shared metronome enable/level preference.
 Left, Right and Enter also reveal the playhead in
 the waveform while paused, preserving zoom. See [map review behavior and timing limits](docs/MEASURE_MAPPING.md#listening-to-the-displayed-map).
 
@@ -152,7 +153,13 @@ sections, loops and playback settings. Mapping undo/redo retains up to 50 edits
 during the same song session and survives switching back to practice; it is not
 saved across restarts. The accepted map is
 persisted with the song in version-3 documents; valid version-2 documents migrate.
-Practice gains a measure ruler and measure navigation.
+Practice uses a single waveform ruler: measure numbers and vertical barlines in
+mapped audio, timecodes in free time. The separate section lane stays. Loops
+snap to whole measures by default; turn off **Snap to measures** or Shift-drag
+for free placement. Loop handles and A/B shortcuts use barlines; exact time
+inputs and saved section ranges remain precise. Both screens share metronome
+on/off and click level, defaulting to on/50%. Practice follows the accepted map;
+mapping auditions the displayed draft. Measure navigation remains in the footer.
 
 **Analysis model → Download analysis model** optionally installs the pinned
 Beat This! model (about 83 MB). **Analyze song** runs CPU inference in a separate,

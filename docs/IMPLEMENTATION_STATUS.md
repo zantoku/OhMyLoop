@@ -1,6 +1,6 @@
 # Measure mapping implementation and evidence
 
-Updated: 2026-10-10. Manual measure editing, practice navigation, map-review
+Updated: 2026-10-11. Manual measure editing, practice navigation, map-review
 listening and optional automatic drafts are implemented. Detector accuracy and
 cross-platform release readiness remain provisional. This page describes the
 current implementation; [implementation history](IMPLEMENTATION_HISTORY.md)
@@ -68,10 +68,16 @@ containing measure and seek to the exact clicked time; free-time clicks open tha
 range. Playback selects the currently playing measure without seeking. If a shift
 absorbs the selected bar, selection moves to the survivor covering its former
 start. Practice displays the accepted ruler, musical position and previous/next/
-Go-to-measure navigation.
+Go-to-measure navigation. Practice keeps its section lane but replaces the separate
+measure lane/timecode ruler with one waveform ruler: measure numbers and vertical
+barlines in mapped audio, timecodes in free time. Loops snap to whole measures by
+default; handles and A/B use barlines. A checkbox/Shift gestures permit free
+placement, and exact time fields and saved sections retain precise bounds.
 
-**Metronome** and **Follow playhead** default on for each song session. Clicks use
-the displayed authored draft/map, never raw detections, and stop outside mapping.
+**Metronome** defaults on with 50% level, shared between both screens for the app
+session. Practice clicks use the accepted map; mapping clicks use the displayed
+authored draft/map, never raw detections. **Follow playhead** defaults on in both screens, with independent session toggles;
+practice pages with or without a map.
 Grouping controls accents; pulse controls click spacing. Click level adjusts
 volume, speed changes spacing, and pitch does not transpose clicks. Paging keeps
 zoom and handles seeks/loop wraps. Manual viewport navigation never disables
@@ -101,8 +107,10 @@ bounded queue (~50 ms plus hardware latency), not exact Rubber Band transient
 alignment. `src/analysis/` owns model setup, bounded progress and cancellable
 subprocess inference; `src/analysis_pcm.rs` prepares source-aligned mono PCM.
 
-Frontend MappingSession owns save orchestration/history; AnalysisSession and
-MetronomeSession own async job/review state. MeasureBuilder, MeasureTools,
+Frontend MappingSession owns save orchestration/history; the app owns one shared
+MetronomeSession, avoiding competing native requests on screen transitions.
+AnalysisSession owns analysis job state. MetronomeSession coalesces click-map
+and level updates. MeasureBuilder, MeasureTools,
 JoinSplitTools, ShiftTools, FreeTimeTools and BatchTools own cohesive forms and
 command adapters. Svelte renders native projections; timeline helpers own gestures
 and density. Action identities, button bindings, scopes and help remain in
@@ -136,7 +144,7 @@ On this macOS host, for the current code:
   The 38 mapping/shift/metronome tests cover actual DSP clicks, variable tempo/meter,
   pickups/partials/gaps, epsilon fitting, split/join/reclaim, absorbed measures,
   exact source timing, protection and invalid edits.
-- **106 frontend tests pass** in 13 files. Svelte/TypeScript reports zero errors
+- **117 frontend tests pass** in 13 files. Svelte/TypeScript reports zero errors
   and warnings. Coverage includes gestures, scoped bindings, defaults/paging,
   selection, density, direct saves and draft workflows, failure/retry, Undo,
   screen switching and stale/disposed async replies.
@@ -147,14 +155,20 @@ On this macOS host, for the current code:
   data: direct notation/protection/Undo, batch numbering previews, Join and
   numbered Split, free-time removal/reclaim/selection, both shift directions and
   exact Undo, absorption of a two-pulse tail into 6/4, retained tempo-change timing,
-  and the horizontal layout with a numeric-only split menu were observed.
+  and the horizontal layout with a numeric-only split menu were observed. The
+  latest practice QA confirmed the single ruler/barlines, whole-measure and free
+  loop drags, shared metronome toggle across screens, and native playback with
+  clicks enabled at the default 1180 × 810 window size. Practice following was
+  also observed paging from 0–3 s to 3–6 s during native demo playback at 4× zoom;
+  toggling following off retained the 0–3 s view through subsequent playback to EOF.
 
-The full Rust suite and workspace lint were rerun for this documentation audit.
-Frontend/type/build/native-layout results are from the immediately preceding UI
-iteration, whose code is unchanged by the audit. Original practice-window and
+The full Rust suite and workspace lint were last rerun for the 2026-10-10
+documentation audit. The 2026-10-11 practice timeline/metronome refinement changes
+frontend code only; frontend tests, type checking and the macOS app bundle build
+were rerun for that iteration. Original practice-window and
 analyzer/model-installer QA evidence is retained in
 [DESKTOP.md](DESKTOP.md) and [implementation history](IMPLEMENTATION_HISTORY.md).
-There is no new physical listening run in this audit. Linux/Windows CI matrices
+There is no new subjective click/audio quality assessment in this iteration. Linux/Windows CI matrices
 are configured; no passing run for this revision has been verified here.
 
 Reproduce routine checks (use offline mode only if dependencies are cached):

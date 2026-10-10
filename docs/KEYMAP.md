@@ -8,6 +8,20 @@ the song start also turns looping off when it lies outside the enabled range.
 Seeking preserves play/pause state; reaching the file's natural end can finish
 playback. A range remains saved when looping is turned off.
 
+The practice action `practice_follow` and its same-named button toggle paged
+playhead following. It defaults on, has no default key, and accepts configured
+shortcuts. Its preference is independent of mapping’s `map_follow`; each screen
+retains its setting across screen changes. Panning and zoom never turn it off,
+and explicit seeks reveal the playhead even with continuous following off.
+
+The practice actions `practice_metronome` and `toggle_loop_snap` control the
+shared authored-map metronome and default-on loop snapping. Their buttons are
+`practice_metronome` and `loop_snap`; neither has a default key. Enable/level
+persist across practice/mapping screen changes. Practice uses the accepted map;
+mapping can use an unapplied draft. With snapping on, A/B use the nearest
+barline, and without an existing loop they select the containing measure. Exact
+loop-time inputs and saved sections preserve their source coordinates.
+
 The mapping actions `map_metronome` and `map_follow` control authored-map clicks
 and waveform paging. They have button/help metadata and no default keyboard
 bindings; custom bindings can be assigned like other mapping actions.

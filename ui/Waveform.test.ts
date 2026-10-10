@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import Waveform from './Waveform.svelte';
+import { timingFixture } from './timing-fixture';
+import type { MapView } from './timing';
 import type { View } from './types';
 
-function setup() {
+function setup(mapView:MapView|null=null) {
   const callbacks = { onview: vi.fn<(view: View) => void>(), onseek: vi.fn(), onselection: vi.fn(), onsection: vi.fn() };
   const props = { peaks: [[-.2, .2]] as [number, number][], duration: 20, sections: [],
-    selection: { start: 4, end: 5, fade_ms: 5 }, position: 3, view: { start: 2, end: 10 }, ...callbacks };
+    mapView, rate:1000, selection: { start: 4, end: 5, fade_ms: 5 }, position: 3, view: { start: 2, end: 10 }, ...callbacks };
   const component = render(Waveform, props);
   const field = screen.getByRole('region', { name: /^Waveform/ });
   const overview = screen.getByRole('button', { name: 'Move waveform view' });
@@ -21,8 +23,8 @@ function setup() {
 }
 
 // jsdom has MouseEvent but no PointerEvent; add the pointer ID used by capture.
-async function pointer(target: Element, type: string, clientX: number, button = 0) {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, button });
+async function pointer(target: Element, type: string, clientX: number, button = 0, shiftKey = false) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, button, shiftKey });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   await fireEvent(target, event);
   return event;
@@ -141,4 +143,71 @@ describe('waveform navigation gestures', () => {
     }
     expect(onseek).not.toHaveBeenCalled(); expect(onselection).not.toHaveBeenCalled();
   });
+});
+
+
+describe('authored measure practice timeline',()=>{
+  it('uses one measure ruler and waveform barlines, with timecodes in free time',()=>{
+    const {field}=setup(timingFixture().view);
+    expect(screen.getByRole('region',{name:'Measure ruler'}).parentElement).toBe(field);
+    expect(field.querySelectorAll('.measure-line')).toHaveLength(2); // 4 and 8 s in this viewport.
+    expect(field.querySelector('[title="Measure 1"]')?.textContent).toBe('1'); // Clipped first bar.
+    expect(field.querySelector('[title="Measure 2"]')?.textContent).toBe('2');
+    expect([...field.querySelectorAll('.time-label')].map(e=>e.textContent)).toEqual(['0:08.7','0:10.0']);
+    expect(field.querySelector('.time-label')?.textContent).not.toBe('0:04.7');
+    expect(screen.queryByRole('button',{name:/Jump to measure/})).toBeNull();
+  });
+  it('selects whole touched measures in either direction, including single-bar drags',async()=>{
+    const {field,onselection,onseek}=setup(timingFixture().view);
+    await pointer(field,'pointerdown',250); // 3.2 s
+    await pointer(field,'pointerup',700); // 6.8 s; final release also updates selection.
+    expect(onselection).toHaveBeenLastCalledWith({start:0,end:8,fade_ms:5});
+    await pointer(field,'pointerdown',700);await pointer(field,'pointerup',250);
+    expect(onselection).toHaveBeenLastCalledWith({start:0,end:8,fade_ms:5});
+    await pointer(field,'pointerdown',450);await pointer(field,'pointerup',600);
+    expect(onselection).toHaveBeenLastCalledWith({start:4,end:8,fade_ms:5});
+    await pointer(field,'pointerdown',475);await pointer(field,'pointerup',475);
+    expect(onseek).toHaveBeenCalledWith(5); // Seeking remains precise.
+  });
+  it('supports snap toggle, Shift-drag, and free-time selection',async()=>{
+    const {field,onselection,rerender}=setup(timingFixture().view);
+    await pointer(field,'pointerdown',250);await pointer(field,'pointerup',700,0,true);
+    expect(onselection).toHaveBeenLastCalledWith({start:3.2,end:6.8,fade_ms:5});
+    await rerender({snapToMeasures:false});
+    await pointer(field,'pointerdown',250);await pointer(field,'pointerup',700);
+    expect(onselection).toHaveBeenLastCalledWith({start:3.2,end:6.8,fade_ms:5});
+    await rerender({snapToMeasures:true});
+    await pointer(field,'pointerdown',950);await pointer(field,'pointerup',1050);
+    expect(onselection).toHaveBeenLastCalledWith({start:8.8,end:9.6,fade_ms:5});
+  });
+  it('snaps handles and keyboard nudges without collapsing the loop',async()=>{
+    const {field,onselection,rerender}=setup(timingFixture().view);
+    await rerender({selection:{start:0,end:8,fade_ms:5}});
+    const end=screen.getByRole('button',{name:'Loop end'});
+    await pointer(end,'pointerdown',850);await pointer(field,'pointerup',450); // 4.8 -> 4
+    expect(onselection).toHaveBeenLastCalledWith({start:0,end:4,fade_ms:5});
+    onselection.mockClear();
+    await pointer(end,'pointerdown',850);await pointer(field,'pointerup',100); // Cannot snap B to A.
+    expect(onselection).not.toHaveBeenCalled();
+    await rerender({view:{start:0,end:8}});
+    await pointer(end,'pointerdown',1100);await pointer(field,'pointerup',100); // Exact barline also cannot collapse B.
+    expect(onselection).not.toHaveBeenCalled();
+    await fireEvent.keyDown(end,{key:'ArrowLeft'});
+    expect(onselection).toHaveBeenLastCalledWith({start:0,end:4,fade_ms:5});
+    await fireEvent.keyDown(end,{key:'ArrowLeft',shiftKey:true});
+    expect(onselection).toHaveBeenLastCalledWith({start:0,end:7.99,fade_ms:5});
+  });
+});
+
+
+it('snaps to authored variable-length/partial measures, preserves gaps and excludes the next bar at an exact end',async()=>{
+  const map=timingFixture().view;map.measures[0].kind='pickup';map.measures[0].label='Pickup';
+  map.measures[1].start=6000;map.measures[1].end=7000;map.measures[1].kind='incomplete';
+  const {field,onselection,rerender}=setup(map);await rerender({view:{start:0,end:10}});
+  await pointer(field,'pointerdown',300);await pointer(field,'pointerup',500); // 2 -> exactly 4 seconds.
+  expect(onselection).toHaveBeenLastCalledWith({start:0,end:4,fade_ms:5});
+  await pointer(field,'pointerdown',730);await pointer(field,'pointerup',780); // Partial bar 6.3 -> 6.8.
+  expect(onselection).toHaveBeenLastCalledWith({start:6,end:7,fade_ms:5});
+  await pointer(field,'pointerdown',540);await pointer(field,'pointerup',640); // Gap 4.4 -> 5.4.
+  expect(onselection).toHaveBeenLastCalledWith({start:4.4,end:5.4,fade_ms:5});
 });

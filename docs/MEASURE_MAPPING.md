@@ -1,6 +1,6 @@
 # Measure mapping: current behavior and implementation contract
 
-Drafted: 2026-10-09. Updated: 2026-10-10. Status: manual editing, map-review
+Drafted: 2026-10-09. Updated: 2026-10-11. Status: manual editing, map-review
 listening, practice navigation and optional analyzer implemented;
 analysis quality remains provisional. Verification and remaining evaluation: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 Research: [BEAT_MAPPING_RESEARCH.md](BEAT_MAPPING_RESEARCH.md).
@@ -260,10 +260,24 @@ relative model output, not calibrated map-correctness probabilities.
 
 ## Practice-screen integration
 
-Once a map exists, show a measure/beat ruler and musical playhead position in
-the practice screen alongside source time. Provide previous/next measure and
-Go to measure through shared map lookup and action metadata. Unmapped audio
-retains time navigation and displays no invented musical position.
+Practice keeps its saved-section lane and a single ruler within the waveform.
+Accepted measure numbers replace timecodes over mapped audio; barlines extend
+vertically through the waveform. Number labels thin when zoomed out, while
+barlines remain visible. There is no separate practice measure lane. Unmapped
+and free-time audio retains timecodes and displays no invented musical position.
+The musical footer provides previous/next measure and Go to measure through
+shared map lookup and action metadata.
+
+**Snap to measures** defaults on as a session preference. Creating a waveform
+loop selects the whole measures touched by the drag (in either direction);
+ending exactly on a barline does not add the following measure. Loop handles
+snap to the nearest barline, and their arrow keys move to the previous/next
+boundary. Shift-drag bypasses snapping; Shift-arrow keeps fine adjustment.
+The A/B shortcuts snap the playhead to the nearest barline. With no existing
+range, A/B or enabling Loop selects the containing mapped measure. Free-time
+endpoints, exact seconds inputs and selecting saved sections remain precise.
+Snapping never modifies an existing loop merely by toggling the preference or
+changing the map. The existing 100 ms minimum loop length still applies.
 
 Existing loop and section storage remains source-based. Seeking a measure uses
 its exact boundary frame converted at the existing transport boundary; account
@@ -354,7 +368,9 @@ only an unapplied preview exists, Clear map discards it without a save.
 ## Listening to the displayed map
 
 The mapping screen provides **Metronome on/off**, **Click level**, and **Follow
-playhead on/off**. Metronome and following both default on for each song session.
+playhead on/off**. Following defaults on for each song session.
+Practice provides the same metronome and Click level controls. Enable/level are
+shared across both screens for the app session and default to on/50%.
 Clicks begin once an authored map or draft exists. The metronome uses the green
 draft while one is displayed, otherwise the accepted map. Applying retains that
 timing; discarding returns to
@@ -375,10 +391,14 @@ Mixing reserves volume-dependent headroom for clicks to avoid clipping.
 
 The musical footer follows the displayed map too. Review map, click enable/level,
 and following are session state; they do not change the saved song schema. Leaving
-mapping disables the metronome and restores accepted-map transport coordinates.
-The click preference resumes on reentering mapping during the same song session.
+mapping restores accepted-map clicks and transport coordinates without changing
+the shared click enable/level preference. An unapplied draft stays in the editor
+and can be auditioned again on returning to mapping.
 
-Following defaults on and pages only during playback. Crossing the current
+Both screens provide Follow playhead, enabled by default with independent
+session preferences. Practice follows playback with or without an authored map.
+Changing screens preserves each viewport and toggle; loading a different song
+starts with following on. Following pages only during playback. Crossing the current
 window's end advances by a full window, preserving zoom; backwards seeks and loop
 wraps page backwards. The final page clamps to EOF. Manual panning, minimap
 navigation, wheel zoom, Fit measure and Whole song preserve the follow setting.

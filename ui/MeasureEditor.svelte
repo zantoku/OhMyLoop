@@ -7,7 +7,7 @@
   import MeasureTools from './MeasureTools.svelte';
   import MapTimeline from './MapTimeline.svelte';
   import {native} from './bridge';
-  import {MetronomeSession,type MetronomeState} from './metronome-session';
+  import MetronomeControls from './MetronomeControls.svelte';
   import {pageForPlayhead} from './timeline';
   import { MappingSession, type MappingState } from './mapping-session';
   import { measureAtFrame, type MapEdit, type MapPreview, type MeasureMap, type MapView } from './timing';
@@ -15,21 +15,19 @@
   import type { Keymap } from './keymap';
   import type { ButtonId, MappingActionId } from './actions';
   import { zoom } from './model';
-  let { song, map, mapView, transport, keymap, active, playback, oncommit, onseek, run, available }:
-    { song: Song; map: MeasureMap | null; mapView: MapView | null; transport: Transport; keymap: Keymap; active: boolean; playback?:Snippet;
+  let { song, map, mapView, transport, keymap, active, clickEnabled=$bindable(true), clickLevel=$bindable(50), onreview, playback, oncommit, onseek, run, available }:
+    { song: Song; map: MeasureMap | null; mapView: MapView | null; transport: Transport; keymap: Keymap; active: boolean; clickEnabled?:boolean; clickLevel?:number; onreview:(map:MeasureMap|null)=>void; playback?:Snippet;
       oncommit: (value: MapPreview, songKey:string) => Promise<void>; onseek: (seconds:number)=>void; run:(id:ButtonId)=>void; available:(id:ButtonId)=>boolean } = $props();
   let editState = $state<MappingState>({pending:false,error:'',preview:null,undo:0,redo:0});
   let analysis = $state<AnalysisState>({status:null,requesting:false,error:''});
   const analyzer = new AnalysisSession(()=>({key:song.key,revision:map?.revision??0}),value=>{analysis=value;});
   const candidates = $derived(analysis.status?.result?.song_key===song.key?analysis.status.result:null);
-  let clickEnabled=$state(true),clickLevel=$state(50),followingPlayhead=$state(true);
-  let clickState=$state<MetronomeState>({pending:false,error:''});
-  const clickSession=new MetronomeSession(value=>{clickState=value;});
+  let followingPlayhead=$state(true);
   const audibleMap=$derived(editState.preview?.map??map);
   let detectedVisibility=$state<boolean|null>(null);
   const showDetected=$derived(detectedVisibility??!audibleMap?.measures.length);
   $effect(()=>{
-    if(native)clickSession.set({key:song.key,enabled:active&&clickEnabled&&!!audibleMap?.measures.length&&!transport.audio_error,volume:clickLevel/100,map:active&&audibleMap?$state.snapshot(audibleMap):null});
+    if(active)onreview(audibleMap?$state.snapshot(audibleMap):null);
   });
   let builder=$state<MeasureBuilder>();
   let tools=$state<MeasureTools>();
@@ -44,7 +42,7 @@
     void analyzer.refresh();const timer=setInterval(()=>{if(analysis.status?.running||analysis.requesting)void analyzer.refresh();},400);
     return()=>clearInterval(timer);
   });
-  onDestroy(()=>{analyzer.dispose();session.dispose();clickSession.dispose();});
+  onDestroy(()=>{analyzer.dispose();session.dispose();});
   const session = new MappingSession(()=>({key:song.key,map:map?$state.snapshot(map):null}),value=>oncommit(value,song.key),next=>{editState=next;});
   let view = $state<View>(untrack(()=>({start:0,end:song.duration})));
   export function revealPlayhead(position:number){view=pageForPlayhead(view,song.duration,position);}
@@ -123,11 +121,9 @@
       <button class="text-button" disabled={disabled('map_whole')} title={title('map_whole')} onclick={()=>run('map_whole')}>{label('map_whole','Whole song')}</button>
     </div>
     <div class="review-listening" role="group" aria-label="Map review listening">
-      <button class="button" aria-pressed={clickEnabled} disabled={disabled('map_metronome')} title={title('map_metronome')} onclick={()=>run('map_metronome')}>{label('map_metronome',clickEnabled?'Metronome on':'Metronome off')}</button>
-      <label>Click level<input aria-label="Metronome volume" type="range" min="0" max="100" bind:value={clickLevel} disabled={!native}/><span>{clickLevel}%</span></label>
+      {#if active}<MetronomeControls enabled={clickEnabled} bind:level={clickLevel} {keymap} button="map_metronome" available={!disabled('map_metronome')} run={()=>run('map_metronome')} {native}/>{/if}
       <button class="text-button" aria-pressed={followingPlayhead} disabled={disabled('map_follow')} title={title('map_follow')} onclick={()=>run('map_follow')}>{label('map_follow',followingPlayhead?'Follow playhead on':'Follow playhead off')}</button>
     </div>
-    {#if clickState.error}<p class="mapping-error" role="alert">{clickState.error}</p>{/if}
     {#if editState.error||formError}<p class="mapping-error" role="alert">{formError||editState.error}</p>{/if}
     {#if editState.preview}<div class="mapping-preview" role="status"><span>Review the green draft. Your saved map is unchanged.</span><button class="button primary" disabled={disabled('map_apply')} title={title('map_apply')} onclick={()=>run('map_apply')}>{label('map_apply','Apply map')}</button><button class="text-button" disabled={disabled('map_discard')} title={title('map_discard')} onclick={()=>run('map_discard')}>{label('map_discard','Discard')}</button></div>{/if}
     {#each editState.preview?.warnings??[] as warning}<p class="analysis-summary" role="status">{warning}</p>{/each}
@@ -149,7 +145,7 @@
   <MeasureTools bind:this={tools} {song} map={audibleMap} mapView={displayed} {measure} position={transport.position} {keymap} {active} {run} {available} onedit={edit} onselect={select}/>
 </section>
 <style>
-  .review-listening{display:flex;gap:15px;align-items:center;flex-wrap:wrap;flex-shrink:0;margin-bottom:8px;font-size:11px;color:#596b86}.review-listening .button{font-size:11px;padding:7px 10px}.review-listening label{display:flex;gap:8px;align-items:center}.review-listening input{width:85px;accent-color:#6d82bb}.review-listening .text-button{margin-left:auto;font-size:11px}
+  .review-listening{display:flex;gap:15px;align-items:center;flex-wrap:wrap;flex-shrink:0;margin-bottom:8px;font-size:11px;color:#596b86}.review-listening .text-button{margin-left:auto;font-size:11px}
   .analysis-panel .analysis-summary{display:block;margin-top:10px}.analysis-panel .analysis-summary span{display:block;margin-top:5px}.analysis-panel details{border-bottom:0;padding-bottom:0;margin-top:15px}.analysis-panel details summary{font-size:11px;font-weight:500}.analysis-panel .mapping-error{margin-top:10px}
   .model-location code{display:block;margin-top:5px;overflow-wrap:anywhere;user-select:text;color:#596b86;font-size:11px;line-height:1.5}
   .analysis-summary{display:flex;gap:7px 15px;flex-wrap:wrap;font-size:11px;color:#7e6b43;margin-bottom:12px}.analysis-summary>span:last-child{font-size:10px}

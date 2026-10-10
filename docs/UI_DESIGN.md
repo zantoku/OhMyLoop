@@ -36,12 +36,28 @@ parameter.
 
 Interaction defaults:
 
-- Click the waveform to seek; drag to select a temporary loop.
+- Click the waveform to seek precisely. With an accepted map, drag selects the
+  whole measures touched; loop handles snap to the closest barline. Snap to
+  measures defaults on and can be toggled off. Shift-drag bypasses it; Shift plus
+  handle arrow keys keeps fine adjustment. Unmapped/free time stays selectable.
+- Keep the saved-section lane, but use one ruler inside the waveform: measure
+  numbers in mapped audio and timecodes in free time. Thin sage barlines extend
+  through the waveform. Thin number labels with zoom density, keeping all barlines.
+  There is no separate practice measure lane.
+- Practice has the same authored-map metronome and click level as mapping.
+  Enable/level are shared session preferences and default to on/50%; practice
+  clicks use the accepted map, while mapping can audition its displayed draft.
+- Follow playhead defaults on in both screens, with an independent session toggle
+  per screen. Playback pages forward/backward at viewport edges and loop wraps,
+  preserving zoom. Manual navigation never disables following; paused playback
+  leaves the view still unless explicitly seeking.
 - Scroll over the waveform to zoom at the pointer; middle-button drag pans
   the view without seeking or editing loop boundaries.
 - Click or left-button drag the whole-song minimap to move the detailed
   viewport at its current zoom level, bounded by the start and end of the song.
-- Resize loop boundaries using handles or exact time inputs.
+- Resize loop boundaries using handles or exact time inputs. Exact inputs and
+  saved section bounds remain precise even with snapping on. Handle arrow keys
+  step to the next/previous barline while snapping is on.
 - Select a saved section to seek to its start, preserving play/pause state.
   With loop mode enabled, selecting a section moves the loop to that range.
 - Save the current range as a named section; edit its name and bounds later.
@@ -64,7 +80,7 @@ practice workflow without turning the screen into a DAW mixer.
 
 ## Measure-mapping screen
 
-Current implementation: updated 2026-10-10.
+Current implementation: updated 2026-10-11.
 
 The practice header opens **Measure map**; **Back to practice** returns from the
 dedicated screen in the same window. It shares the song and
@@ -72,8 +88,9 @@ transport, but has a separate viewport and editing selection. Its waveform
 uses the existing zoom, pan and minimap conventions while showing measure
 boundaries, beat anchors and meter changes instead of A–B editing handles.
 
-Metronome and paged Follow playhead default on for the song session and follow
-the displayed authored map/draft. View navigation preserves following; explicit
+The shared metronome defaults on for the app session. Paged Follow playhead
+defaults on for the song session; mapping clicks follow the displayed authored
+map/draft. View navigation preserves following; explicit
 seeks reveal the playhead even while paused. Waveform clicks select the containing
 measure at the exact clicked time; measure-lane clicks seek to the measure start.
 Playback selects its current measure independently of viewport following.
