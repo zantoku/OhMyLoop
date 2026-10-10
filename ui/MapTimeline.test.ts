@@ -9,6 +9,18 @@ function setup(){const callbacks={onview:vi.fn(),onseek:vi.fn(),onselect:vi.fn()
   return{...callbacks,...result,field,overview};
 }
 describe('measure-map timeline',()=>{
+  it('selects the clicked range and seeks to the exact waveform point, including shared boundaries',async()=>{
+    const s=setup();
+    await pointer(s.field,'pointerdown',725);await pointer(s.field,'pointerup',725);
+    expect(s.onselect).toHaveBeenLastCalledWith('map-5');expect(s.onseek).toHaveBeenLastCalledWith(5);
+    await pointer(s.field,'pointerdown',600);await pointer(s.field,'pointerup',600);
+    expect(s.onselect).toHaveBeenLastCalledWith('map-5');expect(s.onseek).toHaveBeenLastCalledWith(4);
+    expect(s.onedit).not.toHaveBeenCalled();
+    const view=timingFixture().view;view.measures[0].end=3000;
+    await s.rerender({mapView:view});s.onselect.mockClear();
+    await pointer(s.field,'pointerdown',550);await pointer(s.field,'pointerup',550);
+    expect(s.onseek).toHaveBeenLastCalledWith(3.6);expect(s.onselect).not.toHaveBeenCalled();
+  });
   it('thins fixed anchors and detected downbeats together and restores detail on zoom',async()=>{
     const s=setup(),view=timingFixture().view;
     for(const m of view.measures)m.grid=Array.from({length:20},(_,i)=>({frame:m.start+i*200,quarter:i/5,label:String(i),id:`anchor-${m.id}-${i}`}));
@@ -29,6 +41,7 @@ describe('measure-map timeline',()=>{
     const s=setup();const beat=screen.getByRole('button',{name:'Measure 1 beat 2'});await pointer(beat,'pointerdown',225);expect(document.activeElement).toBe(beat);await pointer(s.field,'pointerup',250);
     expect(s.onedit).toHaveBeenLastCalledWith({type:'set_beat',measure:'map-3',id:null,frame:1200,offset:{num:960,den:960}});
     await fireEvent.keyDown(beat,{key:'ArrowRight',shiftKey:true});expect(s.onedit).toHaveBeenLastCalledWith({type:'set_beat',measure:'map-3',id:null,frame:1001,offset:{num:960,den:960}});
+    await fireEvent.click(beat);expect(s.onseek).not.toHaveBeenCalled();
   });
   it('pans and zooms without map edits, cancels pointer gestures, and clamps minimap navigation',async()=>{
     const s=setup();await pointer(s.field,'pointerdown',600,1);await pointer(s.field,'pointermove',700,1);expect(s.onview).toHaveBeenLastCalledWith({start:0,end:8},'pan');await pointer(s.field,'pointercancel',700,1);expect(s.onedit).not.toHaveBeenCalled();expect(s.onseek).not.toHaveBeenCalled();

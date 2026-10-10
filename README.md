@@ -79,9 +79,10 @@ it an estimate.
 In **Measure map**, **Metronome** defaults on to play the displayed authored map,
 including a green draft before applying it. **Click level** adjusts its volume;
 clicks follow the chosen pulse and accent measure/group starts. **Follow playhead**
-also defaults on and pages the waveform during playback without changing zoom. Panning or minimap
-navigation turns following off; wheel zoom preserves it. Toggle following back
-on to resume after navigation. Leaving the mapping screen stops the metronome.
+also defaults on and pages the waveform during playback without changing zoom.
+Panning, minimap navigation, zoom and view-fitting preserve this setting; only
+the Follow playhead toggle turns it off. Leaving the mapping screen stops the
+metronome.
 Left, Right and Enter also reveal the playhead in
 the waveform while paused, preserving zoom. See [map review behavior and timing limits](docs/MEASURE_MAPPING.md#listening-to-the-displayed-map).
 
@@ -90,6 +91,12 @@ suggestions hide by default once a map or draft is displayed; the checkbox can
 restore them. Beat markers thin as you zoom out and regain detail when you zoom
 in. Play/pause and speed sit in a compact waveform overlay. The panel below the
 waveform holds measure timing, notation, beat-anchor and range-editing tools.
+Selecting a measure in the timeline seeks to its start while preserving the
+current playing/paused state, including when reviewing a draft.
+Clicking waveform space selects the containing measure and seeks to the clicked
+time. Selection follows the current measure during playback. Moving a measure
+boundary evenly spaces beats in both adjacent measures; Undo restores the
+previous boundary and anchors.
 
 `npm run dev` opens a frontend-only development preview. It uses explicit demo
 fixtures and disables audio playback; the desktop app uses the real Rust engine.
@@ -101,8 +108,11 @@ provides two explicit sources:
   note value of each detected pulse, then set the first downbeat. Its position
   snaps to the nearest detected beat in the selected span. **Preview detected
   measures** calculates the number of full/partial measures and places their
-  boundaries and internal anchors at detected source frames. Review the green
-  draft, then **Apply map**. Changing draft settings requires another preview.
+  boundaries at detected source frames. **Beat timing tolerance ε (ms)** defaults
+  to 30 ms: internal beats interpolate unless timing anchors are needed to stay
+  within that error of detection. Set 0 ms for an exact fit. The summary shows
+  retained anchors. Review the green draft, then **Apply map**. Changing draft
+  settings requires another preview.
 - **Even spacing (manual)** uses a span and an explicit measure count. It ignores
   detected beats and is available without installing or running a model.
 

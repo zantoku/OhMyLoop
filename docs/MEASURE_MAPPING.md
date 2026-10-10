@@ -44,7 +44,15 @@ The mapping screen has:
 - Clear analysis progress, cancellation, missing-model/error states, and a
   visible distinction between suggested and accepted annotations.
 
-Click empty waveform space to seek; click a boundary/beat to select it and
+Select a measure in the measure lane to seek to its displayed start, including
+in a draft preview. Playback keeps its current playing/paused state; automatic
+selection during map updates does not seek. Clicking waveform space selects the
+containing measure while seeking to the exact clicked time. Shared endpoints
+belong to the following measure; clicks in free time do not change selection.
+During playback, selection follows the displayed map at the current source
+position, independently of the viewport-follow toggle. Gaps and the exclusive
+map end have no playing measure selected. This automatic selection never seeks.
+Click a boundary/beat to select it and
 drag its handle to change its source position. A mapping selection selects
 map elements, not an A–B loop. Seeking follows the existing outside-loop rule;
 mapping controls must not silently replace the practice loop. Provide an
@@ -65,6 +73,7 @@ equals the denominator of the chosen signature. The user supplies:
 1. Meter, initially **4/4** as an editable assumption.
 2. The note value represented by a detected pulse, initially a quarter note.
 3. The location of the first full measure's downbeat.
+4. Beat timing tolerance epsilon in source milliseconds, initially **30 ms**.
 
 For example, four quarter-note pulses form 4/4; two dotted-quarter pulses form
 6/8. Detected downbeats can suggest measure starts, but contradictory or missing
@@ -75,6 +84,21 @@ Build measures for a selected span with a preview. The user may instead set
 two measure boundaries and specify how many measures fit between them; this
 creates an editable evenly spaced draft. Both methods work locally and leave
 accepted material outside the selected span unchanged.
+
+Detected measure endpoints remain exact source-frame positions. Within each
+measure, fit evenly spaced notated pulse positions between the endpoints. Only
+add a detected timing anchor when interpolation misses a pulse by more than
+epsilon. Recheck each resulting segment after adding an anchor, so the final
+piecewise map stays within epsilon at every detected pulse. This also handles the
+actual duration of a final partial measure. Retained anchors keep the detected
+source positions; collinear pulses need no anchors even at zero epsilon.
+
+**Beat timing tolerance ε (ms)** is an editable number field in Create measures
+for detected drafts, validated from 0 through 1000 ms. Its initial 30 ms value is
+a tunable starting point, not a claim about detector accuracy. Tolerance is in
+original source time, independent of playback speed/pitch. It does not alter raw
+detections or existing manual corrections, and is session draft state rather than
+a saved-song schema change. Only applying a rebuilt draft changes the map.
 
 Meter changes occur at explicit measure boundaries. The inspector applies a
 new meter/pulse interpretation from the selected measure to the next existing
@@ -123,9 +147,14 @@ Include these operations in the first pass:
 
 Moving a shared measure boundary changes the two adjacent source durations;
 later boundaries remain fixed. Beat anchors outside the affected measures do
-not move. Keep internal anchors fixed by default; reject a move that would
-cross one, with an explicit respace operation available when that is intended.
-Do not introduce implicit ripple editing in this pass.
+not move. By default, moving a boundary removes internal anchors in both attached
+measures, so their beats interpolate evenly over their new source durations and
+actual notated extents. This applies to dragging, keyboard nudging and exact
+position inputs. Only the attached measure changes at outer edges or beside free
+time. A move to the same frame preserves anchors. Protected neighbors and invalid
+overlapping/zero-length measures reject the whole edit. One Undo restores the
+boundary and both measures' original anchors. Do not introduce implicit ripple
+editing in this pass.
 
 For between-anchor navigation, interpolate linearly in notated quarter-note
 position. Arbitrary anchor spacing represents tempo drift, abrupt changes,
@@ -291,8 +320,9 @@ Keeping alignment separate from span bounds lets a new draft replace an older
 whole span even when its first detected measure begins later.
 
 **Preview detected measures** derives count and reports pulses per measure,
-full bars, final partial extent and actual first boundary from Rust. The manual
-count field appears only for **Even spacing (manual)**, which never uses detected
+full bars, final partial extent, actual first boundary and retained timing-anchor
+count from Rust. The manual count field appears only for **Even spacing (manual)**,
+which never uses detected
 pulses. A changed draft requires a new preview before Apply. Input settings survive
 screen switching and repeated status replies for the same analysis job.
 
@@ -332,9 +362,9 @@ The click preference resumes on reentering mapping during the same song session.
 Following defaults on and pages only during playback. Crossing the current
 window's end advances by a full window, preserving zoom; backwards seeks and loop
 wraps page backwards. The final page clamps to EOF. Manual panning, minimap
-navigation, Fit measure or Whole song turns following off; use Follow
-playhead to resume. Paused editing keeps the viewport still.
-Mouse-wheel zoom preserves following.
+navigation, wheel zoom, Fit measure and Whole song preserve the follow setting.
+Only the Follow playhead action changes it. With following on, playback keeps
+revealing the playhead after navigation. Paused editing keeps the viewport still.
 Explicit playhead navigation (including Left, Right and Enter) reveals the
 resulting position in either screen even while paused or with following off.
 It preserves zoom and the follow toggle, and does not move the view if the
@@ -360,8 +390,8 @@ visual density rule; they remain intact in the map and anchor selector. Sampling
 keeps its phase while panning, and zooming restores detail. Measure boundaries
 remain separate from these beat-detail levels. This is a presentation rule only.
 
-The waveform overlay contains play/pause, source position, a speed slider and
-exact percentage. A Loop off action appears when an existing loop is enabled.
+The waveform overlay contains play/pause, source position and an exact speed
+percentage input. A Loop off action appears when an existing loop is enabled.
 Overlay input does not start timeline gestures or wheel zoom. Speed changes keep
 the current pitch. Full pitch controls are available on the Practice screen.
 

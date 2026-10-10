@@ -248,8 +248,9 @@ nominal source estimate, not sample-accurate Rubber Band transient alignment.
 
 Paging preserves viewport span, handles skipped pages and backwards seeks/loop
 wraps, and clamps the last page to EOF. Following defaults on and runs only during
-playback. Wheel zoom preserves following; pan/minimap navigation and Fit measure/
-Whole song turn it off. Follow playhead resumes it at the current position.
+playback. Wheel zoom, pan/minimap navigation and Fit measure/Whole song preserve
+following; only the explicit toggle changes it. Follow playhead resumes it at
+the current position.
 Explicit seeks reveal the resulting native playhead position in both screens,
 even while paused or with following off, without changing zoom or the toggle.
 This includes Left/Right, Enter and other seek actions; Enter also reveals zero
@@ -322,3 +323,70 @@ The prior 46 Rust tests/device evidence still applies to the unchanged native
 engine; no new hardware run was needed for these presentation changes. Native
 visual review is still pending because desktop-control tools are unavailable.
 Linux/Windows builds have not been run locally.
+
+Follow playhead now changes only through its explicit action. Fit/Whole song,
+minimap navigation, middle-button panning and wheel zoom preserve the setting.
+The mapping playback overlay uses a single speed percentage input. Updated
+regressions cover these navigation paths, manual suspension/resumption, keyboard
+seeks and numeric speed changes that preserve pitch. All 81 frontend tests,
+Svelte/TypeScript checks and the production frontend build pass for this refinement;
+the native bundle and hardware checks were not rerun.
+
+Selecting a measure in the timeline now seeks through the existing playback
+action to its displayed source-frame start. Draft starts are respected, and
+playback state, speed/pitch and saved maps are preserved. Existing outside-loop
+seek behavior applies. Timing-handle selection/dragging/nudging and automatic
+selection remain editing operations without seeking. The 35 focused App/timeline
+tests, Svelte/TypeScript checks and production frontend build pass; native code
+is unchanged and no new device run was made.
+
+Waveform seeking now selects the measure containing the exact clicked source
+frame, including draft ranges. Playback selects the current displayed measure
+without seeking, independently of viewport following; shared endpoints belong
+to the next measure and unmapped audio has no playing selection. A shared
+presentation lookup uses the ordered ranges projected by Rust.
+
+Boundary movement now resets internal beat anchors in both attached measures,
+giving uniform interpolation within their new durations and actual notated
+extents. Rust owns this atomic rule for drag, nudge and numeric edits. Outer
+edges/gaps affect only attached measures; unrelated anchors, identities, meter
+and partial/pickup extents stay intact. Protection and invalid-range checks
+still reject the edit. Same-frame moves retain anchors, and session Undo restores
+both sides of a resize in one step. The inspector and boundary tooltip explain
+the new default.
+
+Verification for this refinement: 89 frontend tests, zero Svelte/TypeScript
+diagnostics, 16 measure-mapping tests and 4 metronome tests (including actual
+DSP click output), Rust formatting/Clippy, production frontend build and macOS
+app bundle pass. Regression coverage includes exact-click selection, displayed
+drafts, playback through pickups/gaps/backwards wraps without seek commands,
+atomic resize/Undo, protected neighbors, meter changes and unaffected gap edges.
+No new hardware/listening or native visual review was performed; Linux/Windows
+builds have not been run locally.
+
+Detected-measure creation now has **Beat timing tolerance ε (ms)**, initially
+30 ms and editable from 0 through 1000 ms. The Rust fitting module keeps detected
+measure endpoints exact and recursively splits at the greatest pulse timing
+error only when it exceeds epsilon. Newly created segments are checked again,
+so the resulting interpolation fits every detected pulse within tolerance.
+Collinear pulses remain interpolated even at zero epsilon. This preserves the
+visual anchor/interpolation distinction without storing a correction for every
+detected beat. Manual anchors, raw analysis evidence and resize behavior are
+unchanged by fitting settings; creating/applying a replacement draft remains
+explicit and respects protected measures.
+
+The draft summary reports retained anchor count and epsilon. Tolerance is source
+time, independent of playback speed/pitch; it is session draft state and changing
+it invalidates the preview for Apply. Invalid or empty input is reported without
+editing the accepted map. Older build requests that omit epsilon use the native
+30 ms default; saved-song/map schemas are unchanged.
+
+Verification: 89 frontend tests, 20 measure-mapping tests and 4 metronome tests,
+zero Svelte/TypeScript diagnostics, Rust formatting/Clippy, production frontend
+build and macOS app bundle pass. New fitting regressions cover omitted defaults,
+invalid epsilon, strict threshold equality, rechecking new segments, noisy
+regular pulses, exact zero-tolerance fitting, 1/44.1/48 kHz source rates,
+fractional/compound pulse units and partial tails. The UI test covers default,
+numeric/empty/zero input, wire values, stale Apply prevention, summary rendering
+and preserving settings across screen switches. No new hardware/listening or
+native visual review was performed; Linux/Windows builds remain untested locally.

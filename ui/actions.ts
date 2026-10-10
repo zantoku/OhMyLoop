@@ -22,7 +22,7 @@ export const MAPPING_ACTIONS = {
   map_apply: mapping('Apply the measure-map preview'),
   map_discard: mapping('Discard the measure-map preview'),
   map_notation: mapping('Preview meter and measure extent'),
-  map_boundary: mapping('Move the selected boundary'),
+  map_boundary: mapping('Move the selected boundary and evenly space beats in both adjacent measures'),
   map_beat: mapping('Add or update a beat anchor'),
   map_remove_beat: mapping('Remove the selected beat anchor'),
   map_split: mapping('Split the selected measure'),

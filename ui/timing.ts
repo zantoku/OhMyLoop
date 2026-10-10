@@ -8,13 +8,21 @@ export type MeasureMap = { version: number; revision: number; rate: number; fram
 export type GridPoint = { id: string | null; frame: number; quarter: number; label: string };
 export type MeasureView = { id: string; start_id: string; end_id: string; start: number; end: number; number: number | null; label: string; meter: Meter; kind: MeasureKind; length: Fraction; protected: boolean; grid: GridPoint[]; tempo_bpm: number };
 export type MapView = { revision: number; measures: MeasureView[] };
-export type DetectedDraftSummary = {pulse_count:number;pulses_per_measure:number;full_measures:number;partial_pulses:number;measure_count:number;first_frame:number;last_frame:number};
+// Presentation lookup on the Rust-projected ranges; shared ends belong to the
+// following measure, and gaps/EOF have no active measure.
+export function measureAtFrame(measures: readonly MeasureView[], frame: number): MeasureView | null {
+  let low=0,high=measures.length;
+  while(low<high){const mid=(low+high)>>>1;if(measures[mid].start<=frame)low=mid+1;else high=mid;}
+  const measure=measures[low-1];
+  return measure&&frame<measure.end?measure:null;
+}
+export type DetectedDraftSummary = {pulse_count:number;pulses_per_measure:number;full_measures:number;partial_pulses:number;measure_count:number;first_frame:number;last_frame:number;epsilon_ms:number;anchor_count:number};
 export type MapPreview = { map: MeasureMap; view: MapView; warnings?: string[]; draft?:DetectedDraftSummary|null };
 export type MusicalPosition = { measure: string; label: string; beat: number; tempo_bpm?: number; pulse?: Fraction };
 export type MapEdit =
   | { type: 'clear' }
   | { type: 'set_origin'; first_number:number }
-  | { type: 'build_from_pulses'; pulses:number[]; downbeats:number[]; first_downbeat?:number|null; start:number; end:number; meter:Meter }
+  | { type: 'build_from_pulses'; pulses:number[]; downbeats:number[]; first_downbeat?:number|null; epsilon_ms?:number; start:number; end:number; meter:Meter }
   | { type: 'build'; start: number; end: number; count: number; meter: Meter }
   | { type: 'move_boundary'; id: string; frame: number }
   | { type: 'set_notation'; id: string; meter: Meter; kind: MeasureKind; length: Fraction; following: boolean }

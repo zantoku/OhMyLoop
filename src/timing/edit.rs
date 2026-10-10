@@ -1,3 +1,4 @@
+use super::fitting::{default_beat_epsilon_ms, fitted_anchor_indices};
 use super::*;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,8 @@ pub enum Edit {
         downbeats: Vec<u64>,
         #[serde(default)]
         first_downbeat: Option<u64>,
+        #[serde(default = "default_beat_epsilon_ms")]
+        epsilon_ms: f64,
         start: u64,
         end: u64,
         meter: Meter,
@@ -136,11 +139,16 @@ impl MeasureMap {
                 pulses,
                 downbeats,
                 first_downbeat,
+                epsilon_ms,
                 start,
                 end,
                 meter,
             } => {
                 meter.validate()?;
+                ensure!(
+                    epsilon_ms.is_finite() && (0.0..=1000.0).contains(&epsilon_ms),
+                    "Beat timing tolerance must be between 0 and 1000 ms"
+                );
                 ensure!(
                     pulses.len() <= MAX_BEATS
                         && pulses.windows(2).all(|w| w[0] < w[1])
@@ -198,6 +206,8 @@ impl MeasureMap {
                     measure_count: count,
                     first_frame: begin,
                     last_frame: finish,
+                    epsilon_ms,
+                    anchor_count: 0,
                 });
                 // Replace the user-selected whole-measure span, then leave any
                 // unobserved leading/trailing audio unmapped. Detected edges need
@@ -245,7 +255,12 @@ impl MeasureMap {
                     } else {
                         MeasureKind::Incomplete
                     };
-                    for j in 1..remaining {
+                    let anchors = fitted_anchor_indices(
+                        &points[first..=first + remaining],
+                        epsilon_ms * f64::from(self.rate) / 1000.0,
+                    );
+                    draft.as_mut().unwrap().anchor_count += anchors.len();
+                    for j in anchors {
                         let id = next.id();
                         next.measures[i].beats.push(Beat {
                             id,
@@ -329,7 +344,17 @@ impl MeasureMap {
                         next.editable(i)?;
                     }
                 }
-                next.boundaries[boundary].frame = frame;
+                if next.boundaries[boundary].frame != frame {
+                    next.boundaries[boundary].frame = frame;
+                    // Resizing authors a uniform tempo within each affected
+                    // measure. Keep outer bounds and notation; discard the old
+                    // piecewise timing instead of leaving anchors pinned in time.
+                    for m in &mut next.measures {
+                        if m.start == id || m.end == id {
+                            m.beats.clear();
+                        }
+                    }
+                }
             }
             Edit::SetNotation {
                 id,

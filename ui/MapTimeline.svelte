@@ -6,6 +6,7 @@
   import { drawWaveform, sourcePoint, panView, overviewView, wheelView } from './timeline';
   import type { View } from './types';
   import type { MapEdit, MapView, MeasureView, GridPoint } from './timing';
+  import {measureAtFrame} from './timing';
   let { peaks, duration, rate, position, view, mapView, selected, disabled = false, candidates = [], playback, onview, onseek, onselect, onedit }:
     { peaks: [number, number][]; duration: number; rate: number; position: number; view: View; mapView: MapView | null; selected: string | null; disabled?: boolean; candidates?: { frame: number; downbeat: boolean }[];
       playback?:Snippet;onview: (view: View, navigation: 'zoom' | 'pan') => void; onseek: (seconds: number) => void; onselect: (id: string) => void; onedit: (edit: MapEdit) => void } = $props();
@@ -33,6 +34,7 @@
     if(at<Math.round(duration*rate))result.push({start:at,end:Math.round(duration*rate)});return result;
   });
   const frame = (event: MouseEvent) => Math.round(sourcePoint(view,duration,field.getBoundingClientRect(),event.clientX)*rate);
+  function seekAt(seconds:number){const measure=measureAtFrame(measures,Math.round(seconds*rate));if(measure)onselect(measure.id);onseek(seconds);}
   function displayed(id: string, at: number) { return drag?.edit?.type==='move_boundary' && drag.edit.id===id && draggedFrame!==null ? draggedFrame : at; }
   $effect(()=>{void size; drawWaveform(canvas,peaks,duration,view.start,view.end);drawWaveform(overview,peaks,duration,0,duration,true);});
   onMount(()=>{
@@ -66,7 +68,7 @@
     if(!drag||event.pointerId!==drag.pointer)return;
     if(!drag.pan){
       if(drag.edit&&Math.abs(event.clientX-drag.x)>2)onedit({...drag.edit,frame:frame(event)});
-      else if(!drag.edit)onseek(frame(event)/rate);
+      else if(!drag.edit)seekAt(frame(event)/rate);
     }
     cancel(event);
   }
@@ -89,7 +91,7 @@
 </div>
 <div class="measure-lane" aria-label="Measures on timeline">
   {#each visible as m (m.id)}
-    <button class:dense={measurePixels(m)<45} class:selected={selected===m.id} class:protected={m.protected} onclick={()=>onselect(m.id)} title={`Measure ${m.label}, ${m.meter.numerator}/${m.meter.denominator}${m.kind!=='full'?`, ${m.kind}`:''}${m.protected?', protected':''}`}
+    <button class:dense={measurePixels(m)<45} class:selected={selected===m.id} class:protected={m.protected} aria-pressed={selected===m.id} onclick={()=>{onselect(m.id);onseek(m.start/rate);}} title={`Select and seek to measure ${m.label}, ${m.meter.numerator}/${m.meter.denominator}${m.kind!=='full'?`, ${m.kind}`:''}${m.protected?', protected':''}`}
       style:left={`${Math.max(0,pct(m.start))}%`} style:width={`${Math.min(100,pct(m.end))-Math.max(0,pct(m.start))}%`}>
       <strong>{m.label}</strong><span>{m.meter.numerator}/{m.meter.denominator}{m.kind!=='full'?' · partial':''}{m.protected?' · protected':''}</span>
     </button>
@@ -98,7 +100,7 @@
 <div class="map-wave-field" class:keyboard-focus={keyboard} class:panning={drag?.pan} bind:this={field} role="region" tabindex="-1" aria-label="Measure-map waveform. Click to seek; drag beat and measure lines to correct timing."
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onauxclick={e=>{if(e.button===1)e.preventDefault();}}>
   <div class="map-seek" role="slider" tabindex="0" aria-label="Measure-map song position" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
-    onkeydown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();e.stopPropagation();onseek(e.key==='Home'?0:e.key==='End'?duration:clamp(position+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?.1:5),0,duration));}}}></div>
+    onkeydown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();e.stopPropagation();seekAt(e.key==='Home'?0:e.key==='End'?duration:clamp(position+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?.1:5),0,duration));}}}></div>
   <div class="map-time-ruler" aria-hidden="true">{#each ticks as tick,i}<span style:left={`${i/6*100}%`}>{time(tick)}</span>{/each}</div>
   <canvas class="map-wave-canvas" bind:this={canvas}></canvas>
   {#each gaps.filter(g=>g.end/rate>view.start&&g.start/rate<view.end) as gap}
@@ -111,7 +113,7 @@
     {#if selected===m.id}<div class="selected-measure" style:left={`${Math.max(0,pct(m.start))}%`} style:width={`${Math.min(100,pct(m.end))-Math.max(0,pct(m.start))}%`}></div>{/if}
     {#if m.start/rate>=view.start && (measurePixels(m)>=16 || selected===m.id)}
       <button class="measure-handle" data-boundary={m.start_id} data-measure={m.id} style:left={`${pct(displayed(m.start_id,m.start))}%`} aria-label={`Measure ${m.label} start`} aria-disabled={disabled||m.protected}
-        title="Drag measure boundary; arrow keys adjust; Shift gives fine adjustment" onclick={()=>onselect(m.id)} onkeydown={e=>nudge(e,m,m.start_id,m.start)}><span>{m.label}</span></button>
+        title="Move boundary and evenly space adjacent beats; arrow keys adjust; Shift gives fine adjustment" onclick={()=>onselect(m.id)} onkeydown={e=>nudge(e,m,m.start_id,m.start)}><span>{m.label}</span></button>
     {/if}
     {#each beatsByMeasure.get(m.id)??[] as p}
       <button class="beat-handle" class:anchor={!!p.id} data-beat={p.id??''} data-quarter={p.quarter} data-measure={m.id}

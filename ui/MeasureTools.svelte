@@ -56,6 +56,7 @@
         </div><p class="hint">Notation previews rebuild the internal beat grid.</p>
       </div>
       <div class="boundary-fields"><div class="field-row"><label>Boundary<select bind:value={boundary} onchange={()=>{boundarySeconds=(boundary==='start'?measure!.start:measure!.end)/song.rate;}}><option value="start">Start</option><option value="end">End</option></select></label><label>Position (seconds)<input type="number" min="0" max={song.duration} step="any" bind:value={boundarySeconds}/></label><button class="button" disabled={disabled('map_boundary')} title={title('map_boundary')} onclick={()=>run('map_boundary')}>{label('map_boundary','Move boundary')}</button></div>
+        <p class="hint">Moving a boundary evenly spaces beats in both adjacent measures. Undo restores their anchors.</p>
         <div class="field-row"><label>First full measure number<input type="number" min="1" max="1000000" step="1" bind:value={origin}/></label><button class="text-button" disabled={!map||disabled('map_origin')} title={title('map_origin')} onclick={()=>run('map_origin')}>{label('map_origin','Preview numbering')}</button><button class="text-button" disabled={disabled('map_protect')} title={title('map_protect')} onclick={()=>run('map_protect')}>{label('map_protect',measure.protected?'Unprotect measure':'Protect measure')}</button></div>
       </div>
     </div>

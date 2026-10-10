@@ -9,7 +9,7 @@
   import {MetronomeSession,type MetronomeState} from './metronome-session';
   import {pageForPlayhead} from './timeline';
   import { MappingSession, type MappingState } from './mapping-session';
-  import { type MapEdit, type MapPreview, type MeasureMap, type MapView } from './timing';
+  import { measureAtFrame, type MapEdit, type MapPreview, type MeasureMap, type MapView } from './timing';
   import type { Song, Transport, View } from './types';
   import type { Keymap } from './keymap';
   import type { ButtonId, MappingActionId } from './actions';
@@ -52,7 +52,8 @@
   const measures = $derived(displayed?.measures??[]);
   const measure = $derived(measures.find(m=>m.id===selected)??null);
   let formError=$state('');
-  $effect(()=>{if(!measures.some(m=>m.id===selected))selected=measures[0]?.id??null;});
+  $effect(()=>{const current=measures;untrack(()=>{if(!current.some(m=>m.id===selected))selected=current[0]?.id??null;});});
+  $effect(()=>{if(active&&transport.playing)selected=measureAtFrame(measures,Math.round(transport.position*song.rate))?.id??null;});
   async function edit(value:MapEdit,preview=true){formError='';await session.edit(value,preview);}
   export function canRun(id:MappingActionId):boolean{
     if(id==='map_follow'||id==='map_show_detected')return true;
@@ -82,8 +83,8 @@
         map_analyze:()=>analyzer.start(),map_cancel_analysis:()=>analyzer.cancel(),map_install_model:()=>analyzer.start(true),
         map_apply:()=>session.apply(),map_discard:()=>session.discard(),
         map_undo:()=>session.history('undo'),map_redo:()=>session.history('redo'),
-        map_fit:()=>{followingPlayhead=false;if(measure){const start=measure.start/song.rate,end=measure.end/song.rate,pad=(end-start)*.15;view={start:Math.max(0,start-pad),end:Math.min(song.duration,end+pad)};}},
-        map_whole:()=>{followingPlayhead=false;view={start:0,end:song.duration};}
+        map_fit:()=>{if(measure){const start=measure.start/song.rate,end=measure.end/song.rate,pad=(end-start)*.15;view={start:Math.max(0,start-pad),end:Math.min(song.duration,end+pad)};}},
+        map_whole:()=>{view={start:0,end:song.duration};}
       };
       await commands[id]?.();
     }catch(e){formError=String(e);}
@@ -119,7 +120,7 @@
     {#if editState.error||formError}<p class="mapping-error" role="alert">{formError||editState.error}</p>{/if}
     {#if editState.preview}<div class="mapping-preview" role="status"><span>Review the green draft. Your saved map is unchanged.</span><button class="button primary" disabled={disabled('map_apply')} title={title('map_apply')} onclick={()=>run('map_apply')}>{label('map_apply','Apply map')}</button><button class="text-button" disabled={disabled('map_discard')} title={title('map_discard')} onclick={()=>run('map_discard')}>{label('map_discard','Discard')}</button></div>{/if}
     {#each editState.preview?.warnings??[] as warning}<p class="analysis-summary" role="status">{warning}</p>{/each}
-    <MapTimeline peaks={song.peaks} duration={song.duration} rate={song.rate} position={transport.position} {view} mapView={displayed} candidates={showDetected?(candidates?.beats??[]):[]} {playback} {selected} disabled={editState.pending||!!editState.preview} onview={(v,navigation)=>{if(navigation!=='zoom')followingPlayhead=false;view=v;}} {onseek} onselect={select} onedit={e=>{void edit(e,false);}}/>
+    <MapTimeline peaks={song.peaks} duration={song.duration} rate={song.rate} position={transport.position} {view} mapView={displayed} candidates={showDetected?(candidates?.beats??[]):[]} {playback} {selected} disabled={editState.pending||!!editState.preview} onview={v=>{view=v;}} {onseek} onselect={select} onedit={e=>{void edit(e,false);}}/>
     <div class="mapping-legend"><span><i class="bar"></i>Measure boundary</span><span><i></i>Interpolated beat</span><span><i class="anchor"></i>Fixed beat anchor</span><span>Drag a line to correct timing.</span></div>
   </div>
   <aside class="mapping-inspector" aria-label="Measure-map inspector">

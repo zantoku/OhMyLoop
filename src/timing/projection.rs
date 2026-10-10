@@ -40,6 +40,8 @@ pub struct Position {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct DetectedDraftSummary {
+    pub epsilon_ms: f64,
+    pub anchor_count: usize,
     pub pulse_count: usize,
     pub pulses_per_measure: usize,
     pub full_measures: usize,

@@ -30,6 +30,187 @@ fn notation(
     .unwrap()
     .map
 }
+fn detected(rate: u32, pulses: Vec<u64>, epsilon_ms: f64) -> ohmyloop::timing::Preview {
+    let end = *pulses.last().unwrap();
+    MeasureMap::empty(rate, end + 1)
+        .edit(Edit::BuildFromPulses {
+            pulses,
+            downbeats: vec![],
+            first_downbeat: None,
+            epsilon_ms,
+            start: 0,
+            end,
+            meter: Meter::common(),
+        })
+        .unwrap()
+}
+
+#[test]
+fn detected_fit_keeps_boundaries_but_omits_jitter_anchors_at_any_source_rate() {
+    for rate in [1000, 44_100, 48_000] {
+        let r = u64::from(rate);
+        let pulses = vec![
+            0,
+            r + r / 50,
+            2 * r - r / 100,
+            3 * r + r / 100,
+            4 * r,
+            5 * r + r / 100,
+            6 * r,
+        ];
+        for epsilon_ms in [30.0, 5.0, 0.0] {
+            let preview = detected(rate, pulses.clone(), epsilon_ms);
+            let summary = preview.draft.unwrap();
+            assert_eq!(summary.epsilon_ms, epsilon_ms);
+            assert_eq!(
+                summary.anchor_count,
+                preview
+                    .map
+                    .measures
+                    .iter()
+                    .map(|m| m.beats.len())
+                    .sum::<usize>()
+            );
+            if epsilon_ms == 30.0 {
+                assert_eq!(summary.anchor_count, 0);
+            } else {
+                assert!(summary.anchor_count > 0);
+            }
+            assert_eq!(preview.view.measures[0].end, 4 * r);
+            assert_eq!(preview.view.measures[1].end, 6 * r);
+            assert_eq!(preview.map.measures[1].kind, MeasureKind::Incomplete);
+            assert_eq!(preview.map.measures[1].length, Fraction::new(2, 1));
+            for (i, pulse) in pulses.iter().enumerate().take(pulses.len() - 1) {
+                let measure = &preview.map.measures[i / 4];
+                let rendered = preview.map.frame_at(measure, (i % 4) as f64);
+                assert!(rendered.abs_diff(*pulse) as f64 <= epsilon_ms * f64::from(rate) / 1000.0);
+            }
+        }
+    }
+    // Exact collinear detections also need no internal anchors at zero epsilon.
+    assert_eq!(
+        detected(1000, vec![0, 1000, 2000, 3000, 4000], 0.0)
+            .draft
+            .unwrap()
+            .anchor_count,
+        0
+    );
+}
+
+#[test]
+fn detected_fit_threshold_is_strict_and_rechecks_new_interpolation_segments() {
+    let pulses = vec![0, 1025, 2000, 3000, 4000];
+    assert_eq!(
+        detected(1000, pulses.clone(), 25.0)
+            .draft
+            .unwrap()
+            .anchor_count,
+        0
+    );
+    let below = detected(1000, pulses, 24.0);
+    assert_eq!(below.map.measures[0].beats.len(), 1);
+    assert_eq!(below.map.measures[0].beats[0].frame, 1025);
+    // The second pulse is within epsilon of even spacing, but not of the
+    // interpolation introduced by correcting the first pulse. It needs an
+    // anchor too to bound the final map's error, rather than only initial error.
+    let preview = detected(1000, vec![0, 140, 190, 310, 400], 25.0);
+    assert_eq!(
+        preview.map.measures[0]
+            .beats
+            .iter()
+            .map(|b| b.frame)
+            .collect::<Vec<_>>(),
+        [140, 190]
+    );
+    for (q, frame) in [0, 140, 190, 310, 400].into_iter().enumerate() {
+        assert!(
+            preview
+                .map
+                .frame_at(&preview.map.measures[0], q as f64)
+                .abs_diff(frame)
+                <= 25
+        );
+    }
+}
+
+#[test]
+fn detected_fit_zero_epsilon_respects_fractional_and_compound_pulse_units() {
+    for (meter, intervals) in [
+        (
+            Meter {
+                numerator: 7,
+                denominator: 8,
+                pulse: Fraction::new(1, 2),
+                grouping: vec![2, 2, 3],
+            },
+            7,
+        ),
+        (
+            Meter {
+                pulse: Fraction::new(2, 3),
+                ..Meter::common()
+            },
+            6,
+        ),
+        (
+            Meter {
+                numerator: 6,
+                denominator: 8,
+                pulse: Fraction::new(3, 2),
+                grouping: vec![],
+            },
+            2,
+        ),
+    ] {
+        let pulses: Vec<_> = (0..=intervals)
+            .map(|i| 1000 + (10003 * i + intervals / 2) / intervals)
+            .collect();
+        let map = MeasureMap::empty(48_000, 20_000)
+            .edit(Edit::BuildFromPulses {
+                pulses: pulses.clone(),
+                downbeats: vec![],
+                first_downbeat: None,
+                epsilon_ms: 0.0,
+                start: 1000,
+                end: 11003,
+                meter: meter.clone(),
+            })
+            .unwrap()
+            .map;
+        for (index, frame) in pulses.into_iter().enumerate() {
+            let quarter = index as f64 * f64::from(meter.pulse.num) / f64::from(meter.pulse.den);
+            assert_eq!(map.frame_at(&map.measures[0], quarter), frame);
+        }
+    }
+}
+
+#[test]
+fn detected_fit_defaults_and_invalid_epsilon_are_validated_at_the_boundary() {
+    let old = serde_json::json!({"type":"build_from_pulses","pulses":[0,1020,2000,3000,4000],"start":0,"end":4000,
+        "meter":Meter::common()});
+    let map = MeasureMap::empty(1000, 5000);
+    let preview = map.edit(serde_json::from_value(old).unwrap()).unwrap();
+    assert_eq!(
+        preview.draft.unwrap().epsilon_ms,
+        ohmyloop::timing::DEFAULT_BEAT_EPSILON_MS
+    );
+    assert!(preview.map.measures[0].beats.is_empty());
+    for epsilon_ms in [-1.0, 1000.01, f64::NAN, f64::INFINITY] {
+        assert!(
+            map.edit(Edit::BuildFromPulses {
+                pulses: vec![0, 1000, 2000, 3000, 4000],
+                downbeats: vec![],
+                first_downbeat: None,
+                epsilon_ms,
+                start: 0,
+                end: 4000,
+                meter: Meter::common(),
+            })
+            .is_err()
+        );
+        assert!(map.measures.is_empty());
+    }
+}
 #[test]
 fn compound_and_additive_meter_grids_use_notated_pulses() {
     let compound = Meter {
@@ -99,11 +280,195 @@ fn anchors_follow_rubato_and_round_trip_without_a_global_tempo() {
         .unwrap()
         .map;
     assert_eq!(moving.view().measures[1].end, 9000);
-    assert_eq!(moving.measures[0].beats, map.measures[0].beats);
+    assert!(moving.measures[0].beats.is_empty());
+    assert_eq!(moving.frame_at(&moving.measures[0], 1.0), 2250);
     assert_eq!(moving.position(6000).unwrap().label, "2");
     assert!(moving.position(9000).is_none());
     assert!(map.position(999).is_none());
 }
+#[test]
+fn resizing_shared_boundary_respaces_both_measures_and_the_click_map() {
+    let mut map = build(0, 12_000, 3, Meter::common());
+    for (i, frame, offset) in [(0, 3000, 1), (1, 5000, 3), (2, 9000, 1)] {
+        map = map
+            .edit(Edit::SetBeat {
+                measure: map.measures[i].id.clone(),
+                id: None,
+                frame,
+                offset: Fraction::new(offset, 1),
+            })
+            .unwrap()
+            .map;
+    }
+    let before = map.clone();
+    let resized = map
+        .edit(Edit::MoveBoundary {
+            id: map.measures[1].start.clone(),
+            frame: 2000,
+        })
+        .unwrap()
+        .map;
+    assert!(resized.measures[0].beats.is_empty());
+    assert!(resized.measures[1].beats.is_empty());
+    assert_eq!(resized.measures[2], before.measures[2]);
+    assert_eq!(resized.next_id, before.next_id);
+    assert_eq!(resized.revision, before.revision + 1);
+    for (i, frames) in [
+        (0, vec![0, 500, 1000, 1500]),
+        (1, vec![2000, 3500, 5000, 6500]),
+    ] {
+        assert_eq!(
+            resized.view().measures[i]
+                .grid
+                .iter()
+                .map(|p| p.frame)
+                .collect::<Vec<_>>(),
+            frames
+        );
+        for (q, frame) in frames.iter().enumerate() {
+            assert_eq!(resized.frame_at(&resized.measures[i], q as f64), *frame);
+        }
+    }
+    assert_eq!(
+        resized
+            .pulse_events()
+            .unwrap()
+            .iter()
+            .take(8)
+            .map(|p| p.frame)
+            .collect::<Vec<_>>(),
+        [0, 500, 1000, 1500, 2000, 3500, 5000, 6500]
+    );
+    assert_eq!(map, before);
+    // A pointer release at the original frame must not discard corrections.
+    let unchanged = map
+        .edit(Edit::MoveBoundary {
+            id: map.measures[1].start.clone(),
+            frame: 4000,
+        })
+        .unwrap()
+        .map;
+    assert_eq!(unchanged.measures, map.measures);
+    assert_eq!(unchanged.boundaries, map.boundaries);
+    // Protection on either side blocks the whole atomic resize.
+    for i in 0..2 {
+        let protected = map
+            .edit(Edit::SetProtected {
+                id: map.measures[i].id.clone(),
+                protected: true,
+            })
+            .unwrap()
+            .map;
+        assert!(
+            protected
+                .edit(Edit::MoveBoundary {
+                    id: map.measures[1].start.clone(),
+                    frame: 2000
+                })
+                .is_err()
+        );
+        assert_eq!(protected.measures[i].beats, map.measures[i].beats);
+    }
+    for frame in [0, 8000, 13_000] {
+        assert!(
+            map.edit(Edit::MoveBoundary {
+                id: map.measures[1].start.clone(),
+                frame
+            })
+            .is_err()
+        );
+        assert_eq!(map, before);
+    }
+}
+
+#[test]
+fn resizing_pickup_and_partial_with_changed_meter_uses_actual_notated_extent() {
+    let map = build(1000, 9000, 2, Meter::common());
+    let map = notation(
+        &map,
+        0,
+        Meter::common(),
+        MeasureKind::Pickup,
+        Fraction::new(1, 1),
+    );
+    let compound = Meter {
+        numerator: 6,
+        denominator: 8,
+        pulse: Fraction::new(1, 2),
+        grouping: vec![],
+    };
+    let mut map = notation(
+        &map,
+        1,
+        compound,
+        MeasureKind::Incomplete,
+        Fraction::new(3, 2),
+    );
+    for (i, frame) in [(0, 2000), (1, 5500)] {
+        map = map
+            .edit(Edit::SetBeat {
+                measure: map.measures[i].id.clone(),
+                id: None,
+                frame,
+                offset: Fraction::new(1, 2),
+            })
+            .unwrap()
+            .map;
+    }
+    let resized = map
+        .edit(Edit::MoveBoundary {
+            id: map.measures[1].start.clone(),
+            frame: 6000,
+        })
+        .unwrap()
+        .map;
+    assert_eq!(resized.measures[0].offset, Fraction::new(3, 1));
+    assert_eq!(resized.measures[0].length, Fraction::new(1, 1));
+    assert_eq!(resized.frame_at(&resized.measures[0], 0.5), 3500);
+    assert_eq!(
+        resized.view().measures[1]
+            .grid
+            .iter()
+            .map(|p| p.frame)
+            .collect::<Vec<_>>(),
+        [6000, 7000, 8000]
+    );
+    assert_eq!(resized.position(6000).unwrap().label, "1");
+}
+
+#[test]
+fn resizing_outer_boundaries_and_gap_edges_only_respaces_the_attached_measure() {
+    let mut map = build(0, 12_000, 3, Meter::common());
+    for (i, frame) in [(0, 1000), (2, 9000)] {
+        map = map
+            .edit(Edit::SetBeat {
+                measure: map.measures[i].id.clone(),
+                id: None,
+                frame,
+                offset: Fraction::new(1, 1),
+            })
+            .unwrap()
+            .map;
+    }
+    map = map
+        .edit(Edit::Remove {
+            id: map.measures[1].id.clone(),
+        })
+        .unwrap()
+        .map;
+    for (id, frame, changed) in [
+        (map.measures[0].start.clone(), 500, 0),
+        (map.measures[0].end.clone(), 4500, 0),
+        (map.measures[1].start.clone(), 8500, 1),
+        (map.measures[1].end.clone(), 12_500, 1),
+    ] {
+        let resized = map.edit(Edit::MoveBoundary { id, frame }).unwrap().map;
+        assert!(resized.measures[changed].beats.is_empty());
+        assert_eq!(resized.measures[1 - changed], map.measures[1 - changed]);
+        resized.validate().unwrap();
+    }
+}
+
 #[test]
 fn pickup_partial_and_meter_change_preserve_source_coordinates() {
     let map = build(500, 12_500, 3, Meter::common());
@@ -292,6 +657,7 @@ fn detected_pulses_preserve_drift_and_partial_tail_without_extrapolation() {
     let pulses = vec![1000, 1500, 2100, 2700, 3400, 4200, 5000];
     let map = MeasureMap::empty(1000, 20_000)
         .edit(Edit::BuildFromPulses {
+            epsilon_ms: 0.0,
             first_downbeat: None,
             downbeats: vec![],
             pulses: pulses.clone(),
@@ -319,6 +685,7 @@ fn detected_pulses_preserve_drift_and_partial_tail_without_extrapolation() {
     assert!(
         MeasureMap::empty(1000, 20_000)
             .edit(Edit::BuildFromPulses {
+                epsilon_ms: 0.0,
                 first_downbeat: None,
                 downbeats: vec![],
                 pulses,
@@ -335,6 +702,7 @@ fn reanalysis_replaces_a_selected_old_draft_with_unobserved_edges_left_free() {
     let old = build(0, 8000, 2, Meter::common());
     let preview = old
         .edit(Edit::BuildFromPulses {
+            epsilon_ms: 0.0,
             first_downbeat: None,
             pulses: vec![1000, 1500, 2100, 2700, 3400, 4200, 5000],
             downbeats: vec![1000, 4200],
@@ -357,6 +725,7 @@ fn reanalysis_replaces_a_selected_old_draft_with_unobserved_edges_left_free() {
     assert!(
         protected
             .edit(Edit::BuildFromPulses {
+                epsilon_ms: 0.0,
                 first_downbeat: None,
                 pulses: vec![1000, 1500, 2100, 2700, 3400, 4200, 5000],
                 downbeats: vec![1000],
@@ -424,6 +793,7 @@ fn detected_draft_derives_count_and_snaps_first_downbeat_without_even_spacing() 
     let pulses = vec![1000, 1500, 2100, 2700, 3400, 4200, 5000, 5700, 6200, 7000];
     let make = |meter| {
         old.edit(Edit::BuildFromPulses {
+            epsilon_ms: 0.0,
             pulses: pulses.clone(),
             downbeats: vec![2700, 5700],
             first_downbeat: Some(2500),
@@ -461,7 +831,7 @@ fn detected_draft_derives_count_and_snaps_first_downbeat_without_even_spacing() 
             .iter()
             .map(|b| b.frame)
             .collect::<Vec<_>>(),
-        [3400, 4200, 5000]
+        [3400, 5000]
     );
     assert!(preview.map.position(1000).is_none());
     let compound = make(Meter {
