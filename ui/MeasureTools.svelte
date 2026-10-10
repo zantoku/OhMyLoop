@@ -13,7 +13,7 @@
     {song:Song;map:MeasureMap|null;mapView:MapView|null;measure:MeasureView|null;position:number;keymap:Keymap;active:boolean;run:(id:ButtonId)=>void;available:(id:ButtonId)=>boolean;onedit:(value:MapEdit,preview?:boolean)=>Promise<void>;onselect:(id:string|null)=>void}=$props();
   let panel=$state<'measure'|'join'|'free'>('measure');
   let join=$state<JoinSplitTools>(),free=$state<FreeTimeTools>();
-  const joinActions:readonly MappingActionId[]=['map_split','map_merge','map_beat','map_remove_beat','map_anchor_playhead'];
+  const joinActions:readonly MappingActionId[]=['map_split','map_merge','map_shift_left','map_shift_right','map_beat','map_remove_beat','map_anchor_playhead'];
   export function canRun(id:MappingActionId){if(joinActions.includes(id))return join?.canRun(id)??false;if(id==='map_remove'||id==='map_reclaim')return free?.canRun(id)??false;return true;}
   export function selectFreeTime(frame:number){panel='free';free?.selectAt(frame);}
   let notation=$state(meterForm()),kind=$state<MeasureKind>('full'),extent=$state('4'),following=$state(false);
@@ -42,7 +42,7 @@
 </script>
 <section class="measure-tools" aria-label="Measure editing tools">
   <div class="tools-heading"><div><div class="measure-title"><h3>{measure?`Measure ${measure.label}`:'Free time'}</h3>{#if measure}<button class="measure-lock" class:locked={measure.protected} aria-label={label('map_protect',measure.protected?'Unlock measure':'Lock measure')} aria-pressed={measure.protected} disabled={disabled('map_protect')} title={title('map_protect')} onclick={()=>run('map_protect')}><Icon name={measure.protected?'lock':'unlock'} size={16}/></button>{/if}</div>{#if measure}<span>{time(measure.start/song.rate,3)} – {time(measure.end/song.rate,3)} · {measure.tempo_bpm.toFixed(1)} BPM ({pulseName(measure.meter.pulse)})</span>{/if}</div>
-    <nav aria-label="Measure editing panels"><button aria-pressed={panel==='measure'&&!!measure} disabled={!measure} onclick={()=>{panel='measure';}}>Measure</button><button aria-pressed={panel==='join'&&!!measure} disabled={!measure} onclick={()=>{panel='join';}}>Join and Split</button><button aria-pressed={panel==='free'||!measure} onclick={()=>{panel='free';}}>Free time</button></nav>
+    <nav aria-label="Measure editing panels"><button aria-pressed={panel==='measure'&&!!measure} disabled={!measure} onclick={()=>{panel='measure';}}>Measure</button><button aria-pressed={panel==='join'&&!!measure} disabled={!measure} onclick={()=>{panel='join';}}>Join / Split / Shift</button><button aria-pressed={panel==='free'||!measure} onclick={()=>{panel='free';}}>Free time</button></nav>
   </div>
   {#if error}<p class="tools-error" role="alert">{error}</p>{/if}
   {#if measure&&panel==='measure'}

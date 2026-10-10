@@ -69,6 +69,11 @@ pub enum Edit {
     Merge {
         id: String,
     },
+    Shift {
+        id: String,
+        pulses: u32,
+        direction: ShiftDirection,
+    },
     Reclaim {
         start: u64,
         end: u64,
@@ -564,6 +569,11 @@ impl MeasureMap {
                 };
                 next.measures.splice(i..=i + 1, [first]);
             }
+            Edit::Shift {
+                id,
+                pulses,
+                direction,
+            } => next.shift_suffix(&id, pulses, direction)?,
             Edit::Reclaim { start, end, meter } => {
                 ensure!(
                     start < end && end <= self.frames,

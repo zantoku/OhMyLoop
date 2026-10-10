@@ -27,6 +27,8 @@ export const MAPPING_ACTIONS = {
   map_remove_beat: mapping('Remove the selected beat anchor'),
   map_split: mapping('Split before the selected beat into two partial measures'),
   map_merge: mapping('Join with the next measure; add numerators and keep the common denominator'),
+  map_shift_left: mapping('Shift this and following measures left by the chosen pulse count; extend the last measure'),
+  map_shift_right: mapping('Shift this and following measures right by the chosen pulse count; expand the preceding meter'),
   map_remove: mapping('Make the selected measure free time'),
   map_reclaim: mapping('Create a measure in the selected uncounted range'),
   map_protect: mapping('Protect or unprotect this measure'),

@@ -6,6 +6,14 @@ implementation plan. No candidate was installed, built, benchmarked, or tested
 against OhMyLoop recordings during this pass. Upstream timings and accuracy
 figures below are reports by their authors, not local measurements.
 
+Implementation follow-up: OhMyLoop now uses the pinned Rust port/main-model
+conversion with an authored-map editor. This document preserves the original
+research snapshot; current pins, measured results and remaining evaluation are
+in [THIRD_PARTY.md](../THIRD_PARTY.md),
+[MEASURE_MAPPING.md](MEASURE_MAPPING.md) and
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md). External project versions
+and upstream claims below have not been re-researched in the documentation audit.
+
 ## Research conclusion
 
 The strongest starting point for automatic draft generation is **Beat This!**,

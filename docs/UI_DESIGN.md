@@ -64,11 +64,19 @@ practice workflow without turning the screen into a DAW mixer.
 
 ## Measure-mapping screen
 
-**Measure map** in the practice header and **Back to
-practice** on a dedicated screen in the same window. It shares the song and
+Current implementation: updated 2026-10-10.
+
+The practice header opens **Measure map**; **Back to practice** returns from the
+dedicated screen in the same window. It shares the song and
 transport, but has a separate viewport and editing selection. Its waveform
 uses the existing zoom, pan and minimap conventions while showing measure
 boundaries, beat anchors and meter changes instead of A–B editing handles.
+
+Metronome and paged Follow playhead default on for the song session and follow
+the displayed authored map/draft. View navigation preserves following; explicit
+seeks reveal the playhead even while paused. Waveform clicks select the containing
+measure at the exact clicked time; measure-lane clicks seek to the measure start.
+Playback selects its current measure independently of viewport following.
 
 A musical ruler and editing panel support pulse interpretation, pickups,
 incomplete measures and protected corrections. Automatic analysis supplies
@@ -80,7 +88,7 @@ The waveform carries the map review. Detected suggestions are optional and beat
 lines thin with density instead of overlapping labels. Analysis and draft creation
 live in the right sidebar; model installation is a secondary disclosure. A compact
 play/speed overlay sits at the waveform's lower left. The full-width panel beneath
-it holds selected-measure tools, grouped into Measure, Join and Split,
+it holds selected-measure tools, grouped into Measure, Join / Split / Shift,
 and Free time. Keep the existing palette and type hierarchy; give
 vertical space to the waveform rather than a second large speed/pitch panel.
 
@@ -91,10 +99,19 @@ type stack, pale `#f9fafc` surface, `#e0e6f0` dividers, `#334966` text and muted
 `#7a879d` hints. A small lock beside the title uses the map's green accent when
 protected. Advanced folds away grouping, pulse and boundary positions; it can
 scroll within the editing panel without filling the default view. The sidebar's
-Batch tools owns global numbering and a future grouping-operation TODO.
+Batch tools owns global numbering (Preview/Apply) and a future grouping-operation
+TODO for measures sharing a time signature. Create measures remains a separate
+draft form with derived detected-measure counts and the epsilon field.
 
-Join and Split presents joining and a numbered-beat split picker as the main
-row; numerical anchor corrections are behind their own Advanced disclosure.
+Join / Split / Shift arranges all three tools horizontally with vertical
+separators. The compact split dropdown shows only beat numbers; the shift tool
+contains a pulse-count input and Shift left/right buttons. At narrow widths,
+stack the tools with horizontal separators to keep controls accessible. Show
+the selected pulse unit and explain the endpoint effects beside the controls.
+Shift retains authored timing, absorbing consumed bars at fixed endpoints and
+growing meters to avoid overfull bars. Join/Split/Shift and notation use direct
+validated edits with Undo. Numerical anchor corrections are behind their own
+Advanced disclosure.
 Free time has a selected-measure removal action and an uncounted-range picker
 with meter/pulse and Create measure from range. Reclaimed measures return to
 the Measure panel. Inactive panel markup is omitted while form/command state

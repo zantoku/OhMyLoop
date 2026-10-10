@@ -1,23 +1,24 @@
-# First measure-mapping implementation pass
+# Measure mapping: current behavior and implementation contract
 
-Drafted: 2026-10-09. Status: first editor and optional analyzer implemented;
+Drafted: 2026-10-09. Updated: 2026-10-10. Status: manual editing, map-review
+listening, practice navigation and optional analyzer implemented;
 analysis quality remains provisional. Verification and remaining evaluation: [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 Research: [BEAT_MAPPING_RESEARCH.md](BEAT_MAPPING_RESEARCH.md).
 
 ## Outcome
 
-Create, correct, save, and navigate a measure map for the current song. Provide
-an automatic draft, but make manual mapping usable without an installed model
-or successful analysis. Support tempo variation, changing and odd meters,
-pickups, incomplete measures, and passages without a defined meter in this pass.
+The editor creates, corrects, saves and navigates a measure map for the current
+song. Automatic drafts are optional; manual mapping works without an installed
+model or successful analysis. The map supports tempo variation, changing and odd
+meters, pickups, incomplete measures and passages without a defined meter.
 
 The map describes the original recording. Editing it does not stretch the
 audio, change playback speed, or move existing sections and temporary loops.
 
 ## A dedicated screen
 
-Add a **Measure map** button to the practice screen's header, next to the song
-actions. Enable it when a song is loaded. It opens a screen in the same window;
+The **Measure map** button in the practice screen's header next to the song
+actions is enabled when a song is loaded. It opens a screen in the same window;
 **Back to practice** returns to the loop editor. Both actions belong to the
 shared action/keymap catalog, with descriptions and configurable bindings.
 
@@ -33,12 +34,14 @@ The mapping screen has:
 - A musical ruler displaying measure numbers and beat positions, alongside a
   time ruler. Strong measure boundaries, lighter beat lines, meter labels,
   and explicit unmapped/partial spans make the interpretation visible.
-- A toolbar for **Clear map**, adding boundaries,
-  undo/redo, and fitting the selected measure or whole song.
+- A toolbar for **Undo**, **Redo**, **Clear map**, **Fit measure** and
+  **Whole song**. New internal boundaries are made by splitting a measure;
+  new mapped spans are made through Create measures or Free time.
 - A panel below the waveform for the selected measure/boundary: meter, pulse unit/grouping,
   full/pickup/incomplete status, exact position, and protection from reanalysis.
-- A compact waveform overlay for play/pause, source position and speed, plus
-  previous/next measure and **Go to measure**. Pitch controls remain on Practice.
+- A compact waveform overlay for play/pause, source position, speed percentage
+  and Loop off when needed. Previous/next and Go-to-measure navigation sit in the
+  footer. Pitch controls remain on Practice.
 - An **Analysis** sidebar with **Analyze song**, **Show detected beats**, progress
   and model setup, followed by **Create measures** draft controls.
 - Clear analysis progress, cancellation, missing-model/error states, and a
@@ -53,8 +56,8 @@ clear measure selection and open Free time tools while seeking to the clicked ti
 During playback, selection follows the displayed map at the current source
 position, independently of the viewport-follow toggle. Gaps and the exclusive
 map end have no playing measure selected. This automatic selection never seeks.
-Click a boundary/beat to select it and
-drag its handle to change its source position. A mapping selection selects
+Click a boundary/beat to select its owning measure and
+drag the line to change its source position. A mapping selection selects
 map elements, not an A–B loop. Seeking follows the existing outside-loop rule;
 mapping controls must not silently replace the practice loop. Provide an
 explicit Loop off control if an existing loop obstructs listening.
@@ -102,8 +105,10 @@ detections or existing manual corrections, and is session draft state rather tha
 a saved-song schema change. Only applying a rebuilt draft changes the map.
 
 Meter changes occur at explicit measure boundaries. The inspector applies a
-new meter/pulse interpretation from the selected measure to the next existing
-meter change or a selected end. Selected-measure notation uses one **Apply changes**
+new meter/pulse interpretation to the selected measure, optionally propagating
+through contiguous following measures until the next existing meter/pulse/grouping
+change or free-time gap. There is no separate selected-end propagation control.
+Selected-measure notation uses one **Apply changes**
 action, with native validation and Undo, rather than a preview gate. Global
 renumbering retains its preview/apply workflow; changing a label alone must not
 pretend the existing grid now fits.
@@ -134,16 +139,18 @@ equal or supported by the automatic detector.
 
 ## Editing contract
 
-Include these operations in the first pass:
+The desktop exposes these operations:
 
 - Add, move, and delete beat anchors; edit their notated position when a
   detected pulse was missing or mistaken for a subdivision.
-- Add/move a measure boundary, split before a numbered beat, and join adjacent
-  measures using the common denominator and summed numerators. Splits preserve
+- Move a measure boundary, split before a numbered beat to add a boundary,
+  and join adjacent measures using the common denominator and summed numerators. Splits preserve
   the original meter on both incomplete results and derive their actual extents.
 - Reapplying Meter resets beat spacing within the selected measure. The desktop
   no longer exposes range re-spacing; explicit manual draft creation can still
   divide a chosen span into a specified number of measures.
+- Shift the selected and following boundaries by a pulse count, absorbing
+  consumed measures at fixed endpoints while retaining authored timing.
 - Change meter, pulse interpretation/grouping, and pickup/incomplete duration.
 - Mark a measure as free time and reclaim an uncounted range as a new measure.
 - Protect/unprotect corrected ranges and undo/redo all mapping edits.
@@ -157,7 +164,8 @@ position inputs. Only the attached measure changes at outer edges or beside free
 time. A move to the same frame preserves anchors. Protected neighbors and invalid
 overlapping/zero-length measures reject the whole edit. One Undo restores the
 boundary and both measures' original anchors. Do not introduce implicit ripple
-editing in this pass.
+editing in this pass. The explicit Shift left/right operation described below
+is a separate, deliberate command.
 
 For between-anchor navigation, interpolate linearly in notated quarter-note
 position. Arbitrary anchor spacing represents tempo drift, abrupt changes,
@@ -169,7 +177,10 @@ explicit note unit so compound meter cannot silently change the meaning.
 Commit a drag as one undoable edit, not hundreds of pointer updates. Provide
 an immediate working preview, validate in Rust, and save only the accepted
 valid result. Rejected commands leave the last valid map intact. Undo/redo
-history is scoped to mapping and survives screen switching during the session.
+history is scoped to mapping, keeps up to 50 edits, and survives screen switching
+during the same song session. It is not restored after restart or song replacement.
+Musical definitions/identities are restored by Undo; revision and ID-allocation
+counters remain monotonic.
 
 ## Domain and persistence boundaries
 
@@ -177,7 +188,7 @@ Implemented domain shape (validated in Rust before persistence):
 
 | Entity | Responsibility |
 | --- | --- |
-| Analysis result | Immutable candidate beat/downbeat source frames, model/checksum/preprocessing provenance, and uncalibrated evidence scores |
+| Analysis result | Candidate beat/downbeat source frames, pinned model identity, song/revision/preprocessing provenance, and uncalibrated evidence scores |
 | Shared boundary | Stable ID and integer source frame; adjacent measures reference the same boundary |
 | Measure | Stable ID, boundary references, full/pickup/incomplete kind, actual notated extent, and optional pickup offset |
 | Meter interpretation | Meter, pulse unit and optional grouping stored explicitly on each stable measure; changes are derived by comparison |
@@ -205,12 +216,14 @@ including EOF, without creating a phantom next measure. Displayed beat numbers
 are local to the chosen pulse interpretation; conversion uses quarter-note
 positions rather than assuming every displayed beat is one quarter note.
 
-Extend the current version-2 song document with a versioned map using an
-explicit migration to the next document version. Preserve sections, controls,
-loops and position byte-for-byte in meaning; migrate valid old documents and
-retain the existing malformed/future-version preservation behavior. Define
-limits on map size at the persistence boundary. Store large inference arrays
-in a separate versioned cache, not in the document or status polling payload.
+Version-3 song documents contain a version-1 map; valid version-2 documents
+migrate without changing the meaning of sections, controls, loops or position.
+Malformed/future-version files remain intact. Native load/update validate the map
+against the decoded source rate and frame count. A map supports up to 10,000
+measures and 80,000 internal anchors. Meter numerators are 1–99, denominators are
+1/2/4/8/16/32/64, and stored rational offsets/durations have numerator at most
+65,536 and denominator at most 960. Large inference arrays live in a separate
+bounded cache, not in the document or routine playback-status payload.
 
 Manual edits and analyzer evidence remain separate. An analysis job is bound
 to song identity, map revision, preprocessing and model identity. Changing the
@@ -220,11 +233,12 @@ protected ranges and accepted edits outside the target span survive.
 
 ## Automatic analysis scope
 
-Evaluate the pinned `beat-this` Rust port first, with RTen CPU inference and
-the upstream main-model conversion. Use the small model for comparison during
-evaluation; do not add multiple analysis settings to the product prematurely.
-Validate port output and preprocessing before choosing the shipped artifact.
-Rhythm Map remains a comparison/reference, not an initial required dependency.
+The desktop uses pinned `beat-this` 1.1.0 with RTen CPU inference and the
+`final0` main-model ONNX conversion recorded in `config/beat-model.json`. Model
+files are optional downloads, not bundled weights. Source-aligned mono
+preprocessing is implemented; parity with Python and small-model comparison
+remain evaluation work. Rhythm Map is a research reference, not a dependency.
+No Python runtime is required by the shipped app.
 
 Feed existing decoded audio through a source-aligned mono analysis path; account
 for resampler delay/tail and validate timestamps. Run a single bounded job away
@@ -257,7 +271,7 @@ for the current transport's estimated audible-position limits. Whole-measure
 loop selection, snapping loops to beats, and musical section-range inputs are
 follow-ups rather than prerequisites for the editor.
 
-## Work packages and review points
+## Implementation slices and remaining review
 
 1. **Timing domain and persistence.** Define invariant-tested map types,
    coordinate lookup, transactional edits, v2 migration and generated timing
@@ -273,11 +287,13 @@ follow-ups rather than prerequisites for the editor.
    navigation, exercise the complete correction/restoration workflow, and
    run platform builds and targeted device checks.
 
-These are slices of one first implementation pass, not claims of completion.
-If the analyzer misses its quality/resource gate, keep the manual editor usable
-and report the gap instead of presenting an unsupported automated map.
+The domain, manual editor, analyzer adapter and practice navigation are
+implemented. Representative guitar-material evaluation, Python parity,
+small-model/resource comparison and verified Linux/Windows runs remain open;
+these review points are not all completed acceptance gates. See
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for current evidence.
 
-## Acceptance evidence
+## Verification contract and remaining acceptance work
 
 - Generated domain fixtures cover 4/4, 3/4, 6/8 with dotted-quarter pulses,
   additive 7/8, meter changes, tempo jumps/ramps, within-bar rubato, pickups,
@@ -309,7 +325,7 @@ ladders, per-section playback automation, sequences, export UI, recording,
 stem separation and synchronized tabs remain separate milestones. The map
 provides their future timing foundation; this pass does not implement them.
 Also defer score import/alignment, polymeter, overlapping musical clocks,
-manual tempo-curve drawing, ripple edits and automatic constrained neural
+manual tempo-curve drawing, implicit ripple edits and automatic constrained neural
 reanalysis. Preview/apply plus protected manual corrections is the first
 robust reanalysis contract.
 
@@ -399,7 +415,7 @@ Overlay input does not start timeline gestures or wheel zoom. Speed changes keep
 the current pitch. Full pitch controls are available on the Practice screen.
 
 Selected-measure tools occupy the full-width panel below the timeline, with
-Measure, Join and Split, and Free time panels. They retain
+Measure, Join / Split / Shift, and Free time panels. They retain
 exact source-frame edits, protection and undo. The Measure panel uses a compact
 **Meter** pair (two number inputs separated by a slash), measure kind/actual
 duration and **Apply changes**. Meter, pulse, grouping and extent are committed
@@ -409,7 +425,7 @@ the previous notation and anchors. Protected measures cannot apply notation.
 
 The lock/unlock icon sits beside the measure title and remains available across
 all three panels. The Measure panel's **Advanced**, collapsed initially, contains beat grouping,
-pulse note value, propagation until the next meter change and exact boundary
+pulse note value, propagation until the next meter change/gap and exact boundary
 position controls. Pulse remains independent of the denominator: 6/8 can use a
 dotted-quarter click while its denominator still counts eighth notes.
 
@@ -422,10 +438,14 @@ Selected-measure form state lives in the
 cohesive `MeasureTools.svelte` component; map/session ownership stays in the editor,
 batch numbering form state lives in `BatchTools.svelte`, and the timeline receives
 playback presentation through a Svelte snippet. Draft construction and numbering
-keep their preview/apply workflows. Join, split, mark free time and reclaim commit
+keep their preview/apply workflows. Join, split, shift, mark free time and reclaim commit
 directly after native validation, with Undo for each operation.
 
-## Join, Split and free-time editing
+## Join, Split, Shift and free-time editing
+
+Join, Split and Shift sit in one horizontal row separated by vertical rules.
+Narrow layouts stack the groups with horizontal separators. All three commit
+directly after validation with one Undo; Advanced holds numeric anchor controls.
 
 Join requires adjacent, unprotected measures with the same denominator. Its
 numerator is the sum, retaining the denominator without reducing the signature:
@@ -436,17 +456,65 @@ concatenated (an ungrouped partner contributes its numerator as a group). The
 result is full only when its actual extent fills the combined nominal meter;
 otherwise it is incomplete. The existing 99-numerator limit still applies.
 
-Split selects **Split before beat** by numbered pulse. Rust projects all eligible
-internal pulse points, including those hidden by visual grouping/density, marks
-fixed versus interpolated timing, and derives the split's exact source frame and
-notated duration. Both results keep the original meter/denominator and are
-incomplete; anchors on either side retain identity and relative timing. An anchor
-at the split becomes the shared boundary. Splitting 4/4 at beat 3 creates two
+Split selects **Split before beat** by numbered pulse. The compact dropdown shows
+only beat numbers; fixed/interpolated styling remains on the waveform. Rust
+projects eligible internal pulse points, including those hidden by visual
+grouping/density, and derives the split's exact source frame and notated duration.
+Projected grids and split pickers cap the pulse grid at 512 positions per measure;
+custom anchors remain separate exact timing corrections. Both results keep the
+original meter/denominator and are incomplete; anchors on either side retain
+identity and relative timing. An anchor at the split becomes the shared boundary. Splitting 4/4 at beat 3 creates two
 partial 4/4 measures of two quarters each. Joining those adds their numerators,
 producing a partial 8/4 of four quarters, per the agreed rule. Splitting a pickup
 produces incomplete measures with local beat origins. Numeric anchor controls
-remain available under **Advanced — beat anchor positions** in Join and Split;
+remain available under **Advanced — beat anchor positions** in Join / Split / Shift;
 waveform dragging is the primary correction method.
+
+**Shift by (pulses)** defaults to two and accepts whole counts from 1 through 64.
+The unit is the selected measure's pulse note value, including compound pulses;
+it is independent of the meter denominator. Shift left/right moves the selected
+measure's start and every subsequent internal boundary through the existing
+notated timeline. It is not a constant source-time displacement: tempo changes
+and authored timing corrections determine each new source frame.
+
+The affected range's start and the last mapped endpoint stay fixed. For shifts
+that do not consume the predecessor, its start remains the range start. Right
+extends the preceding extent and raises its numerator, retaining its denominator,
+when needed: 4/4 plus two quarter pulses becomes full 6/4. The last surviving
+shifted measure is shortened when the endpoint cuts its extent. Left shortens
+preceding material (making a remaining partial bar incomplete) and extends the
+last measure, increasing that meter when needed. Neither direction creates an
+overfull measure. If an extension does not fill a denominator-note unit, the
+numerator rounds up and the extended measure is incomplete. Explicit grouping
+gets an extra group for the added denominator units. Internal meters, kinds and
+actual extents retain their identities and travel with surviving shifted bars; a
+remaining partial leading pickup retains a recomputed pickup offset.
+
+Authored anchors retain their identities and source frames, with local offsets
+and ownership recalculated. Anchors landing on a new boundary are absorbed into
+its timing. Former bar lines become anchors only where needed to preserve a
+change in timing slope; uniform measures acquire no extra corrections. Frame
+rounding permits a one-source-frame interpolation difference. Detected suggestions
+are not inputs to the operation.
+
+Select a measure with a predecessor. Protected measures anywhere in the affected
+span and intervening free time reject the shift. Trailing uncounted audio stays
+outside the operation. Boundaries reaching or passing a fixed endpoint are
+absorbed there, removing measures with no remaining extent. Right can consume
+one or several tail measures; left can consume the predecessor and earlier
+measures, reaching back as needed through contiguous counted audio. If every
+internal cut is absorbed, one measure spans the affected range. Surviving
+measures use the fixed outer boundary identities and retain all interior timing
+corrections from absorbed bars. Meters grow as needed to avoid overfull notation.
+Protection and free-time checks include any earlier measures reached by a left
+shift. Shifts exceeding the existing 99-numerator limit or requiring unsupported
+custom fractions still reject atomically.
+The edit commits directly after native validation, with one Undo restoring the
+exact original map, including absorbed measures. An opposite shift does not
+recreate consumed measure identities or automatically shrink previously enlarged
+nominal meters; use Undo for exact restoration of notation and anchors. If the
+selected measure is absorbed, select the surviving measure containing its former
+start, without seeking.
 
 Free time leaves audio intact while removing the selected measure's map. Adjacent
 uncounted audio is represented as a single gap. Click a gap on the waveform or
@@ -458,6 +526,7 @@ whole source as a range. Undo restores the original map; reclaiming is a new
 authored definition rather than recovery of previously removed timing anchors.
 
 `JoinSplitTools.svelte` owns beat/anchor form state and command parsing;
+`ShiftTools.svelte` owns the pulse-count form and shift command binding;
 `FreeTimeTools.svelte` owns uncounted-range selection and reclaim form state.
 `map-ranges.ts` shares presentation-only gaps from ordered Rust-projected ranges.
 The native legacy Respace edit remains for existing domain callers/tests; its

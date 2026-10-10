@@ -7,6 +7,10 @@ excellent sound quality and endorses this direction. This is enough to begin
 UI exploration while continuing the open checks below; it does not establish
 production readiness on all platforms.
 
+The measurements below are the original prototype baseline. Later desktop and
+measure-map evidence is tracked in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+The risk table distinguishes current implementation from remaining validation.
+
 ## Evidence
 
 Local toolchain: Rust 1.99.0, macOS arm64, release builds. Rubber Band 4.0.0
@@ -74,8 +78,8 @@ sandbox, on `KT_USB_AUDIO` at 48 kHz:
 This exercises live controls, seek, and looping through the actual native
 audio callback. It does not measure when sound reached the speaker, nor does
 the PASS assess timbre, clicks, or practice comfort. The exact submitted log
-is recorded in `docs/DEVICE_SMOKE.txt`. This sandbox itself exposes
-no CoreAudio devices, so it cannot repeat the hardware check.
+is recorded in `docs/DEVICE_SMOKE.txt`. Sandboxed prototype runs exposed no CoreAudio devices. Later desktop/device
+checks ran outside that restriction; see the implementation status for evidence.
 
 The user's subsequent listening assessment was: "Sound quality is excellent.
 This is the way forward." This is positive subjective validation for the
@@ -91,10 +95,10 @@ listening corpus or establish quality on every recording or setting.
 | Loop transitions | Source wraps keep DSP state; paired fades reduce the tested seam and preserve nominal period | Musical feel, short loops, pitch-shifted loop seams |
 | Seek responsiveness | Generations invalidate queued old audio; command acknowledgements establish applied state | Physical latency and perceived seek gap; already submitted hardware buffers cannot be recalled |
 | Playhead and marker accuracy | Bounds stored in source seconds, then quantized to frames; output position explicitly estimated | Precise mapping through adaptive stretching and live rate changes, plus hardware latency |
-| Sample-rate mismatch | Prefer source-rate output; linear fallback implemented | High-quality resampler and device conversion tests |
+| Sample-rate mismatch | Prefer source-rate output; delay-compensated band-limited Rubato fallback and generated conversion tests now implemented | Broader device rates and listening validation |
 | File decoding | Six generated codec fixtures decode and render; explicit mono/stereo policy | Broader codec/metadata corpus, unusual AAC variants, long recordings |
 | Portability | Platform-specific audio backends and upstream single-file native build | Linux/Windows CI runs and physical-device smoke tests |
-| Distribution | Cargo dependencies locked; native Rubber Band source bundled | Installers, signing, packaging of dependency notices |
+| Distribution | Cargo dependencies locked; Rubber Band source and beat-model provenance/notices bundled; local macOS app builds | Linux/Windows builds, installers, signing, full release dependency notices |
 | Recovery | Device/worker errors reported | Device removal, reconnection, output device selection |
 
 For a listening pass, follow the step-by-step comparison in the README.

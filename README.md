@@ -2,8 +2,8 @@
 
 A free, open-source music practice player for Linux, macOS, and Windows.
 The first desktop implementation provides a waveform workspace, editable
-sections, temporary loops, independent speed and pitch controls, and automatic
-practice-state restoration. The validated terminal prototype remains available.
+sections, temporary loops, independent speed and pitch controls, editable measure
+maps with optional beat analysis, map-review metronome and practice-state restoration. The validated terminal prototype remains available.
 
 The prototype uses Rust, CPAL, Symphonia, and bundled Rubber Band 4.0.0.
 Playback uses Rubber Band's R3/Finer engine. R2 remains available to the
@@ -68,13 +68,24 @@ Practice documents are saved in the app's per-user data directory, under
 loop selection, and last position. A SHA-256 identity lets settings survive
 moving or renaming an unchanged audio file. Playback is restored paused.
 Corrupt or unsupported documents are reported and left intact. For development
-only, `OHMYLOOP_DATA_DIR` can select another settings directory.
+only, `OHMYLOOP_DATA_DIR` selects the practice-document directory itself; it does
+not redirect the model or keymap folders. The analysis cache is its sibling
+`analysis` folder. Use `OHMYLOOP_MODEL_DIR` and `OHMYLOOP_KEYMAP_FILE` separately
+for isolated model/configuration paths.
 
 Audio-device failures leave the song editable and provide a Retry audio
 action. Sample-rate mismatches use delay-compensated, band-limited resampling.
 The playhead follows native output-frame positions rather than a frontend
 playback timer; adaptive stretching and physical device latency still make
 it an estimate.
+
+`npm run dev` opens a frontend-only development preview with demo fixtures.
+Audio, analysis and native musical-map edits require `npm run desktop`.
+
+## Measure mapping
+
+Open **Measure map** from the practice header; **Back to practice** returns to the
+player. Both screens share transport and retain their own viewports.
 
 In **Measure map**, **Metronome** defaults on to play the displayed authored map,
 including a green draft before applying it. **Click level** adjusts its volume;
@@ -101,17 +112,19 @@ The Measure panel uses a compact meter pair and one **Apply changes** action wit
 Undo. Its **Advanced** fold-out contains pulse, grouping and exact boundary
 positions; the title lock protects the measure. **Batch tools**, below Create
 measures, holds global numbering and a TODO for grouping matching time signatures.
-**Join and Split** joins adjacent measures with a common denominator and summed
-numerators, or splits before a numbered beat into two partial measures. Numeric
+**Join / Split / Shift** lays out all three tools horizontally with vertical
+separators. Join sums numerators over a common denominator; Split before beat
+shows only beat numbers and produces two incomplete measures retaining the prior
+meter (4/4 split at beat 3 becomes two partial 4/4 bars). Numeric
 anchor controls are under Advanced. **Free time** can remove a measure's map or
 create a new, evenly spaced measure over a selected uncounted waveform range.
-Each operation supports Undo. Range re-spacing is no longer a desktop tool.
+Shift left/right moves the selected and remaining measure boundaries by a chosen
+number of the selected measure’s pulses, preserving source beat timing and outer
+endpoints. Right expands the preceding meter; left makes it partial and extends
+the final measure. Measures consumed at an endpoint are absorbed into surviving
+bars. Each operation supports Undo. Range re-spacing is no longer a desktop tool.
 
-`npm run dev` opens a frontend-only development preview. It uses explicit demo
-fixtures and disables audio playback; the desktop app uses the real Rust engine.
-
-Click **Measure map** to build or correct a musical timeline. **Create measures**
-provides two explicit sources:
+**Create measures** provides two explicit sources:
 
 - **Detected beats** is selected after analysis. Choose the time signature and the
   note value of each detected pulse, then set the first downbeat. Its position
@@ -135,9 +148,11 @@ arrow-key nudges (10 ms; Shift gives 1 ms). The inspector supports meter changes
 pickups, incomplete bars, beat anchors, splits/merges, free-time gaps and protected
 corrections. **Clear map** removes all measures/anchors, including protected ones;
 **Undo** restores them. It retains detected beats for rebuilding and keeps practice
-sections, loops and playback settings. Mapping undo/redo survives switching back
-to practice; the accepted map is saved with the song. Practice gains a measure
-ruler and measure navigation.
+sections, loops and playback settings. Mapping undo/redo retains up to 50 edits
+during the same song session and survives switching back to practice; it is not
+saved across restarts. The accepted map is
+persisted with the song in version-3 documents; valid version-2 documents migrate.
+Practice gains a measure ruler and measure navigation.
 
 **Analysis model → Download analysis model** optionally installs the pinned
 Beat This! model (about 83 MB). **Analyze song** runs CPU inference in a separate,

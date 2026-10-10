@@ -7,7 +7,8 @@ and Windows. Its core features are independent playback speed and pitch,
 named song-section markers, precise seeking, and repeatable loops.
 
 The audio risk prototype and first single-song desktop workflow are in place.
-The next milestone is editable measure mapping described in PLAN.md and
+Editable measure mapping and optional beat analysis are implemented; the current
+milestone is review/evaluation and refinement described in PLAN.md and
 docs/MEASURE_MAPPING.md. Preserve the CLI prototype, its audio tests, and
 existing practice workflows while extending the desktop UI.
 

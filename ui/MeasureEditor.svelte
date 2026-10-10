@@ -34,7 +34,7 @@
   let builder=$state<MeasureBuilder>();
   let tools=$state<MeasureTools>();
   let batch=$state<BatchTools>();
-  const toolActions:readonly MappingActionId[]=['map_notation','map_boundary','map_beat','map_remove_beat','map_split','map_merge','map_remove','map_reclaim','map_protect','map_anchor_playhead'];
+  const toolActions:readonly MappingActionId[]=['map_notation','map_boundary','map_beat','map_remove_beat','map_split','map_merge','map_shift_left','map_shift_right','map_remove','map_reclaim','map_protect','map_anchor_playhead'];
   const builderActions:readonly MappingActionId[]=['map_build','map_use_analysis','map_span_start','map_span_end','map_first_downbeat'];
   let automaticOpen=$state(false);
   let automaticInitialized=false;
@@ -56,7 +56,11 @@
   let formError=$state('');
   $effect(()=>{const current=measures;untrack(()=>{if(!current.some(m=>m.id===selected))selected=current[0]?.id??null;});});
   $effect(()=>{if(active&&transport.playing)selected=measureAtFrame(measures,Math.round(transport.position*song.rate))?.id??null;});
-  async function edit(value:MapEdit,preview=true){formError='';await session.edit(value,preview);}
+  async function edit(value:MapEdit,preview=true){
+    const origin=value.type==='shift'?measures.find(m=>m.id===value.id)?.start:undefined;
+    formError='';await session.edit(value,preview);
+    if(value.type==='shift'&&!editState.error&&origin!==undefined&&!measures.some(m=>m.id===value.id))select(measureAtFrame(measures,origin)?.id??measures[0]?.id??null);
+  }
   export function canRun(id:MappingActionId):boolean{
     if(id==='map_follow'||id==='map_show_detected')return true;
     if(id==='map_metronome')return native&&(clickEnabled||(!transport.audio_error&&!!audibleMap?.measures.length));
@@ -67,7 +71,7 @@
     if(id==='map_origin')return !!map?.measures.length&&!editState.preview;
     if(id==='map_notation')return !!measure&&!measure.protected&&!editState.preview;
     if(id==='map_respace')return false;
-    if(['map_beat','map_remove_beat','map_split','map_merge','map_remove','map_reclaim','map_anchor_playhead'].includes(id))return !editState.preview&&(tools?.canRun(id)??false);
+    if(['map_beat','map_remove_beat','map_split','map_merge','map_shift_left','map_shift_right','map_remove','map_reclaim','map_anchor_playhead'].includes(id))return !editState.preview&&(tools?.canRun(id)??false);
     if(builderActions.includes(id))return builder?.canRun(id)??false;
     if(id==='map_undo')return editState.undo>0;if(id==='map_redo')return editState.redo>0;
     if(['map_boundary','map_protect'].includes(id))return !!measure&&!editState.preview;

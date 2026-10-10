@@ -1,7 +1,7 @@
 # OhMyLoop product and implementation plan
 
 Recorded: 2026-10-08.
-Updated: 2026-10-09.
+Updated: 2026-10-10.
 Validated prototype baseline: `1ada9f4` — Build validated Rust audio practice prototype.
 Desktop/keymap baseline: `3f48398` — Add configurable actions and refine timeline navigation.
 
@@ -46,22 +46,36 @@ remain evidence-driven work; completed local checks do not settle all risks.
 
 ## Current implementation: editable measure mapping
 
-Create a dedicated **Measure map** screen, opened from a button in the practice
-screen's header. Give it its own minimap, detailed waveform and musical ruler,
-with tools for building and correcting a measure map. Share the loaded song
-and transport so screen changes do not reset playback or practice settings.
+The dedicated **Measure map** screen opens from the practice header and has its
+own minimap, waveform and musical ruler. Both screens share the loaded song and
+transport; switching retains practice settings and each viewport.
 
-Use Beat This! through the existing Rust port as the first automatic-draft
-candidate. The user defines meter, pulse note value and the first full
-downbeat; detected beats/downbeats are suggestions. Derive measure numbering
-from the accepted map, accounting for tempo variation, time-signature changes,
-odd/compound meters, pickups, incomplete measures and free-time spans.
+Optional Beat This! main-model analysis uses the pinned Rust port with RTen CPU
+inference, model verification, progress and cancellation. Detected beats/downbeats
+are suggestions: the user chooses meter, pulse and first downbeat. Detected drafts
+derive measure counts and observed boundaries; epsilon controls whether internal
+beats need timing anchors. Manual evenly spaced drafts work without a model.
+Draft construction and global numbering use Preview/Apply; accepted map edits
+commit directly after validation, with Undo/Redo.
 
-Keep a complete manual workflow available without a model. Provide local
-boundary/beat edits, selected-range measure construction, meter changes,
-protected corrections and undo/redo. Automatic reruns preview candidates and
-must preserve accepted edits. Persist a versioned map anchored to source audio
-and add measure navigation/ruler display to the practice screen.
+The full-width editor provides **Measure**, **Join / Split / Shift**, and **Free
+time** tabs. Meter edits reset internal spacing; Advanced holds grouping, pulse,
+propagation and precise timing. A title lock protects each measure. Join sums
+numerators over a common denominator, and a numbered split creates two partial
+measures with the original meter. Explicit pulse-based shifts realign later bar
+lines while retaining authored timing and fixed endpoints; consumed measures are
+absorbed and extended meters grow instead of becoming overfull. Free-time ranges
+can be reclaimed as one new, evenly spaced measure. Batch tools contains global
+numbering and a TODO for grouping matching time signatures.
+
+Authored maps support tempo/meter changes, odd/compound meters, pickups, incomplete
+measures and free time. Resizing a boundary evenly spaces both attached measures.
+The displayed draft/map can be reviewed with a metronome and paged playhead
+following, both initially on. Optional detected-beat visibility and marker density
+reduce clutter. Mapping history is session-only; the accepted version-1 map is
+saved in version-3 song documents with version-2 migration. Practice displays the
+accepted ruler and measure navigation. Automatic replacement preserves material
+outside its target span and rejects protected conflicts.
 
 Detailed scope, domain model, work packages, and acceptance evidence:
 [docs/MEASURE_MAPPING.md](docs/MEASURE_MAPPING.md). Technical research and
@@ -219,8 +233,10 @@ outside the playback worker and report progress to the UI.
 
 The editable measure-mapping workflow in docs/MEASURE_MAPPING.md is implemented
 with automatic draft generation and measure navigation. Next, evaluate it on real
-guitar material and gather cross-platform and user-workflow feedback. Count-ins, rests, ladders, section settings, sequences, export UI,
-recording, stems, and transcription remain later work.
+guitar material and gather cross-platform and user-workflow feedback. Batch
+grouping of matching meters within a song remains a TODO. Count-ins, rests,
+ladders, section settings, sequences, export UI, recording, stems and transcription
+remain later work.
 
 Keep strengthening timing invariants with generated fixtures and evaluating
 automatic suggestions against independent evidence. Preserve both phrase practice

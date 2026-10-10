@@ -1,4 +1,4 @@
-# First desktop implementation
+# Desktop architecture and original practice-workflow evidence
 
 The desktop app wraps the validated native audio engine with Tauri and Svelte.
 The first-pass scope in PLAN.md is implemented: local-song loading, waveform
@@ -32,7 +32,12 @@ a write fails. Invalid or future-version documents are not silently replaced.
 The app reopens the last song paused, restoring position and controls. Demo
 sections are seeded only on first use, so removing them remains persistent.
 
-## Verification
+## Original practice-workflow verification
+
+The checks below record the practice-only baseline, before the mapping editor
+and subsequent refinements. Their test counts and QA-session positions are
+historical. Current counts, build evidence and remaining evaluation live in
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
 
 Local macOS checks cover the existing eleven audio tests plus eight tests
 for document restoration, nested sections, transient-preserving waveform peaks,
@@ -104,15 +109,15 @@ Native UI verification on macOS with `KT_USB_AUDIO`:
   Reloading changed the help row, button label, and hover description together.
   Comma became inactive, Q jumped to A, and the remapped button executed the
   same seek. The unchanged test file was removed and another reload restored
-  the defaults. The final native app remains open, paused at A, using defaults.
+  the defaults. The QA run ended paused at A using defaults.
 
 The window is shown/focused at startup and macOS reopen, and closing the main
 window requests app exit. This addresses the background-without-visible-window
-state encountered during repeated automation relaunches. The rebuilt app was
-left open, paused, on the song that was open before the gesture checks.
+state encountered during repeated automation relaunches. That QA run ended with the previously open song paused. This is a record of the
+run, not a statement about the current user session.
 
 Linux and Windows builds and tests are configured in the desktop CI workflow.
-This revision has not been verified on those platforms. Code signing,
+Passing runs for the current revision have not been verified here on those platforms. Code signing,
 installer distribution, automatic device reconnection, streaming long files,
 and sample-accurate synchronization through adaptive stretching remain later
 work. None of the musical practice features deferred in PLAN.md have been

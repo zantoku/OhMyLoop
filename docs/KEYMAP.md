@@ -17,7 +17,13 @@ also accepts a custom keyboard binding. It changes presentation only.
 `map_split` splits before the selected numbered beat; `map_merge` joins adjacent
 measures with matching denominators. `map_remove` marks a measure as free time,
 and `map_reclaim` creates a measure in the selected uncounted range. These actions
-use direct validated edits with Undo and share button/hover metadata. The legacy
+use direct validated edits with Undo and share button/hover metadata.
+Notation and anchor/boundary edits also commit directly; draft creation and
+global numbering retain the Preview/Apply/Discard flow.
+`map_shift_left` and `map_shift_right` shift the selected and remaining bars by
+the form’s pulse count. They share central button/help metadata and have no
+default keys; custom shortcuts work from any selected-measure panel, using the
+current form pulse count. Consumed measures are absorbed and Undo restores them. The legacy
 `map_respace` identity remains recognized for older keymaps, but is unavailable
 in the desktop editor and has no button. Reapply Meter for even beat spacing.
 
