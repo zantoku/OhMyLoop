@@ -80,6 +80,22 @@ The waveform carries the map review. Detected suggestions are optional and beat
 lines thin with density instead of overlapping labels. Analysis and draft creation
 live in the right sidebar; model installation is a secondary disclosure. A compact
 play/speed overlay sits at the waveform's lower left. The full-width panel beneath
-it holds selected-measure tools, grouped into Measure, Beat anchors and splits,
-and Respace or free time. Keep the existing palette and type hierarchy; give
+it holds selected-measure tools, grouped into Measure, Join and Split,
+and Free time. Keep the existing palette and type hierarchy; give
 vertical space to the waveform rather than a second large speed/pitch panel.
+
+The Measure panel gives the compact `4 / 4` meter pair, kind and one Apply changes
+action the primary row. Two 48 px numeric inputs use tabular figures and an 18 px
+type size; the slash is larger and quiet. Keep the existing Avenir/Segoe/Noto
+type stack, pale `#f9fafc` surface, `#e0e6f0` dividers, `#334966` text and muted
+`#7a879d` hints. A small lock beside the title uses the map's green accent when
+protected. Advanced folds away grouping, pulse and boundary positions; it can
+scroll within the editing panel without filling the default view. The sidebar's
+Batch tools owns global numbering and a future grouping-operation TODO.
+
+Join and Split presents joining and a numbered-beat split picker as the main
+row; numerical anchor corrections are behind their own Advanced disclosure.
+Free time has a selected-measure removal action and an uncounted-range picker
+with meter/pulse and Create measure from range. Reclaimed measures return to
+the Measure panel. Inactive panel markup is omitted while form/command state
+remains mounted, so WebKit accessibility follows panel changes reliably.

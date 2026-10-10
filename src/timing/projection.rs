@@ -23,7 +23,14 @@ pub struct MeasureView {
     pub length: Fraction,
     pub protected: bool,
     pub grid: Vec<GridPoint>,
+    pub split_points: Vec<SplitPoint>,
     pub tempo_bpm: f64,
+}
+#[derive(Clone, Debug, Serialize)]
+pub struct SplitPoint {
+    pub beat: u32,
+    pub frame: u64,
+    pub anchor: bool,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct MapView {
@@ -163,6 +170,18 @@ impl MeasureMap {
                     }
                 }
                 grid.sort_by_key(|p| p.frame);
+                let split_points = (0..(m.meter.length().value() / m.meter.pulse.value())
+                    .ceil()
+                    .min(512.0) as u32)
+                    .filter_map(|index| {
+                        let q = f64::from(index) * m.meter.pulse.value() - origin;
+                        (q > 0.0 && q < length).then(|| SplitPoint {
+                            beat: index + 1,
+                            frame: Self::frame_between(m, start, end, q),
+                            anchor: m.beats.iter().any(|b| (b.offset.value() - q).abs() < 1e-9),
+                        })
+                    })
+                    .collect();
                 MeasureView {
                     id: m.id.clone(),
                     start_id: m.start.clone(),
@@ -176,6 +195,7 @@ impl MeasureMap {
                     length: m.length,
                     protected: m.protected,
                     grid,
+                    split_points,
                     tempo_bpm: 60.0 * m.length.value() * f64::from(self.rate)
                         / ((end - start) as f64 * m.meter.pulse.value()),
                 }

@@ -7,9 +7,10 @@
   import type { View } from './types';
   import type { MapEdit, MapView, MeasureView, GridPoint } from './timing';
   import {measureAtFrame} from './timing';
-  let { peaks, duration, rate, position, view, mapView, selected, disabled = false, candidates = [], playback, onview, onseek, onselect, onedit }:
+  import {unmappedRanges} from './map-ranges';
+  let { peaks, duration, rate, position, view, mapView, selected, disabled = false, candidates = [], playback, onview, onseek, onselect, ongap, onedit }:
     { peaks: [number, number][]; duration: number; rate: number; position: number; view: View; mapView: MapView | null; selected: string | null; disabled?: boolean; candidates?: { frame: number; downbeat: boolean }[];
-      playback?:Snippet;onview: (view: View, navigation: 'zoom' | 'pan') => void; onseek: (seconds: number) => void; onselect: (id: string) => void; onedit: (edit: MapEdit) => void } = $props();
+      playback?:Snippet;onview: (view: View, navigation: 'zoom' | 'pan') => void; onseek: (seconds: number) => void; onselect: (id: string) => void; ongap?:(frame:number)=>void;onedit: (edit: MapEdit) => void } = $props();
   let canvas: HTMLCanvasElement, overview: HTMLCanvasElement, field: HTMLDivElement;
   let size = $state(0), width = $state(800), keyboard = $state(false), overviewPointer = $state<number | null>(null);
   type Drag = { pointer: number; x: number; width: number; view: View; edit: Extract<MapEdit, {type:'move_boundary'|'set_beat'}> | null; selected: string | null; pan: boolean };
@@ -28,13 +29,9 @@
   });
   const shownCandidates=$derived(markersForView(candidates,view.start*rate,view.end*rate,width,12).markers);
   const ticks = $derived(Array.from({length:7},(_,i)=>view.start+span*i/6));
-  const gaps = $derived.by(() => {
-    const result: {start:number;end:number}[]=[];let at=0;
-    for(const m of measures){if(m.start>at)result.push({start:at,end:m.start});at=m.end;}
-    if(at<Math.round(duration*rate))result.push({start:at,end:Math.round(duration*rate)});return result;
-  });
+  const gaps=$derived(unmappedRanges(measures,Math.round(duration*rate)));
   const frame = (event: MouseEvent) => Math.round(sourcePoint(view,duration,field.getBoundingClientRect(),event.clientX)*rate);
-  function seekAt(seconds:number){const measure=measureAtFrame(measures,Math.round(seconds*rate));if(measure)onselect(measure.id);onseek(seconds);}
+  function seekAt(seconds:number){const frame=Math.round(seconds*rate),measure=measureAtFrame(measures,frame);if(measure)onselect(measure.id);else if(gaps.some(g=>g.start<=frame&&frame<g.end))ongap?.(frame);onseek(seconds);}
   function displayed(id: string, at: number) { return drag?.edit?.type==='move_boundary' && drag.edit.id===id && draggedFrame!==null ? draggedFrame : at; }
   $effect(()=>{void size; drawWaveform(canvas,peaks,duration,view.start,view.end);drawWaveform(overview,peaks,duration,0,duration,true);});
   onMount(()=>{

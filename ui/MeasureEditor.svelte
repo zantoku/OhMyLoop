@@ -3,6 +3,7 @@
   import { AnalysisSession, type AnalysisState } from './analysis-session';
   import AnalysisProgress from './AnalysisProgress.svelte';
   import MeasureBuilder from './MeasureBuilder.svelte';
+  import BatchTools from './BatchTools.svelte';
   import MeasureTools from './MeasureTools.svelte';
   import MapTimeline from './MapTimeline.svelte';
   import {native} from './bridge';
@@ -32,7 +33,8 @@
   });
   let builder=$state<MeasureBuilder>();
   let tools=$state<MeasureTools>();
-  const toolActions:readonly MappingActionId[]=['map_origin','map_notation','map_boundary','map_beat','map_remove_beat','map_split','map_merge','map_remove','map_protect','map_respace','map_anchor_playhead'];
+  let batch=$state<BatchTools>();
+  const toolActions:readonly MappingActionId[]=['map_notation','map_boundary','map_beat','map_remove_beat','map_split','map_merge','map_remove','map_reclaim','map_protect','map_anchor_playhead'];
   const builderActions:readonly MappingActionId[]=['map_build','map_use_analysis','map_span_start','map_span_end','map_first_downbeat'];
   let automaticOpen=$state(false);
   let automaticInitialized=false;
@@ -62,9 +64,13 @@
     if(id==='map_apply')return !!editState.preview&&!builder?.isStale();
     if(id==='map_discard')return !!editState.preview;
     if(id==='map_clear')return !!map?.measures.length||!!editState.preview;
+    if(id==='map_origin')return !!map?.measures.length&&!editState.preview;
+    if(id==='map_notation')return !!measure&&!measure.protected&&!editState.preview;
+    if(id==='map_respace')return false;
+    if(['map_beat','map_remove_beat','map_split','map_merge','map_remove','map_reclaim','map_anchor_playhead'].includes(id))return !editState.preview&&(tools?.canRun(id)??false);
     if(builderActions.includes(id))return builder?.canRun(id)??false;
     if(id==='map_undo')return editState.undo>0;if(id==='map_redo')return editState.redo>0;
-    if(['map_origin','map_notation','map_boundary','map_beat','map_remove_beat','map_split','map_merge','map_remove','map_protect','map_respace'].includes(id))return !!measure&&!editState.preview;
+    if(['map_boundary','map_protect'].includes(id))return !!measure&&!editState.preview;
     if(id==='map_fit')return !!measure;
     if(id==='map_analyze')return !!analysis.status?.model_ready&&!analysis.status.running&&!analysis.requesting&&!editState.preview;
     if(id==='map_cancel_analysis')return !!analysis.status?.running&&!analysis.requesting;
@@ -75,6 +81,7 @@
     if(!canRun(id))return;
     try{
       if(builderActions.includes(id)){await builder?.command(id);return;}
+      if(id==='map_origin'){await batch?.command();return;}
       if(toolActions.includes(id)){await tools?.command(id);return;}
       const commands:Partial<Record<MappingActionId,()=>void|Promise<void>>>={
         map_metronome:()=>{clickEnabled=!clickEnabled;},map_follow:()=>{followingPlayhead=!followingPlayhead;},
@@ -92,7 +99,7 @@
   const title=(id:ButtonId)=>keymap.title(id);
   const label=(id:ButtonId, fallback:string)=>keymap.buttonLabel(id,fallback);
   const disabled=(id:ButtonId)=>!active||!available(id);
-  function select(id:string){selected=id;formError='';}
+  function select(id:string|null){selected=id;formError='';}
   export function selectMeasure(id:string){
     select(id);const m=measures.find(m=>m.id===id);if(!m)return;
     const start=m.start/song.rate,end=m.end/song.rate;
@@ -120,7 +127,7 @@
     {#if editState.error||formError}<p class="mapping-error" role="alert">{formError||editState.error}</p>{/if}
     {#if editState.preview}<div class="mapping-preview" role="status"><span>Review the green draft. Your saved map is unchanged.</span><button class="button primary" disabled={disabled('map_apply')} title={title('map_apply')} onclick={()=>run('map_apply')}>{label('map_apply','Apply map')}</button><button class="text-button" disabled={disabled('map_discard')} title={title('map_discard')} onclick={()=>run('map_discard')}>{label('map_discard','Discard')}</button></div>{/if}
     {#each editState.preview?.warnings??[] as warning}<p class="analysis-summary" role="status">{warning}</p>{/each}
-    <MapTimeline peaks={song.peaks} duration={song.duration} rate={song.rate} position={transport.position} {view} mapView={displayed} candidates={showDetected?(candidates?.beats??[]):[]} {playback} {selected} disabled={editState.pending||!!editState.preview} onview={v=>{view=v;}} {onseek} onselect={select} onedit={e=>{void edit(e,false);}}/>
+    <MapTimeline peaks={song.peaks} duration={song.duration} rate={song.rate} position={transport.position} {view} mapView={displayed} candidates={showDetected?(candidates?.beats??[]):[]} {playback} {selected} disabled={editState.pending||!!editState.preview} onview={v=>{view=v;}} {onseek} onselect={select} ongap={frame=>{selected=null;tools?.selectFreeTime(frame);}} onedit={e=>{void edit(e,false);}}/>
     <div class="mapping-legend"><span><i class="bar"></i>Measure boundary</span><span><i></i>Interpolated beat</span><span><i class="anchor"></i>Fixed beat anchor</span><span>Drag a line to correct timing.</span></div>
   </div>
   <aside class="mapping-inspector" aria-label="Measure-map inspector">
@@ -133,8 +140,9 @@
     <details bind:open={automaticOpen}><summary>Analysis model</summary><p>Beat This! suggests beats and downbeats. Meter and accepted corrections stay yours.</p><button class="button full-width" disabled={disabled('map_install_model')} title={title('map_install_model')} onclick={()=>run('map_install_model')}>{label('map_install_model',analysis.status?.model_ready?'Verify / reinstall model':'Download analysis model (83 MB)')}</button>{#if analysis.status?.model_path}<p class="model-location">{analysis.status.model_ready?'Installed model folder':'Model download folder'}<code title={analysis.status.model_path}>{analysis.status.model_path}</code></p>{/if}<p>The model uses the MIT license. Installed models work offline. Manual mapping needs no download.</p></details>
     </details>
     <MeasureBuilder bind:this={builder} {song} {candidates} resultId={analysis.status?.id??0} analysisRunning={!!analysis.status?.running} position={transport.position} preview={editState.preview} pending={editState.pending} {keymap} onpreview={edit} {run} {available}/>
+    <BatchTools bind:this={batch} songKey={song.key} map={audibleMap} {keymap} {run} {available} onedit={edit}/>
   </aside>
-  <MeasureTools bind:this={tools} {song} map={audibleMap} mapView={displayed} {measure} position={transport.position} {keymap} {active} {run} {available} onedit={edit}/>
+  <MeasureTools bind:this={tools} {song} map={audibleMap} mapView={displayed} {measure} position={transport.position} {keymap} {active} {run} {available} onedit={edit} onselect={select}/>
 </section>
 <style>
   .review-listening{display:flex;gap:15px;align-items:center;flex-wrap:wrap;flex-shrink:0;margin-bottom:8px;font-size:11px;color:#596b86}.review-listening .button{font-size:11px;padding:7px 10px}.review-listening label{display:flex;gap:8px;align-items:center}.review-listening input{width:85px;accent-color:#6d82bb}.review-listening .text-button{margin-left:auto;font-size:11px}

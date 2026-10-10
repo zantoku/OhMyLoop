@@ -48,7 +48,8 @@ Select a measure in the measure lane to seek to its displayed start, including
 in a draft preview. Playback keeps its current playing/paused state; automatic
 selection during map updates does not seek. Clicking waveform space selects the
 containing measure while seeking to the exact clicked time. Shared endpoints
-belong to the following measure; clicks in free time do not change selection.
+belong to the following measure; clicks in free time select the uncounted range,
+clear measure selection and open Free time tools while seeking to the clicked time.
 During playback, selection follows the displayed map at the current source
 position, independently of the viewport-follow toggle. Gaps and the exclusive
 map end have no playing measure selected. This automatic selection never seeks.
@@ -102,8 +103,10 @@ a saved-song schema change. Only applying a rebuilt draft changes the map.
 
 Meter changes occur at explicit measure boundaries. The inspector applies a
 new meter/pulse interpretation from the selected measure to the next existing
-meter change or a selected end. Preview any resulting regrouping/renumbering;
-changing the label alone must not pretend the existing grid now fits.
+meter change or a selected end. Selected-measure notation uses one **Apply changes**
+action, with native validation and Undo, rather than a preview gate. Global
+renumbering retains its preview/apply workflow; changing a label alone must not
+pretend the existing grid now fits.
 
 Use quarter-note units internally, with explicit rational note values. A
 normal n/d measure contains n * 4/d quarter notes. Meter and pulse unit are
@@ -135,14 +138,14 @@ Include these operations in the first pass:
 
 - Add, move, and delete beat anchors; edit their notated position when a
   detected pulse was missing or mistaken for a subdivision.
-- Add/move a measure boundary, promote a beat to a boundary, and merge adjacent
-  measures. Split/merge operations ask for the resulting meter/actual duration
-  when it cannot be inferred; they must not produce invalid full bars.
-- Respace a selected range between two fixed boundaries, or divide it into a
-  specified number of measures. Preserve internal user-protected anchors or
-  report a conflict; never silently overwrite them.
+- Add/move a measure boundary, split before a numbered beat, and join adjacent
+  measures using the common denominator and summed numerators. Splits preserve
+  the original meter on both incomplete results and derive their actual extents.
+- Reapplying Meter resets beat spacing within the selected measure. The desktop
+  no longer exposes range re-spacing; explicit manual draft creation can still
+  divide a chosen span into a specified number of measures.
 - Change meter, pulse interpretation/grouping, and pickup/incomplete duration.
-- Mark a span as free time and establish a new mapped span after it.
+- Mark a measure as free time and reclaim an uncounted range as a new measure.
 - Protect/unprotect corrected ranges and undo/redo all mapping edits.
 
 Moving a shared measure boundary changes the two adjacent source durations;
@@ -396,8 +399,67 @@ Overlay input does not start timeline gestures or wheel zoom. Speed changes keep
 the current pitch. Full pitch controls are available on the Practice screen.
 
 Selected-measure tools occupy the full-width panel below the timeline, with
-Measure, Beat anchors and splits, and Respace or free time panels. They retain
-exact source-frame edits, preview/apply, protection and undo semantics. Analysis,
-model setup and draft creation stay in the sidebar. Form state lives in the
+Measure, Join and Split, and Free time panels. They retain
+exact source-frame edits, protection and undo. The Measure panel uses a compact
+**Meter** pair (two number inputs separated by a slash), measure kind/actual
+duration and **Apply changes**. Meter, pulse, grouping and extent are committed
+together directly after validation, without a green preview or second approval.
+Errors leave the accepted map and typed form intact for correction; Undo restores
+the previous notation and anchors. Protected measures cannot apply notation.
+
+The lock/unlock icon sits beside the measure title and remains available across
+all three panels. The Measure panel's **Advanced**, collapsed initially, contains beat grouping,
+pulse note value, propagation until the next meter change and exact boundary
+position controls. Pulse remains independent of the denominator: 6/8 can use a
+dotted-quarter click while its denominator still counts eighth notes.
+
+**Batch tools** follows Create measures in the sidebar. It owns First full measure
+number and the existing Preview numbering action, which applies to the song map
+without requiring a selected measure. A TODO records future grouping updates for
+all measures with a matching time signature; this batch operation is not yet
+implemented. Analysis, model setup and draft creation stay in the sidebar.
+Selected-measure form state lives in the
 cohesive `MeasureTools.svelte` component; map/session ownership stays in the editor,
-and the timeline receives playback presentation through a Svelte snippet.
+batch numbering form state lives in `BatchTools.svelte`, and the timeline receives
+playback presentation through a Svelte snippet. Draft construction and numbering
+keep their preview/apply workflows. Join, split, mark free time and reclaim commit
+directly after native validation, with Undo for each operation.
+
+## Join, Split and free-time editing
+
+Join requires adjacent, unprotected measures with the same denominator. Its
+numerator is the sum, retaining the denominator without reducing the signature:
+3/4 + 4/4 becomes 7/4, and 3/8 + 3/8 becomes 6/8. Outer source bounds, actual
+extents and timing anchors are preserved, including an anchor at the former shared
+boundary. The first measure's identity and pulse remain; explicit groupings are
+concatenated (an ungrouped partner contributes its numerator as a group). The
+result is full only when its actual extent fills the combined nominal meter;
+otherwise it is incomplete. The existing 99-numerator limit still applies.
+
+Split selects **Split before beat** by numbered pulse. Rust projects all eligible
+internal pulse points, including those hidden by visual grouping/density, marks
+fixed versus interpolated timing, and derives the split's exact source frame and
+notated duration. Both results keep the original meter/denominator and are
+incomplete; anchors on either side retain identity and relative timing. An anchor
+at the split becomes the shared boundary. Splitting 4/4 at beat 3 creates two
+partial 4/4 measures of two quarters each. Joining those adds their numerators,
+producing a partial 8/4 of four quarters, per the agreed rule. Splitting a pickup
+produces incomplete measures with local beat origins. Numeric anchor controls
+remain available under **Advanced — beat anchor positions** in Join and Split;
+waveform dragging is the primary correction method.
+
+Free time leaves audio intact while removing the selected measure's map. Adjacent
+uncounted audio is represented as a single gap. Click a gap on the waveform or
+choose **Uncounted range** in Free time, select a meter/pulse, then **Create measure
+from range**. This creates one full, evenly spaced measure with fresh identities
+over that entire range and selects it in the Measure panel. Rust rejects overlap
+with any existing measure, including an unprotected one. Empty maps allow the
+whole source as a range. Undo restores the original map; reclaiming is a new
+authored definition rather than recovery of previously removed timing anchors.
+
+`JoinSplitTools.svelte` owns beat/anchor form state and command parsing;
+`FreeTimeTools.svelte` owns uncounted-range selection and reclaim form state.
+`map-ranges.ts` shares presentation-only gaps from ordered Rust-projected ranges.
+The native legacy Respace edit remains for existing domain callers/tests; its
+desktop action identity stays valid for old keymaps but is unavailable and has
+no UI control.

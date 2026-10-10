@@ -6,7 +6,7 @@ export type Beat = { id: string; frame: number; offset: Fraction };
 export type Measure = { id: string; start: string; end: string; meter: Meter; kind: MeasureKind; length: Fraction; offset: Fraction; beats: Beat[]; protected: boolean };
 export type MeasureMap = { version: number; revision: number; rate: number; frames: number; next_id: number; first_number: number; boundaries: { id: string; frame: number }[]; measures: Measure[] };
 export type GridPoint = { id: string | null; frame: number; quarter: number; label: string };
-export type MeasureView = { id: string; start_id: string; end_id: string; start: number; end: number; number: number | null; label: string; meter: Meter; kind: MeasureKind; length: Fraction; protected: boolean; grid: GridPoint[]; tempo_bpm: number };
+export type MeasureView = { id: string; start_id: string; end_id: string; start: number; end: number; number: number | null; label: string; meter: Meter; kind: MeasureKind; length: Fraction; protected: boolean; grid: GridPoint[]; split_points:{beat:number;frame:number;anchor:boolean}[]; tempo_bpm: number };
 export type MapView = { revision: number; measures: MeasureView[] };
 // Presentation lookup on the Rust-projected ranges; shared ends belong to the
 // following measure, and gaps/EOF have no active measure.
@@ -31,7 +31,9 @@ export type MapEdit =
   | { type: 'set_beat'; measure: string; id: string | null; frame: number; offset: Fraction }
   | { type: 'remove_beat'; measure: string; id: string }
   | { type: 'split'; id: string; frame: number; left: Fraction }
-  | { type: 'merge'; id: string; meter: Meter }
+  | { type: 'split_at_beat'; id:string; beat:number }
+  | { type: 'merge'; id: string }
+  | { type: 'reclaim'; start:number; end:number; meter:Meter }
   | { type: 'respace'; first: string; last: string };
 export const commonMeter = (): Meter => ({ numerator: 4, denominator: 4, pulse: { num: 1, den: 1 }, grouping: [] });
 export const fractionText = (f: Fraction): string => f.den === 1 ? String(f.num) : `${f.num}/${f.den}`;

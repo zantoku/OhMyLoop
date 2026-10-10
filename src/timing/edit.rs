@@ -62,8 +62,16 @@ pub enum Edit {
         frame: u64,
         left: Fraction,
     },
+    SplitAtBeat {
+        id: String,
+        beat: u32,
+    },
     Merge {
         id: String,
+    },
+    Reclaim {
+        start: u64,
+        end: u64,
         meter: Meter,
     },
     Respace {
@@ -444,6 +452,22 @@ impl MeasureMap {
                 );
                 next.measures[i].beats.retain(|b| b.id != id);
             }
+            Edit::SplitAtBeat { id, beat } => {
+                ensure!(
+                    (1..=512).contains(&beat),
+                    "Select an internal beat to split at"
+                );
+                let i = next.index(&id)?;
+                let measure = &next.measures[i];
+                let left = Fraction::new(
+                    measure.meter.pulse.num * (beat - 1),
+                    measure.meter.pulse.den,
+                )
+                .sub(measure.offset)?;
+                let frame = next.frame_at(measure, left.value());
+                next = next.edit(Edit::Split { id, frame, left })?.map;
+                next.revision = self.revision;
+            }
             Edit::Split { id, frame, left } => {
                 left.validate(true)?;
                 let i = next.index(&id)?;
@@ -451,11 +475,8 @@ impl MeasureMap {
                 let old = next.measures[i].clone();
                 let (a, b) = next.bounds(&old);
                 ensure!(
-                    frame > a
-                        && frame < b
-                        && left.value() < old.length.value()
-                        && old.kind != MeasureKind::Pickup,
-                    "Split inside a non-pickup measure with a valid notated duration"
+                    frame > a && frame < b && left.value() < old.length.value(),
+                    "Split at an internal beat with a valid notated duration"
                 );
                 for beat in &old.beats {
                     ensure!(
@@ -472,6 +493,7 @@ impl MeasureMap {
                 first.end = boundary.clone();
                 first.length = left;
                 first.kind = MeasureKind::Incomplete;
+                first.offset = Fraction::new(0, 1);
                 first
                     .beats
                     .retain(|beat| beat.frame < frame && beat.offset.value() < left.value());
@@ -480,6 +502,7 @@ impl MeasureMap {
                 second.start = boundary;
                 second.length = right;
                 second.kind = MeasureKind::Incomplete;
+                second.offset = Fraction::new(0, 1);
                 second
                     .beats
                     .retain(|beat| beat.frame > frame && beat.offset.value() > left.value());
@@ -488,8 +511,7 @@ impl MeasureMap {
                 }
                 next.measures.splice(i..=i, [first, second]);
             }
-            Edit::Merge { id, meter } => {
-                meter.validate()?;
+            Edit::Merge { id } => {
                 let i = next.index(&id)?;
                 next.editable(i)?;
                 ensure!(i + 1 < next.measures.len(), "No following measure to merge");
@@ -497,9 +519,28 @@ impl MeasureMap {
                 let mut first = next.measures[i].clone();
                 let second = next.measures[i + 1].clone();
                 ensure!(
-                    first.end == second.start && first.kind != MeasureKind::Pickup,
-                    "Merge adjacent non-pickup measures"
+                    first.end == second.start,
+                    "Join adjacent measures without free time between them"
                 );
+                ensure!(
+                    first.meter.denominator == second.meter.denominator,
+                    "Joined measures must have the same meter denominator"
+                );
+                let mut meter = first.meter.clone();
+                meter.numerator += second.meter.numerator;
+                if !first.meter.grouping.is_empty() || !second.meter.grouping.is_empty() {
+                    meter.grouping = if first.meter.grouping.is_empty() {
+                        vec![first.meter.numerator]
+                    } else {
+                        first.meter.grouping.clone()
+                    };
+                    meter.grouping.extend(if second.meter.grouping.is_empty() {
+                        vec![second.meter.numerator]
+                    } else {
+                        second.meter.grouping.clone()
+                    });
+                }
+                meter.validate()?;
                 let frame = next.bounds(&second).0;
                 let old_length = first.length;
                 let beat_id = next.id();
@@ -515,12 +556,35 @@ impl MeasureMap {
                 first.end = second.end;
                 first.length = old_length.add(second.length);
                 first.meter = meter;
+                first.offset = Fraction::new(0, 1);
                 first.kind = if first.length.value() == first.meter.length().value() {
                     MeasureKind::Full
                 } else {
                     MeasureKind::Incomplete
                 };
                 next.measures.splice(i..=i + 1, [first]);
+            }
+            Edit::Reclaim { start, end, meter } => {
+                ensure!(
+                    start < end && end <= self.frames,
+                    "Choose an uncounted range inside the song"
+                );
+                ensure!(
+                    next.measures.iter().all(|m| {
+                        let (a, b) = next.bounds(m);
+                        a >= end || b <= start
+                    }),
+                    "Create a measure only in uncounted audio; existing measures are unchanged"
+                );
+                next = next
+                    .edit(Edit::Build {
+                        start,
+                        end,
+                        count: 1,
+                        meter,
+                    })?
+                    .map;
+                next.revision = self.revision;
             }
             Edit::Respace { first, last } => {
                 let a = next.index(&first)?;

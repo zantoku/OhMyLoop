@@ -97,6 +97,15 @@ Clicking waveform space selects the containing measure and seeks to the clicked
 time. Selection follows the current measure during playback. Moving a measure
 boundary evenly spaces beats in both adjacent measures; Undo restores the
 previous boundary and anchors.
+The Measure panel uses a compact meter pair and one **Apply changes** action with
+Undo. Its **Advanced** fold-out contains pulse, grouping and exact boundary
+positions; the title lock protects the measure. **Batch tools**, below Create
+measures, holds global numbering and a TODO for grouping matching time signatures.
+**Join and Split** joins adjacent measures with a common denominator and summed
+numerators, or splits before a numbered beat into two partial measures. Numeric
+anchor controls are under Advanced. **Free time** can remove a measure's map or
+create a new, evenly spaced measure over a selected uncounted waveform range.
+Each operation supports Undo. Range re-spacing is no longer a desktop tool.
 
 `npm run dev` opens a frontend-only development preview. It uses explicit demo
 fixtures and disables audio playback; the desktop app uses the real Rust engine.

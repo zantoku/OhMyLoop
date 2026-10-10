@@ -303,18 +303,173 @@ it('edits measure timing and anchors in the panel below the waveform',async()=>{
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const tools=screen.getByRole('region',{name:'Measure editing tools'});expect(tools.closest('aside')).toBeNull();
   expect(within(screen.getByRole('complementary',{name:'Measure-map inspector'})).queryByLabelText('Position (seconds)')).toBeNull();
+  await fireEvent.click(within(tools).getByText('Advanced',{selector:'summary'}));
   await fireEvent.input(within(tools).getByLabelText('Position (seconds)'),{target:{value:'.25'}});
   await fireEvent.click(within(tools).getByRole('button',{name:'Move boundary'}));
   await waitFor(()=>expect(document.measure_map?.boundaries[0].frame).toBe(12000));
   expect(mock.previewMap.mock.lastCall?.[2]).toEqual({type:'move_boundary',id:'map-1',frame:12000});
-  await fireEvent.click(within(tools).getByRole('button',{name:'Beat anchors and splits'}));
+  await fireEvent.click(within(tools).getByRole('button',{name:'Join and Split'}));
   const anchored=structuredClone(moved);anchored.map.revision=3;anchored.view.revision=3;anchored.map.measures[0].beats=[{id:'map-6',frame:57600,offset:{num:1,den:1}}];anchored.map.next_id=7;
+  await fireEvent.click(within(tools).getByText('Advanced — beat anchor positions',{selector:'summary'}));
   mock.previewMap.mockResolvedValue(anchored);
   await fireEvent.input(within(tools).getByLabelText('Anchor position (seconds)'),{target:{value:'1.2'}});
   await fireEvent.click(within(tools).getByRole('button',{name:'Add anchor'}));
   await waitFor(()=>expect(document.measure_map?.measures[0].beats[0].frame).toBe(57600));
   expect(mock.previewMap.mock.lastCall?.[2]).toEqual({type:'set_beat',measure:'map-3',id:null,frame:57600,offset:{num:1,den:1}});
 });
+it('keeps the Measure panel compact and moves global numbering below Create measures',async()=>{
+  const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const tools=screen.getByRole('region',{name:'Measure editing tools'}),sidebar=screen.getByRole('complementary',{name:'Measure-map inspector'});
+  expect(within(tools).getByRole('spinbutton',{name:'Meter numerator'})).toBeTruthy();
+  expect(within(tools).getByRole('spinbutton',{name:'Meter denominator'})).toBeTruthy();
+  const advanced=within(tools).getByText('Advanced',{selector:'summary'}).closest('details')!;
+  expect(advanced.open).toBe(false);
+  for(const name of ['Pulse note value','Beat grouping (optional)','Position (seconds)'])expect(within(advanced).getByLabelText(name).closest('details')).toBe(advanced);
+  expect(within(tools).queryByLabelText('First full measure number')).toBeNull();
+  const batch=within(sidebar).getByText('Batch tools',{selector:'summary'}).closest('details')!;
+  expect(batch.previousElementSibling?.querySelector('summary')?.textContent).toBe('Create measures');
+  expect(within(batch).getByRole('spinbutton',{name:'First full measure number'})).toBeTruthy();
+  expect(within(batch).getByText('TODO: Apply beat grouping to all measures with a matching time signature.')).toBeTruthy();
+  await fireEvent.click(within(tools).getByText('Advanced',{selector:'summary'}));
+  expect(within(tools).getByRole('combobox',{name:'Pulse note value'})).toBeTruthy();
+  expect(within(tools).getByRole('textbox',{name:'Beat grouping (optional)'})).toBeTruthy();
+  expect(within(tools).getByRole('spinbutton',{name:'Position (seconds)'})).toBeTruthy();
+});
+
+it('saves meter, pulse and grouping together without a preview and restores them with Undo',async()=>{
+  const original=timingFixture(48000);original.map.measures[0].beats=[{id:'map-6',frame:48000,offset:{num:1,den:1}}];original.map.next_id=7;
+  document.measure_map=structuredClone(original.map);
+  const changed=structuredClone(original),meter={numerator:6,denominator:8,pulse:{num:3,den:2},grouping:[3,3]};
+  changed.map.measures[0]={...changed.map.measures[0],meter,length:{num:3,den:1},beats:[]};changed.map.revision=2;
+  changed.view.measures[0]={...changed.view.measures[0],meter,length:{num:3,den:1}};changed.view.revision=2;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockResolvedValue(changed);mock.mapView.mockResolvedValue({...original.view,revision:3});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const tools=screen.getByRole('region',{name:'Measure editing tools'});
+  await fireEvent.input(within(tools).getByRole('spinbutton',{name:'Meter numerator'}),{target:{value:'6'}});
+  await fireEvent.input(within(tools).getByRole('spinbutton',{name:'Meter denominator'}),{target:{value:'8'}});
+  await fireEvent.click(within(tools).getByText('Advanced',{selector:'summary'}));
+  await fireEvent.change(within(tools).getByRole('combobox',{name:'Pulse note value'}),{target:{value:'3/2'}});
+  await fireEvent.input(within(tools).getByRole('textbox',{name:'Beat grouping (optional)'}),{target:{value:'3+3'}});
+  expect(document.measure_map).toEqual(original.map);
+  await fireEvent.click(within(tools).getByRole('button',{name:'Apply changes'}));
+  await waitFor(()=>expect(document.measure_map).toEqual(changed.map));
+  expect(mock.previewMap).toHaveBeenCalledExactlyOnceWith('test',original.map,{type:'set_notation',id:'map-3',meter,kind:'full',length:{num:4,den:1},following:false});
+  expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();expect(screen.queryByRole('button',{name:'Discard'})).toBeNull();
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));
+  expect(document.measure_map?.boundaries).toEqual(original.map.boundaries);
+});
+
+it('keeps a rejected direct meter edit intact for correction and retry',async()=>{
+  const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockRejectedValueOnce(new Error('Choose a valid time signature'));
+  const accepted={...original,map:{...original.map,revision:2},view:{...original.view,revision:2}};
+  mock.previewMap.mockResolvedValue(accepted);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const denominator=screen.getByRole('spinbutton',{name:'Meter denominator'}) as HTMLInputElement;
+  await fireEvent.input(denominator,{target:{value:'3'}});await fireEvent.click(screen.getByRole('button',{name:'Apply changes'}));
+  await screen.findByText('Error: Choose a valid time signature');expect(document.measure_map).toEqual(original.map);expect(denominator.value).toBe('3');
+  expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();
+  await fireEvent.input(denominator,{target:{value:'4'}});await fireEvent.click(screen.getByRole('button',{name:'Apply changes'}));
+  await waitFor(()=>expect(document.measure_map?.revision).toBe(2));await waitFor(()=>expect(screen.queryByText('Error: Choose a valid time signature')).toBeNull());
+});
+
+it('locks and unlocks from the measure title across editing panels',async()=>{
+  const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockImplementation(async(_key,map,edit)=>{
+    const result=structuredClone(original);result.map=structuredClone(map);result.map.revision++;result.view.revision=result.map.revision;
+    result.map.measures[0].protected=edit.protected;result.view.measures[0].protected=edit.protected;return result;
+  });
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const tools=screen.getByRole('region',{name:'Measure editing tools'}),lock=within(tools).getByRole('button',{name:'Lock measure'});
+  expect(lock.parentElement).toBe(within(tools).getByRole('heading',{name:'Measure 1'}).parentElement);
+  await fireEvent.click(lock);await waitFor(()=>expect(document.measure_map?.measures[0].protected).toBe(true));
+  await waitFor(()=>expect(within(tools).getByRole('button',{name:'Unlock measure'}).hasAttribute('disabled')).toBe(false));
+  expect(within(tools).getByRole('button',{name:'Unlock measure'}).getAttribute('aria-pressed')).toBe('true');
+  expect(within(tools).getByRole('button',{name:'Apply changes'}).hasAttribute('disabled')).toBe(true);
+  await fireEvent.click(within(tools).getByRole('button',{name:'Join and Split'}));
+  await fireEvent.click(within(tools).getByRole('button',{name:'Unlock measure'}));
+  await waitFor(()=>expect(document.measure_map?.measures[0].protected).toBe(false));
+  expect((await within(tools).findByRole('button',{name:'Lock measure'})).getAttribute('aria-pressed')).toBe('false');
+  expect(mock.action).not.toHaveBeenCalled();
+});
+
+it('joins adjacent measures with a derived meter and no preview gate, and can Undo',async()=>{
+  const original=timingFixture(48000),joined=structuredClone(original);document.measure_map=structuredClone(original.map);
+  joined.map.measures=[{...joined.map.measures[0],end:'map-4',meter:{...joined.map.measures[0].meter,numerator:8},length:{num:8,den:1},beats:[{id:'map-6',frame:192000,offset:{num:4,den:1}}]}];
+  joined.map.boundaries=joined.map.boundaries.filter(b=>b.id!=='map-2');joined.map.next_id=7;joined.map.revision=2;
+  joined.view.measures=[{...joined.view.measures[0],end_id:'map-4',end:384000,meter:joined.map.measures[0].meter,length:{num:8,den:1}}];joined.view.revision=2;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockResolvedValue(joined);mock.mapView.mockResolvedValue({...original.view,revision:3});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join and Split'}));
+  expect(screen.queryByRole('button',{name:'Respace or free time'})).toBeNull();expect(screen.queryByRole('button',{name:'Preview spacing'})).toBeNull();
+  const advanced=screen.getByText('Advanced — beat anchor positions',{selector:'summary'}).closest('details')!;expect(advanced.open).toBe(false);
+  await fireEvent.click(screen.getByRole('button',{name:'Join with next'}));
+  await waitFor(()=>expect(document.measure_map).toEqual(joined.map));
+  expect(mock.previewMap).toHaveBeenCalledExactlyOnceWith('test',original.map,{type:'merge',id:'map-3'});
+  expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));
+});
+
+it('chooses a numbered fixed beat for splitting without typing source time or offsets',async()=>{
+  const original=timingFixture(48000);original.map.measures[0].beats=[{id:'map-6',frame:72000,offset:{num:2,den:1}}];original.map.next_id=7;
+  original.view.measures[0].split_points[1]={beat:3,frame:72000,anchor:true};document.measure_map=structuredClone(original.map);
+  const split=structuredClone(original),first={...split.map.measures[0],end:'map-7',kind:'incomplete' as const,length:{num:2,den:1},beats:[]};
+  split.map.measures=[first,{...first,id:'map-8',start:'map-7',end:'map-2'},split.map.measures[1]];split.map.boundaries.push({id:'map-7',frame:72000});split.map.next_id=9;split.map.revision=2;
+  const left={...split.view.measures[0],end:72000,end_id:'map-7',kind:'incomplete' as const,length:{num:2,den:1},split_points:[{beat:2,frame:36000,anchor:false}]};
+  split.view.measures=[left,{...left,id:'map-8',start:72000,start_id:'map-7',end:192000,end_id:'map-2',label:'2',number:2}, {...split.view.measures[1],label:'3',number:3}];split.view.revision=2;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});mock.previewMap.mockResolvedValue(split);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join and Split'}));
+  await fireEvent.change(screen.getByRole('combobox',{name:'Split before beat'}),{target:{value:'3'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Split measure'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(3));
+  expect(mock.previewMap).toHaveBeenCalledExactlyOnceWith('test',original.map,{type:'split_at_beat',id:'map-3',beat:3});
+  expect(document.measure_map?.measures.slice(0,2).map(m=>[m.meter.numerator,m.meter.denominator,m.kind])).toEqual([[4,4,'incomplete'],[4,4,'incomplete']]);
+  expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();expect(mock.action).not.toHaveBeenCalled();
+});
+
+it('disables joining unequal denominators and does not modify the map',async()=>{
+  const original=timingFixture(48000);original.map.measures[1].meter={...original.map.measures[1].meter,denominator:8};original.view.measures[1].meter=original.map.measures[1].meter;
+  document.measure_map=structuredClone(original.map);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join and Split'}));
+  expect(screen.getByRole('button',{name:'Join with next'}).hasAttribute('disabled')).toBe(true);
+  await fireEvent.click(screen.getByRole('button',{name:'Join with next'}));expect(mock.previewMap).not.toHaveBeenCalled();
+});
+
+it('marks a measure as free time, selects its waveform gap and reclaims it without disturbing its neighbor',async()=>{
+  const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
+  const removed=structuredClone(original);removed.map.measures.shift();removed.map.boundaries.shift();removed.map.revision=2;removed.view.measures.shift();removed.view.measures[0].label='1';removed.view.revision=2;
+  const reclaimed=structuredClone(original);reclaimed.map.measures[0].id='map-7';reclaimed.map.measures[0].start='map-6';reclaimed.map.boundaries[0].id='map-6';reclaimed.map.next_id=8;reclaimed.map.revision=3;reclaimed.view.measures[0].id='map-7';reclaimed.view.measures[0].start_id='map-6';reclaimed.view.revision=3;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockResolvedValueOnce(removed).mockResolvedValueOnce(reclaimed);mock.mapView.mockResolvedValue({...removed.view,revision:4});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Free time'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Mark measure 1 as free time'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(1));
+  await waitFor(()=>expect((screen.getByRole('combobox',{name:'Uncounted range'}) as HTMLSelectElement).value).toBe('0:192000'));
+  const waveform=screen.getByRole('region',{name:/Measure-map waveform/});
+  vi.spyOn(waveform,'getBoundingClientRect').mockReturnValue({left:0,width:1000,height:200,top:0,right:1000,bottom:200,x:0,y:0,toJSON(){}});waveform.setPointerCapture=vi.fn();waveform.hasPointerCapture=vi.fn(()=>false);
+  for(const type of ['pointerdown','pointerup']){const event=new MouseEvent(type,{bubbles:true,clientX:125,button:0});Object.defineProperty(event,'pointerId',{value:1});await fireEvent(waveform,event);}
+  await screen.findByRole('heading',{name:'Free time'});await waitFor(()=>expect(transport.position).toBe(1.5));
+  expect((screen.getByRole('combobox',{name:'Uncounted range'}) as HTMLSelectElement).value).toBe('0:192000');
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Create measure from range'}).hasAttribute('disabled')).toBe(false));
+  await fireEvent.click(screen.getByRole('button',{name:'Create measure from range'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));
+  expect(mock.previewMap.mock.lastCall?.[2]).toEqual({type:'reclaim',start:0,end:192000,meter:original.map.measures[0].meter});
+  expect(document.measure_map?.measures[1]).toEqual(original.map.measures[1]);
+  await screen.findByRole('heading',{name:'Measure 1'});
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Measure',pressed:true})).toBeTruthy());
+  expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(1));
+});
+
 it.each([
   {playing:false,draft:false},{playing:true,draft:false},{playing:false,draft:true}
 ])('seeks to a manually selected measure with playing=$playing and draft=$draft',async({playing,draft})=>{

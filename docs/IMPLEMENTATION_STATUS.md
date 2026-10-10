@@ -390,3 +390,72 @@ fractional/compound pulse units and partial tails. The UI test covers default,
 numeric/empty/zero input, wire values, stale Apply prevention, summary rendering
 and preserving settings across screen switches. No new hardware/listening or
 native visual review was performed; Linux/Windows builds remain untested locally.
+
+The selected Measure panel now has a compact Meter label with two numeric inputs
+and a large slash, kind/partial extent, and one Apply changes action. The existing
+map_notation action commits directly through the validated MappingSession and
+preserves Undo; validation/save failures retain the accepted map and local form.
+Its description now reflects the direct action, with stable keymap identities.
+Advanced initially folds away grouping, pulse, propagation and exact boundary
+positions. Pulse stays independent of the denominator, including dotted-quarter
+clicks in 6/8. A lock/unlock icon beside the title runs map_protect and stays
+available across panels; protected measures cannot apply notation.
+
+Batch tools follows Create measures in the sidebar. Its cohesive BatchTools
+component owns global first-number form state and the existing preview/apply
+numbering workflow. Numbering availability depends on the map rather than the
+selected measure. A visible TODO records future grouping operations across
+matching time signatures; no new batch grouping execution is implemented.
+
+Verification: 93 frontend tests, zero Svelte/TypeScript errors/warnings, clean
+diff whitespace, production frontend build and macOS app bundle pass. Regressions
+cover disclosure placement, number controls, batch-section ordering, validated
+direct notation saves with Undo and failure/retry, and title locking across
+panels. Native visual/interaction review used an isolated app copy and generated
+demo: compact/expanded layouts, direct 4/4-to-3/4 save without a preview, protection,
+Undo restoration and sidebar numbering preview/discard were observed. No new
+hardware listening run or Linux/Windows build was performed. Native code is
+unchanged.
+
+Join and Split replaces Beat anchors and splits; numerical anchor position/offset
+controls are behind Advanced, while dragging remains the primary timing edit.
+Join derives a summed numerator over the common denominator, preserving actual
+extents, source bounds and anchors, including a new anchor at the former shared
+boundary. Protected or nonadjacent measures, mismatched denominators and a
+combined numerator above the existing 99 limit reject the operation. The first
+measure's pulse remains and explicit grouping is concatenated.
+
+Split uses native-projected numbered pulse points, including interpolated and
+fixed beats and pulses hidden by grouping/density. Rust derives source frame and
+notated offset; both results keep the prior meter and become incomplete, with
+anchors retained on either side. The user explicitly chose two partial 4/4 bars
+for splitting 4/4 at beat 3; their summed-numerator join therefore yields a
+partial 8/4. Fractional pulse units and pickup offsets are accounted for.
+
+The range re-spacing panel is removed. The legacy native edit and action identity
+remain for compatibility/tests, but the desktop action is unavailable. Reapply
+Meter to rebuild even spacing within a measure. Free time has a selected-measure
+removal action and a range picker with meter/pulse and Create measure from range.
+Clicking uncounted waveform audio selects the range without changing the exact
+seek time. Removal selects the newly uncounted range; reclaim creates one full
+measure with fresh identities, selects it and returns to Measure. Rust forbids
+overwriting any existing measure. All operations are direct, validated and
+undoable; saved song/map versions and audio callback behavior are unchanged.
+
+JoinSplitTools and FreeTimeTools own their form state and command parsing, while
+MeasureTools retains panel/presentation ownership and MappingSession retains
+persistence/history. Inactive panel markup is omitted while component state
+stays mounted, fixing a native WebKit accessibility issue observed during review.
+
+Verification: 99 frontend tests, 24 focused measure-mapping tests and 4 metronome
+tests (including actual DSP clicks), zero Svelte/TypeScript diagnostics,
+formatting/Clippy, clean diff whitespace, frontend production build and macOS app
+bundle pass. Regressions cover fixed/interpolated numbered splits, grouped pulses
+and pickups, summed-meter joins, protection/denominator/gap rejection, exact
+timing/anchor identity retention, uncounted-range presentation, no-overwrite
+reclaim, direct commits and Undo. Native review on isolated generated demo data
+verified Join 4/4+4/4 to 8/4, Split at beat 3 to two partial 4/4 bars, Undo,
+mark/reclaim/selection of the newly uncounted range, and Free time accessibility.
+The review found and corrected a picker that initially retained a previous gap;
+the regression now verifies selection before any waveform click. No new subjective
+listening test or Linux/Windows build was performed.

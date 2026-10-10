@@ -14,6 +14,13 @@ bindings; custom bindings can be assigned like other mapping actions.
 `map_show_detected` toggles the Analysis checkbox for raw beat suggestions and
 also accepts a custom keyboard binding. It changes presentation only.
 
+`map_split` splits before the selected numbered beat; `map_merge` joins adjacent
+measures with matching denominators. `map_remove` marks a measure as free time,
+and `map_reclaim` creates a measure in the selected uncounted range. These actions
+use direct validated edits with Undo and share button/hover metadata. The legacy
+`map_respace` identity remains recognized for older keymaps, but is unavailable
+in the desktop editor and has no button. Reapply Meter for even beat spacing.
+
 ## Configuration file
 
 The app reads `keymap.json` on startup. The exact path is shown under

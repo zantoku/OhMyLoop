@@ -8,7 +8,9 @@
     trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7',
     edit: 'm15 4 5 5-10 10-6 1 1-6zM13 6l5 5', close: 'M6 6l12 12M18 6 6 18',
     help: 'M9 8a3 3 0 1 1 5 2c-2 1-2 2-2 3M12 17h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
-    fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5', check: 'm5 12 4 4 10-10'
+    fit: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5', check: 'm5 12 4 4 10-10',
+    lock: 'M8 10V7a4 4 0 0 1 8 0v3M5 10h14v11H5zM12 14v3',
+    unlock: 'M8 10V7a4 4 0 0 1 7.5-2M5 10h14v11H5zM12 14v3'
   };
 </script>
 <svg width={size} height={size} viewBox="0 0 24 24" fill={name === 'play' ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={paths[name] ?? paths.plus}/></svg>

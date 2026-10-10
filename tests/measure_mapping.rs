@@ -212,6 +212,292 @@ fn detected_fit_defaults_and_invalid_epsilon_are_validated_at_the_boundary() {
     }
 }
 #[test]
+fn join_derives_common_denominator_meter_and_preserves_piecewise_timing() {
+    let map = build(0, 8000, 2, Meter::common());
+    let mut triple = Meter::common();
+    triple.numerator = 3;
+    triple.grouping = vec![1, 2];
+    let mut map = notation(&map, 0, triple, MeasureKind::Full, Fraction::new(3, 1));
+    for (i, frame, offset) in [(0, 1000, 1), (1, 6000, 2)] {
+        map = map
+            .edit(Edit::SetBeat {
+                measure: map.measures[i].id.clone(),
+                id: None,
+                frame,
+                offset: Fraction::new(offset, 1),
+            })
+            .unwrap()
+            .map;
+    }
+    let original = map.clone();
+    let joined = map
+        .edit(Edit::Merge {
+            id: map.measures[0].id.clone(),
+        })
+        .unwrap()
+        .map;
+    assert_eq!(joined.measures.len(), 1);
+    assert_eq!(joined.measures[0].id, map.measures[0].id);
+    assert_eq!(joined.measures[0].meter.numerator, 7);
+    assert_eq!(joined.measures[0].meter.denominator, 4);
+    assert_eq!(joined.measures[0].meter.grouping, [1, 2, 4]);
+    assert_eq!(joined.measures[0].kind, MeasureKind::Full);
+    assert_eq!(joined.measures[0].length, Fraction::new(7, 1));
+    assert_eq!(
+        (
+            joined.view().measures[0].start,
+            joined.view().measures[0].end
+        ),
+        (0, 8000)
+    );
+    assert_eq!(joined.frame_at(&joined.measures[0], 1.0), 1000);
+    assert_eq!(joined.frame_at(&joined.measures[0], 3.0), 4000);
+    assert_eq!(joined.frame_at(&joined.measures[0], 5.0), 6000);
+    assert_eq!(joined.measures[0].beats[0].id, map.measures[0].beats[0].id);
+    assert_eq!(joined.measures[0].beats[2].id, map.measures[1].beats[0].id);
+    assert_eq!(map, original);
+    let mismatch = notation(
+        &map,
+        1,
+        Meter {
+            numerator: 4,
+            denominator: 8,
+            ..Meter::common()
+        },
+        MeasureKind::Full,
+        Fraction::new(2, 1),
+    );
+    assert!(
+        mismatch
+            .edit(Edit::Merge {
+                id: mismatch.measures[0].id.clone()
+            })
+            .is_err()
+    );
+    let locked = map
+        .edit(Edit::SetProtected {
+            id: map.measures[1].id.clone(),
+            protected: true,
+        })
+        .unwrap()
+        .map;
+    assert!(
+        locked
+            .edit(Edit::Merge {
+                id: locked.measures[0].id.clone()
+            })
+            .is_err()
+    );
+    let too_large = build(
+        0,
+        8000,
+        2,
+        Meter {
+            numerator: 99,
+            ..Meter::common()
+        },
+    );
+    assert!(
+        too_large
+            .edit(Edit::Merge {
+                id: too_large.measures[0].id.clone()
+            })
+            .is_err()
+    );
+    let gap = build(0, 12000, 3, Meter::common());
+    let gap = gap
+        .edit(Edit::Remove {
+            id: gap.measures[1].id.clone(),
+        })
+        .unwrap()
+        .map;
+    assert!(
+        gap.edit(Edit::Merge {
+            id: gap.measures[0].id.clone()
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn numbered_split_uses_fixed_and_interpolated_beats_and_preserves_both_partial_meters() {
+    let mut map = build(0, 8000, 2, Meter::common());
+    for (frame, offset) in [(500, 1), (1500, 2), (3500, 3)] {
+        map = map
+            .edit(Edit::SetBeat {
+                measure: map.measures[0].id.clone(),
+                id: None,
+                frame,
+                offset: Fraction::new(offset, 1),
+            })
+            .unwrap()
+            .map;
+    }
+    let point = &map.view().measures[0].split_points[1];
+    assert_eq!((point.beat, point.frame, point.anchor), (3, 1500, true));
+    let split = map
+        .edit(Edit::SplitAtBeat {
+            id: map.measures[0].id.clone(),
+            beat: 3,
+        })
+        .unwrap()
+        .map;
+    assert_eq!(split.measures.len(), 3);
+    assert_eq!(split.measures[2], map.measures[1]);
+    for m in &split.measures[..2] {
+        assert_eq!(m.meter, map.measures[0].meter);
+        assert_eq!(m.kind, MeasureKind::Incomplete);
+        assert_eq!(m.length, Fraction::new(2, 1));
+    }
+    assert_eq!(split.view().measures[0].end, 1500);
+    assert_eq!(split.measures[0].beats[0], map.measures[0].beats[0]);
+    assert_eq!(split.measures[1].beats[0].id, map.measures[0].beats[2].id);
+    assert_eq!(split.measures[1].beats[0].offset, Fraction::new(1, 1));
+    let joined = split
+        .edit(Edit::Merge {
+            id: split.measures[0].id.clone(),
+        })
+        .unwrap()
+        .map;
+    assert_eq!(joined.measures[0].meter.numerator, 8);
+    assert_eq!(joined.measures[0].kind, MeasureKind::Incomplete);
+    assert_eq!(joined.measures[0].length, Fraction::new(4, 1));
+    let uniform = build(0, 8000, 2, Meter::common());
+    assert!(!uniform.view().measures[0].split_points[2].anchor);
+    let split = uniform
+        .edit(Edit::SplitAtBeat {
+            id: uniform.measures[0].id.clone(),
+            beat: 4,
+        })
+        .unwrap()
+        .map;
+    assert_eq!(split.view().measures[0].end, 3000);
+    assert_eq!(split.measures[0].length, Fraction::new(3, 1));
+    assert_eq!(split.measures[1].length, Fraction::new(1, 1));
+    for beat in [0, 1, 5, 513] {
+        assert!(
+            uniform
+                .edit(Edit::SplitAtBeat {
+                    id: uniform.measures[0].id.clone(),
+                    beat
+                })
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn numbered_splits_use_regular_pulses_despite_grouping_and_pickup_offsets() {
+    let meter = Meter {
+        numerator: 7,
+        denominator: 8,
+        pulse: Fraction::new(1, 2),
+        grouping: vec![2, 2, 3],
+    };
+    let map = build(0, 7000, 2, meter.clone());
+    assert!(!map.view().measures[0].grid.iter().any(|p| p.label == "4"));
+    let split = map
+        .edit(Edit::SplitAtBeat {
+            id: map.measures[0].id.clone(),
+            beat: 4,
+        })
+        .unwrap()
+        .map;
+    assert_eq!(split.view().measures[0].end, 1500);
+    assert_eq!(split.measures[0].meter, meter);
+    assert_eq!(split.measures[0].length, Fraction::new(3, 2));
+    let pickup = build(0, 8000, 2, Meter::common());
+    let pickup = notation(
+        &pickup,
+        0,
+        Meter::common(),
+        MeasureKind::Pickup,
+        Fraction::new(2, 1),
+    );
+    assert_eq!(pickup.view().measures[0].split_points[0].beat, 4);
+    let split = pickup
+        .edit(Edit::SplitAtBeat {
+            id: pickup.measures[0].id.clone(),
+            beat: 4,
+        })
+        .unwrap()
+        .map;
+    assert_eq!(split.view().measures[0].end, 2000);
+    for m in &split.measures[..2] {
+        assert_eq!(m.kind, MeasureKind::Incomplete);
+        assert_eq!(m.offset, Fraction::new(0, 1));
+    }
+    let locked = map
+        .edit(Edit::SetProtected {
+            id: map.measures[0].id.clone(),
+            protected: true,
+        })
+        .unwrap()
+        .map;
+    assert!(
+        locked
+            .edit(Edit::SplitAtBeat {
+                id: locked.measures[0].id.clone(),
+                beat: 4
+            })
+            .is_err()
+    );
+}
+
+#[test]
+fn free_time_reclaim_creates_only_inside_gaps_and_never_replaces_existing_measures() {
+    let map = build(1000, 9000, 2, Meter::common());
+    let map = map
+        .edit(Edit::Remove {
+            id: map.measures[0].id.clone(),
+        })
+        .unwrap()
+        .map;
+    let original = map.clone();
+    let reclaimed = map
+        .edit(Edit::Reclaim {
+            start: 0,
+            end: 5000,
+            meter: Meter::common(),
+        })
+        .unwrap()
+        .map;
+    assert_eq!(reclaimed.measures[1], map.measures[0]);
+    assert_eq!(
+        (
+            reclaimed.view().measures[0].start,
+            reclaimed.view().measures[0].end
+        ),
+        (0, 5000)
+    );
+    assert_eq!(reclaimed.measures[0].kind, MeasureKind::Full);
+    assert!(reclaimed.measures[0].beats.is_empty());
+    assert_eq!(reclaimed.pulse_events().unwrap()[1].frame, 1250);
+    assert_eq!(map, original);
+    for (start, end) in [(4000, 6000), (5000, 9000), (0, 0), (9000, 20001)] {
+        assert!(
+            map.edit(Edit::Reclaim {
+                start,
+                end,
+                meter: Meter::common()
+            })
+            .is_err()
+        );
+        assert_eq!(map, original);
+    }
+    let empty = MeasureMap::empty(1000, 20000);
+    let reclaimed = empty
+        .edit(Edit::Reclaim {
+            start: 0,
+            end: 20000,
+            meter: Meter::common(),
+        })
+        .unwrap()
+        .map;
+    assert_eq!(reclaimed.measures.len(), 1);
+}
+
+#[test]
 fn compound_and_additive_meter_grids_use_notated_pulses() {
     let compound = Meter {
         numerator: 6,
@@ -575,11 +861,11 @@ fn split_merge_and_free_time_have_explicit_semantics() {
     let map = map
         .edit(Edit::Merge {
             id: map.measures[0].id.clone(),
-            meter: Meter::common(),
         })
         .unwrap()
         .map;
-    assert_eq!(map.measures[0].kind, MeasureKind::Full);
+    assert_eq!(map.measures[0].kind, MeasureKind::Incomplete);
+    assert_eq!(map.measures[0].meter.numerator, 8);
     assert_eq!(map.measures[0].beats[0].frame, 1500);
     let map = map
         .edit(Edit::Remove {
