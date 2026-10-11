@@ -1,8 +1,10 @@
 use crate::{
     audio::Audio,
+    count_in::{CountIn, Plan as CountInPlan, Settings as CountInSettings},
     dsp::Controls,
     engine::{Engine, LoopRegion, RenderedFrame},
     metronome::{ClickMixer, Tick},
+    timing::MeasureMap,
 };
 use anyhow::{Context, Result, ensure};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -21,12 +23,14 @@ use std::{
 pub struct QueuedFrame {
     pub frame: RenderedFrame,
     pub epoch: u64,
+    pub count_in: bool,
 }
 
 pub struct Shared {
     pub queue: ArrayQueue<QueuedFrame>,
     pub epoch: AtomicU64,
     pub playing: AtomicBool,
+    pub count_in: AtomicBool,
     pub finished: AtomicBool,
     pub source_position: AtomicU64,
     pub render_position: AtomicU64,
@@ -46,6 +50,7 @@ impl Shared {
             queue: ArrayQueue::new(capacity),
             epoch: AtomicU64::new(0),
             playing: AtomicBool::new(false),
+            count_in: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             source_position: AtomicU64::new(0_f64.to_bits()),
             render_position: AtomicU64::new(0_f64.to_bits()),
@@ -124,6 +129,9 @@ impl Consumer {
             self.shared
                 .source_position
                 .store(queued.frame.source_frame.to_bits(), Ordering::Relaxed);
+            self.shared
+                .count_in
+                .store(queued.count_in, Ordering::Relaxed);
             self.shared.output_frames.fetch_add(1, Ordering::Relaxed);
             return frame;
         }
@@ -140,6 +148,8 @@ enum Command {
     Seek(f64, Instant, SyncSender<()>),
     Loop(Option<LoopRegion>, SyncSender<()>),
     Metronome(bool, f32, Vec<Tick>, SyncSender<()>),
+    CountIn(CountInSettings, Option<MeasureMap>, SyncSender<()>),
+    Start(SyncSender<()>),
     Shutdown,
 }
 
@@ -249,6 +259,10 @@ impl Player {
             !self.shared.finished.load(Ordering::Acquire),
             "At end of song; seek before playing"
         );
+        if self.shared.playing.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        self.request(Command::Start)?;
         // Prime off the callback thread so startup isn't counted as an underrun.
         let deadline = Instant::now() + Duration::from_secs(2);
         while self.shared.queue.is_empty() && Instant::now() < deadline {
@@ -302,6 +316,33 @@ impl Player {
             "Invalid metronome schedule"
         );
         self.request(|reply| Command::Metronome(enabled, volume, ticks, reply))
+    }
+
+    pub fn set_count_in(&self, settings: CountInSettings, map: Option<MeasureMap>) -> Result<()> {
+        let settings = settings.validate()?;
+        if let Some(map) = &map {
+            map.validate()?;
+            ensure!(
+                map.rate == self.source_rate
+                    && (map.frames as f64 / f64::from(map.rate) - self.duration).abs() < 1e-6,
+                "Count-in map belongs to a different source"
+            );
+            ensure!(
+                !settings.enabled
+                    || map
+                        .measures
+                        .iter()
+                        .all(
+                            |m| (m.meter.length().value() / m.meter.pulse.value()).ceil() <= 512.0
+                        ),
+                "Choose a larger pulse note value for the count-in"
+            );
+        }
+        ensure!(
+            !settings.enabled || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
+            "Build a measure map before enabling count-in"
+        );
+        self.request(|reply| Command::CountIn(settings, map, reply))
     }
 
     // Only the control/UI thread waits. The device callback never does.
@@ -403,6 +444,12 @@ fn run_worker(
     let mut pending = Vec::new().into_iter();
     let mut ended = false;
     let mut metronome = ClickMixer::new(audio.rate);
+    let mut count_in_settings = CountInSettings::default();
+    let mut count_in_map: Option<MeasureMap> = None;
+    let mut count_in: Option<CountIn> = None;
+    let mut repeat_plan: Option<CountInPlan> = None;
+    let mut held_frame = None;
+    let mut last_music_frame = None;
     let target = audio.rate as usize / 20;
     loop {
         loop {
@@ -411,8 +458,44 @@ fn run_worker(
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
             };
+            let mut start_count_in = false;
             let reset = match command {
                 Command::Shutdown => return Ok(()),
+                Command::Start(reply) => {
+                    if count_in_settings.enabled {
+                        start_count_in = true;
+                        Some((shared.position() / audio.rate as f64, None, reply))
+                    } else if shared.count_in.load(Ordering::Acquire) || count_in.is_some() {
+                        Some((shared.position() / audio.rate as f64, None, reply))
+                    } else {
+                        let _ = reply.send(());
+                        None
+                    }
+                }
+                Command::CountIn(settings, map, reply) => {
+                    count_in_settings = settings;
+                    if let Some(active) = &mut count_in {
+                        active.set_volume(settings.volume);
+                    }
+                    count_in_map = map;
+                    repeat_plan = if settings.enabled && settings.repeat {
+                        region
+                            .map(|r: LoopRegion| {
+                                CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, audio.rate)
+                            })
+                            .transpose()?
+                    } else {
+                        None
+                    };
+                    if !settings.enabled
+                        && (count_in.is_some() || shared.count_in.load(Ordering::Acquire))
+                    {
+                        Some((shared.position() / audio.rate as f64, None, reply))
+                    } else {
+                        let _ = reply.send(());
+                        None
+                    }
+                }
                 Command::Metronome(enabled, volume, ticks, reply) => {
                     metronome.configure(enabled, volume, ticks);
                     if shared.playing.load(Ordering::Acquire) {
@@ -425,7 +508,27 @@ fn run_worker(
                 Command::Controls(value, reply) => {
                     controls = value;
                     if shared.playing.load(Ordering::Acquire) {
-                        engine.set_controls(controls)?;
+                        if count_in.is_some() || shared.count_in.load(Ordering::Acquire) {
+                            // Music primed behind a count-in must use the new
+                            // controls too; retain the count-in's elapsed phase.
+                            let source = count_in
+                                .as_ref()
+                                .map_or(shared.position(), |c| c.source_frame);
+                            engine = Engine::new(
+                                audio.clone(),
+                                controls,
+                                source / f64::from(audio.rate),
+                                region,
+                                finer,
+                            )?;
+                            pending = Vec::new().into_iter();
+                            held_frame = None;
+                            last_music_frame = None;
+                            ended = false;
+                            metronome.reset(region);
+                        } else {
+                            engine.set_controls(controls)?;
+                        }
                         let _ = reply.send(());
                         None
                     } else {
@@ -436,6 +539,15 @@ fn run_worker(
                 Command::Seek(seconds, submitted, reply) => Some((seconds, Some(submitted), reply)),
                 Command::Loop(value, reply) => {
                     region = value;
+                    repeat_plan = if count_in_settings.enabled && count_in_settings.repeat {
+                        region
+                            .map(|r| {
+                                CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, audio.rate)
+                            })
+                            .transpose()?
+                    } else {
+                        None
+                    };
                     Some((shared.position() / audio.rate as f64, None, reply))
                 }
             };
@@ -450,6 +562,23 @@ fn run_worker(
                 );
                 shared.finished.store(false, Ordering::Release);
                 shared.loop_wraps.store(0, Ordering::Relaxed);
+                count_in = if start_count_in {
+                    Some(CountIn::new(
+                        CountInPlan::at(
+                            count_in_map.as_ref().unwrap(),
+                            new_engine.output_position(),
+                            audio.rate,
+                        )?,
+                        audio.rate,
+                        count_in_settings.volume,
+                        new_engine.output_position() * f64::from(audio.rate),
+                    ))
+                } else {
+                    None
+                };
+                shared.count_in.store(false, Ordering::Relaxed);
+                held_frame = None;
+                last_music_frame = None;
                 engine = new_engine;
                 metronome.reset(region);
                 ended = false;
@@ -466,15 +595,7 @@ fn run_worker(
             thread::sleep(Duration::from_millis(1));
             continue;
         }
-        if pending.len() == 0 {
-            if ended {
-                if shared.queue.is_empty() {
-                    shared.finished.store(true, Ordering::Release);
-                    shared.playing.store(false, Ordering::Release);
-                }
-                thread::sleep(Duration::from_millis(1));
-                continue;
-            }
+        if pending.len() == 0 && held_frame.is_none() && !ended {
             let start = Instant::now();
             let block = engine.next_block();
             shared
@@ -489,16 +610,71 @@ fn run_worker(
             ended = block.is_empty();
             pending = block.into_iter();
         }
+        if ended && pending.len() == 0 && count_in.is_none() && held_frame.is_none() {
+            if shared.queue.is_empty() {
+                shared.finished.store(true, Ordering::Release);
+                shared.playing.store(false, Ordering::Release);
+            }
+            thread::sleep(Duration::from_millis(1));
+            continue;
+        }
         while shared.queue.len() < target {
-            let Some(mut frame) = pending.next() else {
-                break;
+            let (frame, counting) = if let Some(active) = &mut count_in {
+                if let Some(samples) = active.next(controls.speed) {
+                    (
+                        RenderedFrame {
+                            samples,
+                            source_frame: active.source_frame,
+                        },
+                        true,
+                    )
+                } else {
+                    count_in = None;
+                    continue;
+                }
+            } else {
+                let Some(mut frame) = held_frame.take().or_else(|| pending.next()) else {
+                    break;
+                };
+                let wrapped =
+                    last_music_frame.is_some_and(|previous| frame.source_frame < previous);
+                last_music_frame = Some(frame.source_frame);
+                if wrapped && let Some(plan) = &repeat_plan {
+                    count_in = Some(CountIn::new(
+                        plan.clone(),
+                        audio.rate,
+                        count_in_settings.volume,
+                        region.map_or(frame.source_frame, |r| {
+                            (r.start * f64::from(audio.rate)).round()
+                        }),
+                    ));
+                    held_frame = Some(frame);
+                    metronome.reset(region);
+                    continue;
+                }
+                frame.samples = metronome.mix(frame.source_frame, frame.samples);
+                if repeat_plan.is_some()
+                    && let Some(r) = region
+                {
+                    // Rubber Band may retain energy beyond the input fades.
+                    // Pair output fades at the joins with inserted count-ins.
+                    let start = (r.start * f64::from(audio.rate)).round();
+                    let end = (r.end * f64::from(audio.rate)).round();
+                    let distance = (frame.source_frame - start)
+                        .min(end - frame.source_frame)
+                        .max(0.0);
+                    let gain = (distance / (f64::from(audio.rate) * controls.speed * 0.005))
+                        .min(1.0) as f32;
+                    frame.samples.iter_mut().for_each(|sample| *sample *= gain);
+                }
+                (frame, false)
             };
-            frame.samples = metronome.mix(frame.source_frame, frame.samples);
             // Only this worker pushes. The consumer can only make more room.
             shared
                 .queue
                 .push(QueuedFrame {
                     frame,
+                    count_in: counting,
                     epoch: shared.epoch.load(Ordering::Acquire),
                 })
                 .map_err(|_| anyhow::anyhow!("Audio queue unexpectedly full"))?;
@@ -519,6 +695,220 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(1));
         }
+    }
+
+    struct TestWorker {
+        shared: Arc<Shared>,
+        sender: SyncSender<Command>,
+        worker: Option<JoinHandle<Result<()>>>,
+    }
+    impl TestWorker {
+        fn new() -> Self {
+            let audio = Arc::new(Audio::tone(48_000, 3.0, 440.0));
+            let shared = Arc::new(Shared::new(4800));
+            let (sender, receiver) = mpsc::sync_channel(32);
+            let worker_shared = shared.clone();
+            let worker = Some(thread::spawn(move || {
+                run_worker(audio, true, receiver, &worker_shared)
+            }));
+            let result = Self {
+                shared,
+                sender,
+                worker,
+            };
+            wait_until(|| result.shared.queue.len() == 2400);
+            result
+        }
+        fn send(&self, command: impl FnOnce(SyncSender<()>) -> Command) {
+            let (reply, ack) = mpsc::sync_channel(1);
+            self.sender.send(command(reply)).unwrap();
+            ack.recv_timeout(Duration::from_secs(2)).unwrap();
+        }
+        fn read(&self, count: usize) -> Vec<QueuedFrame> {
+            let mut frames = Vec::with_capacity(count);
+            while frames.len() < count {
+                wait_until(|| !self.shared.queue.is_empty());
+                while frames.len() < count {
+                    let Some(frame) = self.shared.queue.pop() else {
+                        break;
+                    };
+                    self.shared
+                        .source_position
+                        .store(frame.frame.source_frame.to_bits(), Ordering::Relaxed);
+                    self.shared
+                        .count_in
+                        .store(frame.count_in, Ordering::Relaxed);
+                    frames.push(frame);
+                }
+            }
+            frames
+        }
+        fn configure(&self, speed: f64, semitones: f64, repeat: bool) {
+            self.send(|reply| Command::Controls(Controls { speed, semitones }, reply));
+            self.send(|reply| {
+                Command::Loop(
+                    Some(LoopRegion {
+                        start: 0.5,
+                        end: 1.0,
+                        fade_ms: 5.0,
+                    }),
+                    reply,
+                )
+            });
+            self.send(|reply| {
+                Command::CountIn(
+                    CountInSettings {
+                        enabled: true,
+                        repeat,
+                        volume: 1.0,
+                    },
+                    worker_map(),
+                    reply,
+                )
+            });
+            self.send(Command::Start);
+            self.shared.playing.store(true, Ordering::Release);
+        }
+    }
+    impl Drop for TestWorker {
+        fn drop(&mut self) {
+            self.sender.send(Command::Shutdown).unwrap();
+            self.worker.take().unwrap().join().unwrap().unwrap();
+        }
+    }
+
+    #[test]
+    fn count_in_output_is_separate_from_dsp_and_repeats_only_when_requested() {
+        for repeat in [false, true] {
+            for speed in [0.5, 1.0, 2.0] {
+                let mut previous = None;
+                for semitones in [-7.0, 5.0] {
+                    let worker = TestWorker::new();
+                    worker.configure(speed, semitones, repeat);
+                    let length = (24_000.0 / speed) as usize;
+                    let intro = worker.read(length);
+                    assert!(
+                        intro
+                            .iter()
+                            .all(|f| f.count_in && f.frame.source_frame == 24_000.0)
+                    );
+                    let samples: Vec<_> = intro.iter().map(|f| f.frame.samples).collect();
+                    assert!(
+                        samples.iter().any(|f| f[0].abs() > 0.01),
+                        "Clicks must sound with metronome off"
+                    );
+                    if let Some(previous) = previous {
+                        assert_eq!(
+                            samples, previous,
+                            "Pitch processing cannot alter count-in clicks"
+                        );
+                    }
+                    previous = Some(samples);
+                    let music = worker.read(length);
+                    assert!(music.iter().all(
+                        |f| !f.count_in && (24_000.0..48_000.0).contains(&f.frame.source_frame)
+                    ));
+                    let next = worker.read(length);
+                    assert!(next.iter().all(|f| f.count_in == repeat));
+                    if repeat {
+                        assert!(next.iter().all(|f| f.frame.source_frame == 24_000.0));
+                    }
+                    let next_music = worker.read(length);
+                    assert!(next_music.iter().all(|f| !f.count_in));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn live_speed_changes_retime_the_remaining_count_in_and_primed_music() {
+        let worker = TestWorker::new();
+        worker.configure(1.0, 0.0, true);
+        worker.read(6000);
+        wait_until(|| worker.shared.queue.len() == 2400);
+        worker.send(|reply| {
+            Command::Controls(
+                Controls {
+                    speed: 0.5,
+                    semitones: 7.0,
+                },
+                reply,
+            )
+        });
+        let remaining = worker.read(2400 + (24_000 - 8400) * 2);
+        assert!(remaining.iter().all(|f| f.count_in));
+        let music = worker.read(24_000 * 2);
+        assert!(music.iter().all(|f| !f.count_in));
+        assert_eq!(music[0].frame.source_frame, 24_000.0);
+        assert_eq!(music[1].frame.source_frame, 24_000.5);
+        // Changing repetition intent live affects the next wrap, independently
+        // of the initial count-in and of the metronome's enable state.
+        worker.send(|reply| {
+            Command::CountIn(
+                CountInSettings {
+                    enabled: true,
+                    repeat: false,
+                    volume: 0.8,
+                },
+                worker_map(),
+                reply,
+            )
+        });
+        // Up to 50 ms of the already queued repetition may remain. A seek
+        // flushes it, then subsequent wraps must be uninterrupted music.
+        worker.send(|reply| Command::Seek(0.5, Instant::now(), reply));
+        assert!(worker.read(24_000 * 4).iter().all(|f| !f.count_in));
+    }
+
+    fn worker_map() -> Option<MeasureMap> {
+        use crate::timing::{Edit, Meter};
+        Some(
+            MeasureMap::empty(48_000, 144_000)
+                .edit(Edit::Build {
+                    start: 0,
+                    end: 144_000,
+                    count: 6,
+                    meter: Meter::common(),
+                })
+                .unwrap()
+                .map,
+        )
+    }
+
+    #[test]
+    fn seek_pause_restart_and_disabling_flush_count_in_frames() {
+        let worker = TestWorker::new();
+        worker.configure(1.0, 0.0, true);
+        worker.read(1200);
+        let mut consumer = Consumer::new(worker.shared.clone(), 48_000);
+        consumer.next_frame();
+        worker.shared.playing.store(false, Ordering::Release);
+        for _ in 0..512 {
+            consumer.next_frame();
+        }
+        let paused_at = worker.shared.position();
+        let queued = worker.shared.queue.len();
+        assert_eq!(consumer.next_frame(), [0.0; 2]);
+        assert_eq!(worker.shared.position(), paused_at);
+        assert!(worker.shared.queue.len() >= queued);
+        worker.send(Command::Start);
+        let intro = worker.read(24_000);
+        assert!(
+            intro
+                .iter()
+                .all(|f| f.count_in && f.frame.source_frame == 24_000.0)
+        );
+        worker.send(|reply| Command::Seek(0.75, Instant::now(), reply));
+        assert!(
+            worker
+                .read(1200)
+                .iter()
+                .all(|f| !f.count_in && f.frame.source_frame >= 36_000.0)
+        );
+        worker.send(Command::Start);
+        assert!(worker.read(1200).iter().all(|f| f.count_in));
+        worker.send(|reply| Command::CountIn(CountInSettings::default(), None, reply));
+        assert!(worker.read(1200).iter().all(|f| !f.count_in));
     }
 
     #[test]

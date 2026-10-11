@@ -3,7 +3,7 @@
 A free, open-source music practice player for Linux, macOS, and Windows.
 The first desktop implementation provides a waveform workspace, editable
 sections, temporary loops, independent speed and pitch controls, editable measure
-maps with optional beat analysis, authored-map metronome and practice-state restoration. The validated terminal prototype remains available.
+maps with optional beat analysis, authored-map metronome, optional count-in and practice-state restoration. The validated terminal prototype remains available.
 
 The prototype uses Rust, CPAL, Symphonia, and bundled Rubber Band 4.0.0.
 Playback uses Rubber Band's R3/Finer engine. R2 remains available to the
@@ -81,6 +81,46 @@ it an estimate.
 
 `npm run dev` opens a frontend-only development preview with demo fixtures.
 Audio, analysis and native musical-map edits require `npm run desktop`.
+
+## Count-in
+
+On **Practice**, build and apply a measure map, then enable **Count-in on**
+beside the playback buttons.
+It sounds one full measure before each Play start, including resume. Enable
+**Before each loop repetition** separately to add a count-in between loop passes.
+The count-in and metronome buttons highlight when on. Count-in is unavailable
+in measure mapping and uses only the accepted map, never a draft or detected
+beat suggestions. Both count-in options default off when opening a song and are
+session preferences.
+
+Count-in uses the mapped local tempo, meter, pulse and grouping at the playback
+start (or loop A for repetitions). Speed changes adjust the effective tempo;
+pitch changes do not change the click sound. The shared **Click level** sets its
+volume even when the metronome is off. Playback waits at its start coordinate
+while the transport shows **Counting in…**. Pause stops the count-in; the next
+Play starts a fresh one. Seeking or disabling count-in cancels it.
+
+For pickups or starts inside a measure, one full measure of clicks leads into
+the mapped starting beat and phase. The local beat-anchor interval is extended
+at a steady tempo for the count-in. At a tempo/meter boundary, the starting
+measure's timing applies; in uncounted/free time, the nearest mapped frame
+supplies timing (ties choose the earlier measure). Native output frames schedule
+both clicks and the transition to music. The render queue and device latency
+still apply to control changes and the displayed transport estimate.
+
+Count-in regression tests use generated audio and require no device:
+
+```sh
+CARGO_HOME="$PWD/.cargo-home" cargo test --locked --release -p ohmyloop --lib --test count_in
+npm test -- ui/count-in-session.test.ts ui/App.test.ts
+```
+
+To exercise native count-in and repetition playback on an available output
+device (plays generated clicks and a sine tone):
+
+```sh
+CARGO_HOME="$PWD/.cargo-home" cargo test --locked --release -p ohmyloop --test count_in native_count_in_smoke -- --ignored --nocapture
+```
 
 ## Music library
 

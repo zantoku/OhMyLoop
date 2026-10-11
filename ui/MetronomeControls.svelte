@@ -5,7 +5,7 @@
     {enabled:boolean;level?:number;keymap:Keymap;button:ButtonId;available:boolean;run:()=>void;native:boolean}=$props();
 </script>
 <div class="metronome-controls" role="group" aria-label="Metronome controls">
-  <button class="button" aria-pressed={enabled} disabled={!available} title={keymap.title(button)} onclick={run}>{keymap.buttonLabel(button,enabled?'Metronome on':'Metronome off')}</button>
+  <button class="button" class:active={enabled} aria-pressed={enabled} disabled={!available} title={keymap.title(button)} onclick={run}>{keymap.buttonLabel(button,enabled?'Metronome on':'Metronome off')}</button>
   <label>Click level<input aria-label="Metronome volume" type="range" min="0" max="100" bind:value={level} disabled={!native}/><span>{level}%</span></label>
 </div>
 <style>

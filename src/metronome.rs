@@ -82,6 +82,9 @@ impl ClickMixer {
         self.previous = None;
         // A short existing click may decay naturally across a schedule change.
     }
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume;
+    }
     pub fn reset(&mut self, region: Option<LoopRegion>) {
         self.previous = None;
         self.voice = None;

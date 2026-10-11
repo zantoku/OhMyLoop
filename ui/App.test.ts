@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -13,6 +13,7 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 beforeEach(() => {
   vi.clearAllMocks();
   mock.metronome.mockResolvedValue({});
+  mock.countIn.mockResolvedValue({});
   mock.onExitRequested.mockResolvedValue(()=>{});mock.finishExit.mockResolvedValue(undefined);
   mock.readCachedAnalysis.mockResolvedValue(null);
   mock.readLibrary.mockResolvedValue({version:1,songs:[]});
@@ -1067,4 +1068,62 @@ it('loads stored notes and flushes them when navigating to the library',async()=
   document.notes='Remember the bridge';mock.initialize.mockResolvedValue({...response(),song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Notes'}));const field=screen.getByRole('textbox',{name:'Notes for this song'}) as HTMLTextAreaElement;expect(field.value).toBe('Remember the bridge');await fireEvent.input(field,{target:{value:'Remember the bridge\nRepeat slowly'}});
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('main',{name:'Music library'});expect(document.notes).toBe('Remember the bridge\nRepeat slowly');
+});
+
+it('requires an accepted measure map for count-in and highlights enabled metronome controls',async()=>{
+  await ready();
+  const count=screen.getByRole('button',{name:'Count-in off'});
+  expect(count.hasAttribute('disabled')).toBe(true);
+  expect(count.getAttribute('aria-pressed')).toBe('false');
+  const playback=screen.getByRole('group',{name:'Playback controls'});
+  expect(playback.contains(count)).toBe(true);
+  expect(playback.contains(screen.getByRole('checkbox',{name:'Before each loop repetition'}))).toBe(true);
+  expect(screen.getByRole('checkbox',{name:'Before each loop repetition'}).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button',{name:'Metronome on'}).classList.contains('active')).toBe(true);
+  await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
+  expect(screen.getByRole('button',{name:'Metronome off'}).classList.contains('active')).toBe(false);
+  expect(mock.countIn.mock.lastCall).toEqual(['test',false,false,.5]);
+});
+
+it('offers count-in and independent loop repetitions only in Practice, using the shared click level',async()=>{
+  const original=timingFixture(48000);document.measure_map=original.map;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();
+  await fireEvent.click(screen.getByRole('button',{name:'Count-in off'}));
+  const count=screen.getByRole('button',{name:'Count-in on'});
+  expect(count.classList.contains('active')).toBe(true);expect(count.getAttribute('aria-pressed')).toBe('true');
+  const repeat=screen.getByRole('checkbox',{name:'Before each loop repetition'}) as HTMLInputElement;
+  expect(repeat.disabled).toBe(false);expect(repeat.checked).toBe(false);
+  await fireEvent.click(repeat);await fireEvent.input(screen.getByLabelText('Metronome volume'),{target:{value:'70'}});
+  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,true,.7]));
+  await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
+  expect(screen.getByRole('button',{name:'Count-in on'}).classList.contains('active')).toBe(true);
+  await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  expect(screen.queryByRole('button',{name:'Count-in on'})).toBeNull();
+  expect(screen.queryByRole('checkbox',{name:'Before each loop repetition'})).toBeNull();
+  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',false,true,.7]));
+  expect(screen.getByRole('button',{name:'Metronome off'}).classList.contains('active')).toBe(false);
+  await fireEvent.click(screen.getByRole('button',{name:'Metronome off'}));
+  expect(screen.getByRole('button',{name:'Metronome on'}).classList.contains('active')).toBe(true);
+  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
+  expect((screen.getByRole('checkbox',{name:'Before each loop repetition'}) as HTMLInputElement).checked).toBe(true);
+  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,true,.7]));
+  await fireEvent.click(screen.getByRole('button',{name:'Count-in on'}));
+  expect(screen.getByRole('button',{name:'Count-in off'}).classList.contains('active')).toBe(false);
+  expect(screen.getByRole('checkbox',{name:'Before each loop repetition'}).hasAttribute('disabled')).toBe(true);
+  expect(document.measure_map).toEqual(original.map);
+});
+
+it('waits for native count-in configuration before Play and reports counting without moving the playhead',async()=>{
+  const original=timingFixture(48000);document.measure_map=original.map;
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await waitFor(()=>expect(mock.countIn).toHaveBeenCalled());
+  let finish!:(value:object)=>void;mock.countIn.mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));
+  await fireEvent.click(screen.getByRole('button',{name:'Count-in off'}));
+  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,false,.5]));
+  await fireEvent.click(screen.getByRole('button',{name:'Play'}));expect(mock.action).not.toHaveBeenCalled();
+  transport.counting_in=true;finish({});await screen.findByText('Counting in…');
+  expect(screen.getByRole('button',{name:'Pause'})).toBeTruthy();
+  expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.transport-time strong')?.textContent).toBe('0:00.0');
+  await fireEvent.click(screen.getByRole('button',{name:'Pause'}));await screen.findByText('Paused');
 });

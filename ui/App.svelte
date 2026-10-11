@@ -5,6 +5,7 @@
   import {NotesSession,type NotesState} from './notes-session';
   import LibraryScreen from './LibraryScreen.svelte';
   import MetronomeControls from './MetronomeControls.svelte';
+  import { CountInSession, type CountInState } from './count-in-session';
   import { MetronomeSession, type MetronomeState } from './metronome-session';
   import { snapLoopPoint } from './practice-timeline';
   import Waveform from './Waveform.svelte';
@@ -43,6 +44,14 @@
   const shortcuts = $derived(keymap.shortcuts(screen));
   let snapToMeasures = $state(true);
   let practiceFollowing = $state(true);
+  let countInEnabled = $state(false), repeatCountIn = $state(false);
+  let countInState = $state<CountInState>({pending:false,error:''});
+  const countInSession = new CountInSession(value=>{countInState=value;});
+  const hasMeasureMap = $derived(!!project?.measure_map?.measures.length);
+  const countInActive = $derived(countInEnabled && hasMeasureMap);
+  $effect(()=>{
+    if(native&&song)countInSession.set({key:song.key,enabled:screen!=='mapping'&&countInActive&&!transport.audio_error,repeat:repeatCountIn,volume:clickLevel/100});
+  });
   let clickEnabled = $state(true), clickLevel = $state(50);
   let clickState = $state<MetronomeState>({pending:false,error:''});
   let reviewMap = $state<{key:string;map:MeasureMap|null}|null>(null);
@@ -79,7 +88,7 @@
 
   function apply(snapshot: Snapshot, documentRevision = revision) {
     if(snapshot.library_error)error=snapshot.library_error;
-    if (snapshot.song) { if(song?.key!==snapshot.song.key){practiceFollowing=true;notesSession.reset(snapshot.song.key,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
+    if (snapshot.song) { if(song?.key!==snapshot.song.key){practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.key,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
@@ -115,6 +124,7 @@
     if (!song || busy) return;
     try {
       flushControls(); await saves.catch(()=>{}); const actionRevision = revision;
+      if(action.type==='toggle_play'&&!transport.playing)await countInSession.flush();
       const snapshot=await bridge.action(action);apply(snapshot,actionRevision);
       // Explicit navigation reveals the resulting native position even when
       // paused or continuous following is off, preserving each screen's zoom.
@@ -238,6 +248,7 @@
     previous_measure:()=>nextMeasure(-1), next_measure:()=>nextMeasure(1),
     goto_measure:()=>{const measure=mapView?.measures.find(m=>m.number===measureNumber);if(measure&&song){if(screen==='mapping')measureEditor?.selectMeasure(measure.id);return action({type:'seek',seconds:measure.start/song.rate});}},
     practice_follow:()=>{practiceFollowing=!practiceFollowing;},
+    practice_count_in:()=>{countInEnabled=!countInActive;}, repeat_count_in:()=>{repeatCountIn=!repeatCountIn;},
     practice_metronome:()=>{clickEnabled=!clickEnabled;}, toggle_loop_snap:()=>{snapToMeasures=!snapToMeasures;},
     play_pause: () => action({ type: 'toggle_play' }), toggle_loop: toggleLoop,
     set_loop_start: () => setBoundary('start'), set_loop_end: () => setBoundary('end'),
@@ -274,6 +285,8 @@
     if(id==='retry_notes')return notesState.dirty&&!notesState.pending;
     if(id.startsWith('library_')&&id!=='library_close')return libraryScreen?.canRun(id)??false;
     if(screen==='library'&&!['show_library','library_close','open_song','load_demo','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
+    if(id==='practice_count_in')return hasMeasureMap&&native&&(!transport.audio_error||countInActive);
+    if(id==='repeat_count_in')return hasMeasureMap&&native&&countInActive&&!transport.audio_error;
     if(id==='practice_metronome')return native&&(clickEnabled||(!transport.audio_error&&!!audibleMap?.measures.length));
     if(id==='toggle_loop_snap')return !!mapView?.measures.length;
     if(id in MAPPING_ACTIONS)return !!measureEditor?.canRun(id as MappingActionId);
@@ -307,7 +320,7 @@
       try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.song_key === song?.key) transport = status; }
       catch (e) { if (mounted) error = String(e); } finally { polling = false; }
     }, 50);
-    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();notesSession.dispose();clickSession.dispose(); };
+    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
   });
 </script>
 
@@ -323,6 +336,7 @@
   </header>
 
   {#if error}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
+  {#if countInState.error}<div class="notice error" role="alert"><span>{countInState.error}</span></div>{/if}
   {#if clickState.error}<div class="notice error" role="alert">{clickState.error}</div>{/if}
   {#if keymapWarning}<div class="notice" role="alert"><span>{keymapWarning}</span><button class="text-button" title={keymap.title('reload_keymap')} disabled={keymapLoading} onclick={() => runButton('reload_keymap')}>Reload configuration</button></div>{/if}
   {#if transport.audio_error && song}<div class="notice audio-notice" role="status"><span>Audio output is unavailable. Reconnect your output device, then retry.</span><button class="text-button" title={keymap.title('retry_audio')} onclick={() => runButton('retry_audio')}>Retry audio</button></div>{/if}
@@ -367,8 +381,15 @@
         </div>
 
         <div class="transport-row">
-          <div class="transport-buttons" role="group" aria-label="Playback controls"><button class="icon-button" aria-label={keymap.buttonLabel('previous_section', 'Previous section')} disabled={!buttonAvailable('previous_section')} title={keymap.title('previous_section')} onclick={() => runButton('previous_section')}><Icon name="back"/></button><button class="play-button" aria-label={keymap.buttonLabel('play', transport.playing ? 'Pause' : 'Play')} title={keymap.title('play')} disabled={!buttonAvailable('play')} onclick={() => runButton('play')}><Icon name={transport.playing ? 'pause' : 'play'} size={27}/></button><button class="icon-button" aria-label={keymap.buttonLabel('next_section', 'Next section')} disabled={!buttonAvailable('next_section')} title={keymap.title('next_section')} onclick={() => runButton('next_section')}><Icon name="next"/></button></div>
-          <div class="transport-time"><strong>{time(transport.position)}</strong><span>/ {time(song.duration)}</span><small>{transport.playing ? 'Playing' : transport.finished ? 'End of song' : 'Paused'}</small></div>
+          <div class="transport-buttons" role="group" aria-label="Playback controls"><button class="icon-button" aria-label={keymap.buttonLabel('previous_section', 'Previous section')} disabled={!buttonAvailable('previous_section')} title={keymap.title('previous_section')} onclick={() => runButton('previous_section')}><Icon name="back"/></button><button class="play-button" aria-label={keymap.buttonLabel('play', transport.playing ? 'Pause' : 'Play')} title={keymap.title('play')} disabled={!buttonAvailable('play')} onclick={() => runButton('play')}><Icon name={transport.playing ? 'pause' : 'play'} size={27}/></button><button class="icon-button" aria-label={keymap.buttonLabel('next_section', 'Next section')} disabled={!buttonAvailable('next_section')} title={keymap.title('next_section')} onclick={() => runButton('next_section')}><Icon name="next"/></button>
+            {#if screen==='practice'}
+              <div class="count-in-controls" role="group" aria-label="Count-in controls">
+                <button class="button" class:active={countInActive} aria-pressed={countInActive} disabled={!buttonAvailable('count_in')} title={hasMeasureMap?keymap.title('count_in'):'Build a measure map to enable count-in'} onclick={()=>runButton('count_in')}>{keymap.buttonLabel('count_in',countInActive?'Count-in on':'Count-in off')}</button>
+                <label title={keymap.title('repeat_count_in')}><input type="checkbox" checked={repeatCountIn} disabled={!buttonAvailable('repeat_count_in')} onchange={()=>runButton('repeat_count_in')}/>{keymap.buttonLabel('repeat_count_in','Before each loop repetition')}</label>
+              </div>
+            {/if}
+          </div>
+          <div class="transport-time"><strong>{time(transport.position)}</strong><span>/ {time(song.duration)}</span><small>{transport.playing ? (transport.counting_in?'Counting in…':'Playing') : transport.finished ? 'End of song' : 'Paused'}</small></div>
           <button class:active={project.loop_enabled} class="loop-toggle" onclick={() => runButton('loop')} aria-pressed={project.loop_enabled} title={keymap.title('loop')}><Icon name="loop"/>{keymap.buttonLabel('loop', project.loop_enabled ? 'Loop on' : 'Loop off')}</button>
         </div>
 

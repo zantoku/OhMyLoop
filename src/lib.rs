@@ -13,4 +13,5 @@ pub mod session;
 mod storage;
 pub mod timing;
 
+pub mod count_in;
 pub mod metronome;

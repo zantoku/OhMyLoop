@@ -1,5 +1,6 @@
 use crate::{
     audio::Audio,
+    count_in::Settings as CountInSettings,
     playback::Player,
     project::{Document, Song, Store, song_key, waveform},
 };
@@ -24,6 +25,7 @@ pub struct Transport {
     pub position: f64,
     pub playing: bool,
     pub finished: bool,
+    pub counting_in: bool,
     pub audio_error: Option<String>,
     pub save_error: Option<String>,
     pub device: Option<String>,
@@ -60,6 +62,7 @@ enum Command {
     Shutdown,
     Source(String),
     Metronome(String, bool, f32, Option<crate::timing::MeasureMap>),
+    CountIn(String, CountInSettings),
 }
 enum Response {
     Snapshot(Box<Snapshot>),
@@ -108,6 +111,7 @@ impl Desktop {
                     review_map: None,
                     metronome_enabled: false,
                     metronome_volume: 0.5,
+                    count_in: CountInSettings::default(),
                 };
                 while let Ok(request) = receiver.recv() {
                     if matches!(request.command, Command::Shutdown) {
@@ -189,6 +193,25 @@ impl Desktop {
             _ => unreachable!(),
         }
     }
+    pub fn count_in(
+        &self,
+        key: String,
+        enabled: bool,
+        repeat: bool,
+        volume: f32,
+    ) -> Result<Transport> {
+        match self.request(Command::CountIn(
+            key,
+            CountInSettings {
+                enabled,
+                repeat,
+                volume,
+            },
+        ))? {
+            Response::Status(s) => Ok(s),
+            _ => unreachable!(),
+        }
+    }
     pub fn shutdown(&self) {
         let _ = self.request(Command::Shutdown);
     }
@@ -208,6 +231,7 @@ struct Controller {
     review_map: Option<crate::timing::MeasureMap>,
     metronome_enabled: bool,
     metronome_volume: f32,
+    count_in: CountInSettings,
 }
 
 impl Controller {
@@ -262,6 +286,33 @@ impl Controller {
                 result?;
                 return Ok(Response::Status(self.transport()));
             }
+            Command::CountIn(key, settings) => {
+                ensure!(
+                    self.song.as_ref().is_some_and(|s| s.key == key),
+                    "The song changed; reopen Practice"
+                );
+                let settings = settings.validate()?;
+                let map = self.document.as_ref().and_then(|d| d.measure_map.clone());
+                ensure!(
+                    !settings.enabled || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
+                    "Build a measure map before enabling count-in"
+                );
+                let result = if let Some(player) = &self.player {
+                    player.set_count_in(settings, map)
+                } else {
+                    ensure!(
+                        !settings.enabled,
+                        "Audio output is unavailable; choose Retry audio"
+                    );
+                    Ok(())
+                };
+                self.count_in = CountInSettings {
+                    enabled: settings.enabled && result.is_ok(),
+                    ..settings
+                };
+                result?;
+                return Ok(Response::Status(self.transport()));
+            }
             Command::Library => return Ok(Response::Library(self.library.read()?)),
             Command::UpdateLibrary(key, metadata) => {
                 let catalogue = self.library.update(&key, metadata)?;
@@ -302,6 +353,16 @@ impl Controller {
                         }
                         if previous.active_loop() != document.active_loop() {
                             player.set_loop(document.active_loop())?;
+                        }
+                        if previous.measure_map != document.measure_map {
+                            if !document
+                                .measure_map
+                                .as_ref()
+                                .is_some_and(|m| !m.measures.is_empty())
+                            {
+                                self.count_in.enabled = false;
+                            }
+                            player.set_count_in(self.count_in, document.measure_map.clone())?;
                         }
                         Ok(())
                     })();
@@ -412,6 +473,7 @@ impl Controller {
         self.player = None;
         self.review_map = None;
         self.metronome_enabled = false;
+        self.count_in = CountInSettings::default();
         self.audio = Some(Arc::new(audio));
         self.document = Some(document);
         self.song = Some(song);
@@ -438,6 +500,7 @@ impl Controller {
                 vec![]
             };
             player.set_metronome(self.metronome_enabled, self.metronome_volume, ticks)?;
+            player.set_count_in(self.count_in, document.measure_map.clone())?;
             Ok(player)
         })();
         match result {
@@ -535,6 +598,8 @@ impl Controller {
                     .clamp(0.0, player.duration),
                 playing: player.shared.playing.load(Ordering::Acquire),
                 finished: player.shared.finished.load(Ordering::Acquire),
+                counting_in: player.shared.count_in.load(Ordering::Relaxed)
+                    && player.shared.playing.load(Ordering::Acquire),
                 audio_error: self.audio_error.clone(),
                 save_error: self.save_error.clone(),
                 device: Some(player.device_name.clone()),
@@ -546,6 +611,7 @@ impl Controller {
                 position: self.document.as_ref().map_or(0.0, |d| d.last_position),
                 playing: false,
                 finished: false,
+                counting_in: false,
                 audio_error: self.audio_error.clone(),
                 save_error: self.save_error.clone(),
                 device: None,

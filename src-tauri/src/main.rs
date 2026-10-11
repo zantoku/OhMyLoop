@@ -140,6 +140,18 @@ async fn set_map_metronome(
 }
 
 #[tauri::command]
+async fn set_count_in(
+    song_key: String,
+    enabled: bool,
+    repeat: bool,
+    volume: f32,
+    state: State<'_, Desktop>,
+) -> Result<Transport, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.count_in(song_key, enabled, repeat, volume)).await
+}
+
+#[tauri::command]
 async fn transport_status(state: State<'_, Desktop>) -> Result<Transport, String> {
     let desktop = state.inner().clone();
     work(move || desktop.status()).await
@@ -245,6 +257,7 @@ fn main() {
             update_document,
             transport_action,
             set_map_metronome,
+            set_count_in,
             transport_status
         ])
         .on_window_event(|window, event| {

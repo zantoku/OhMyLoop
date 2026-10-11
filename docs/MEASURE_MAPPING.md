@@ -390,6 +390,13 @@ chosen pulse note value determines the remaining clicks. Pickups keep their
 notated offset; incomplete measures end early and free-time gaps are silent.
 Arbitrary beat anchors change interpolation without becoming extra pulses.
 
+Practice also offers **Count-in on/off** after an accepted map has been built,
+with **Before each loop repetition** as a separate checkbox. Count-in uses only
+the accepted map, shares Click level, and sounds independently of the metronome.
+The controls are absent from measure mapping. See the README Count-in section
+for local tempo, phase, free-time and cancellation rules. Both toggle buttons
+highlight their on state.
+
 Rust builds the bounded pulse schedule from original source frames, converts it
 to the playback device rate, and mixes short fixed-pitch clicks after Rubber Band
 on the render worker. Speed changes alter spacing while pitch changes leave the

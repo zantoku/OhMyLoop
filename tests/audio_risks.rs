@@ -145,6 +145,7 @@ fn live_control_changes_reach_real_dsp() {
 fn paused_queue_is_preserved_and_old_seek_generation_is_never_played() {
     let shared = Arc::new(Shared::new(2048));
     let old = QueuedFrame {
+        count_in: false,
         frame: RenderedFrame {
             samples: [0.8; 2],
             source_frame: 1.0,
@@ -164,6 +165,7 @@ fn paused_queue_is_preserved_and_old_seek_generation_is_never_played() {
     shared
         .queue
         .push(QueuedFrame {
+            count_in: false,
             frame: RenderedFrame {
                 samples: [-0.2; 2],
                 source_frame: 50_000.0,
@@ -187,6 +189,7 @@ fn callback_consumer_allocates_nothing_including_seek_pause_and_underflow() {
         shared
             .queue
             .push(QueuedFrame {
+                count_in: false,
                 frame: RenderedFrame {
                     samples: [0.2; 2],
                     source_frame: n as f64,

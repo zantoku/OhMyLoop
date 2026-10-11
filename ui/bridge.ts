@@ -32,6 +32,7 @@ export const bridge = {
   readLibrary:()=>native?invoke<Catalogue>('read_library'):Promise.resolve({version:1,songs:[]}),
   openLibrarySong:(songKey:string)=>native?invoke<Snapshot>('open_library_song',{songKey}):Promise.reject(new Error('Open library songs in the desktop app.')),
   updateLibrarySong:(songKey:string,metadata:SongMetadata)=>native?invoke<Catalogue>('update_library_song',{songKey,metadata}):Promise.reject(new Error('Save library details in the desktop app.')),
+  countIn:(songKey:string,enabled:boolean,repeat:boolean,volume:number)=>native?invoke<Transport>('set_count_in',{songKey,enabled,repeat,volume}):Promise.reject(new Error('Count-in is available in the desktop app.')),
   metronome:(songKey:string,enabled:boolean,volume:number,map:MeasureMap|null)=>native?invoke<Transport>('set_map_metronome',{songKey,enabled,volume,map}):Promise.reject(new Error('The map metronome is available in the desktop app.')),
   readCachedAnalysis: (songKey:string) => native ? invoke<Candidates|null>('read_cached_analysis',{songKey}) : Promise.resolve(null),
   analysisStatus: () => native ? invoke<AnalysisStatus>('analysis_status') : Promise.reject(new Error('Beat analysis is available in the desktop app.')),

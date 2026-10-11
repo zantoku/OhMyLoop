@@ -60,7 +60,7 @@ existing practice workflows while extending the desktop UI.
   docs/MEASURE_MAPPING.md.
   Beat/downbeat analysis and editable variable-tempo/meter mapping are now
   in scope. Music-library metadata, sorting, tag import and reopening are also
-  authorized for the current pass, along with plain-text song notes. Defer count-ins, musical rests, speed ladders, sequences, export
+  authorized for the current pass, along with plain-text song notes and count-ins. Defer musical rests, speed ladders, sequences, export
   UI, recording, stems, and tabs.
 - Keep automatic timing suggestions separate from the accepted musical map.
   Preserve user corrections during reanalysis; keep analysis outside the
