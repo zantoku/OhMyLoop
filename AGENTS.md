@@ -8,8 +8,8 @@ named song-section markers, precise seeking, and repeatable loops.
 
 The audio risk prototype and first single-song desktop workflow are in place.
 Editable measure mapping and optional beat analysis are implemented; the current
-milestone is review/evaluation and refinement described in PLAN.md and
-docs/MEASURE_MAPPING.md. Preserve the CLI prototype, its audio tests, and
+milestone includes the first music library and plain-text song notes workflows, alongside measure-map
+review/refinement described in PLAN.md, docs/LIBRARY.md, docs/NOTES.md and docs/MEASURE_MAPPING.md. Preserve the CLI prototype, its audio tests, and
 existing practice workflows while extending the desktop UI.
 
 ## Technical direction
@@ -56,9 +56,11 @@ existing practice workflows while extending the desktop UI.
   behavior, tooltips, and shortcut documentation stay consistent. Validate
   versioned configuration at its boundary and preserve invalid user files.
 - Prefer small modules, explicit state, and narrowly scoped unsafe FFI.
-- Follow the current milestone scope in PLAN.md and docs/MEASURE_MAPPING.md.
+- Follow the current milestone scope in PLAN.md, docs/LIBRARY.md and
+  docs/MEASURE_MAPPING.md.
   Beat/downbeat analysis and editable variable-tempo/meter mapping are now
-  in scope. Defer count-ins, musical rests, speed ladders, sequences, export
+  in scope. Music-library metadata, sorting, tag import and reopening are also
+  authorized for the current pass, along with plain-text song notes. Defer count-ins, musical rests, speed ladders, sequences, export
   UI, recording, stems, and tabs.
 - Keep automatic timing suggestions separate from the accepted musical map.
   Preserve user corrections during reanalysis; keep analysis outside the

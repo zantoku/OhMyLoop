@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod lifecycle;
 use ohmyloop::{
     desktop::{Action, Desktop, Snapshot, Transport},
     project::Document,
@@ -89,6 +90,28 @@ async fn open_song(
     .await
 }
 
+#[tauri::command]
+async fn read_library(state: State<'_, Desktop>) -> Result<ohmyloop::library::Catalogue, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.library()).await
+}
+#[tauri::command]
+async fn open_library_song(
+    song_key: String,
+    state: State<'_, Desktop>,
+) -> Result<Snapshot, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.open_library(song_key)).await
+}
+#[tauri::command]
+async fn update_library_song(
+    song_key: String,
+    metadata: ohmyloop::library::Metadata,
+    state: State<'_, Desktop>,
+) -> Result<ohmyloop::library::Catalogue, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.update_library(song_key, metadata)).await
+}
 #[tauri::command]
 async fn update_document(
     document: Document,
@@ -181,6 +204,7 @@ fn main() {
         return;
     }
     tauri::Builder::default()
+        .manage(lifecycle::ExitGate::default())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let keymap = std::env::var_os("OHMYLOOP_KEYMAP_FILE")
@@ -203,6 +227,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            lifecycle::finish_exit,
             read_keymap,
             analysis_status,
             read_cached_analysis,
@@ -214,14 +239,18 @@ fn main() {
             initialize,
             load_demo,
             open_song,
+            read_library,
+            open_library_song,
+            update_library_song,
             update_document,
             transport_action,
             set_map_metronome,
             transport_status
         ])
         .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                window.app_handle().exit(0);
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                lifecycle::request(window.app_handle());
             }
         })
         .build(tauri::generate_context!())
@@ -239,6 +268,12 @@ fn main() {
                     let _ = window.show();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
+                }
+            }
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if !app.state::<lifecycle::ExitGate>().approved() {
+                    api.prevent_exit();
+                    lifecycle::request(app);
                 }
             }
             tauri::RunEvent::Exit => {

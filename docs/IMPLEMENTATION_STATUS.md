@@ -99,8 +99,8 @@ shared boundaries and explicit anchors define a piecewise timing curve. Tempo,
 numbering and grids are derived. Meter, pulse and optional grouping belong to each
 measure; gaps continue global numbering without independent numbering resets.
 
-`src/project.rs` owns version-3 song documents containing version-1 maps. Valid
-version-2 documents migrate; malformed/future documents are preserved. Native load
+`src/project.rs` owns version-4 song documents containing notes and version-1 maps.
+Valid version-2/3 documents migrate; malformed/future documents are preserved. Native load
 and update validate decoded source rate/frame count. Sections, loops and controls
 retain their own source coordinates. Failed saves leave the accepted map intact:
 a draft remains available for retry, while direct edits retain their form values.
@@ -139,17 +139,40 @@ kills/reaps inference and discards results; network cancellation can wait for a
 stalled read's request timeout. Development dependency profiles optimize inference
 while keeping application code debuggable.
 
+## Music library
+
+The Library/Practice header button switches between practice and a searchable table with artist, title, album,
+file location, date added and last opened, sorting each criterion in either
+direction. Opening a real song adds/updates its content-keyed record; tag import
+provides initial metadata, edits preserve user overrides, and library reopening
+restores practice annotations. Native identity checks reject changed files;
+opening a moved unchanged file updates its location. The catalogue is versioned
+`practice/library.json`, separate from annotations and analysis. Open song lives
+in the library panel heading, and Measure map is above the practice waveform.
+Waveform hints replace the minimap’s former Whole song caption. Shared durable
+writes now live in `storage.rs`. Details and remaining scope are in [LIBRARY.md](LIBRARY.md).
+
+## Song notes and navigation
+
+Notes sits left of Measure map above the practice waveform and opens a plain-text
+editor. Both notes and mapping have an X beside their white-panel titles returning to practice, while
+Library remains top right. In Library that button still becomes Practice.
+`NotesSession` owns debounced writes, pending-text retention and retry; the App
+connects it to the serialized document-save queue. Normal close/quit uses a Tauri
+exit handshake to flush pending edits. Song documents are version 4 with empty
+notes on migration from valid version 2/3. Details are in [NOTES.md](NOTES.md).
+
 ## Current verification
 
 On this macOS host, for the current code:
 
-- **73 Rust tests pass** with the analysis feature in release mode: 6 library,
-  1 analysis-job, 2 analysis-PCM, 10 audio-risk, 10 desktop-workflow, 1 keymap-file,
+- **79 Rust tests pass** with the analysis feature in release mode: 6 unit, 5 music-library,
+  1 analysis-job, 2 analysis-PCM, 10 audio-risk, 11 desktop-workflow, 1 keymap-file,
   24 measure-mapping, 15 suffix-shift and 4 metronome tests. No doc tests are defined.
   The 43 mapping/shift/metronome tests cover actual DSP clicks, variable tempo/meter,
   pickups/partials/gaps, epsilon fitting, split/join/reclaim, absorbed measures,
   exact source timing, protection and invalid edits.
-- **125 frontend tests pass** in 13 files. Svelte/TypeScript reports zero errors
+- **151 frontend tests pass** in 16 files. Svelte/TypeScript reports zero errors
   and warnings. Coverage includes gestures, scoped bindings, defaults/paging,
   selection, density, direct saves and draft workflows, failure/retry, Undo,
   screen switching and stale/disposed async replies.
@@ -172,10 +195,22 @@ On this macOS host, for the current code:
   definitions and boundaries exactly. A further native restart check restored
   those saved suggestions with no installed model, showed re-snapping checked by
   default, allowed toggling off and back on, and saved a re-snapped right shift
-  without rerunning analysis.
+  without rerunning analysis. The library UI was reviewed at 1180 × 810 with
+  generated tagged WAVs: normal Open song imports, all metadata columns, artist
+  sort/reversal, details-panel editing, search, library reopening and restart
+  restoration were observed. The original audio hashes remained unchanged. The subsequent navigation
+  refinement was also checked natively: a single Library/Practice header control,
+  library-only Open song, Measure map above the practice waveform, and interaction hints beneath the minimap. Cmd+O cancellation
+  retained the library and loaded song.
+  The notes pass checked the Notes/Measure map button order, matching top-left
+  close buttons and top-right Library on macOS. Multiline plain text was saved
+  and reopened, then restored after Cmd+Q/restart. Native window close exited
+  normally and saved the exact pending text. Removing inactive Library/Notes
+  markup fixed a WebKit accessibility-tree failure after a Library round trip;
+  session state remains mounted. Save-failure/quit refusal is covered by tests.
 
 The full Rust suite, workspace lint, frontend tests, type checking and macOS app
-bundle build were rerun for the 2026-10-11 shift re-snapping refinement. Native
+bundle build were rerun for the 2026-10-11 song-notes implementation. Native
 interaction evidence from earlier passes remains applicable to unchanged tools;
 re-snapping is covered by generated-data native domain tests, frontend workflow
 tests and an isolated native interaction pass. Original practice-window and

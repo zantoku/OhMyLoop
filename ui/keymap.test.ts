@@ -72,3 +72,12 @@ it('allows the same key in different screens and matches only the active screen'
   expect(map.shortcuts('mapping').some(row=>row.action==='set_loop_start')).toBe(false);
   expect(()=>new Keymap(false,{version:1,keys:{map_beat:['Space']}})).toThrow(/conflict/);
 });
+
+it('provides configurable library actions with no default shortcut and validates contextual bindings',()=>{
+  const keymap=new Keymap(false,{version:1,keys:{show_library:['Mod+k'],library_close:['q']}});
+  expect(keymap.match(key('k',{ctrlKey:true}),'practice')).toBe('show_library');
+  expect(keymap.match(key('q'),'library')).toBe('library_close');
+  expect(keymap.match(key('q'),'mapping')).toBeUndefined();
+  expect(keymap.match(key('Escape'),'mapping')).toBe('disable_loop');
+  expect(()=>new Keymap(false,{version:1,keys:{library_sort:['s']}})).toThrow(/contextual/);
+});

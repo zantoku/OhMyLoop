@@ -15,9 +15,10 @@ tabular figures for musical positions and control values. No remote fonts.
 The scale is 12/14/16/20/28 px, with readable sentence-case labels.
 
 ```
-OhMyLoop                         Song title                   Open song
+OhMyLoop                         Song title                     Library
 ┌─ Sections ───────┬─────────────────────────────────────────────────┐
-│ Verse            │ overview waveform + current viewport             │
+│ Verse            │ Notes / Measure map buttons / zoom controls
+│                  │ overview waveform + current viewport             │
 │ Chorus           │                                                 │
 │ Solo             │ detailed waveform + saved ranges + A/B loop      │
 │                  │                                                 │
@@ -82,7 +83,7 @@ practice workflow without turning the screen into a DAW mixer.
 
 Current implementation: updated 2026-10-11.
 
-The practice header opens **Measure map**; **Back to practice** returns from the
+The button above the practice waveform opens **Measure map**; the **X** beside the panel title returns from the
 dedicated screen in the same window. It shares the song and
 transport, but has a separate viewport and editing selection. Its waveform
 uses the existing zoom, pan and minimap conventions while showing measure
@@ -138,3 +139,39 @@ Free time has a selected-measure removal action and an uncounted-range picker
 with meter/pulse and Create measure from range. Reclaimed measures return to
 the Measure panel. Inactive panel markup is omitted while form/command state
 remains mounted, so WebKit accessibility follows panel changes reliably.
+
+## Music library
+
+The top-right Library button opens a full-width catalogue screen and pauses playback;
+it becomes Practice while browsing. Open song is in the library panel heading.
+Measure map is above the practice waveform, replacing the former workspace title.
+The waveform interaction hints sit below the minimap in place of Whole song.
+Mapping and notes use an X beside their white-panel titles to return to practice, retaining Library at the
+top right. Shortcut help lives in the footer.
+Use the existing Avenir/Segoe/Noto family, navy text (#24314c), pale background
+(#f3f5fa), white surface (#ffffff), blue controls (#526fc0) and sage current-song
+indicator (#66877a). One searchable table is the focus; avoid artwork cards or a
+second sidebar navigation hierarchy in this first pass.
+
+A left-aligned heading/count sits above Search, Sort by and direction controls.
+Column buttons expose ascending/descending state and cover title, artist, album,
+file location, date added and last opened. A title button opens practice; a row
+Edit button opens a compact right-side details panel. Keep precise file location
+and local timestamps visible, with overflow scrolling on narrow screens. Current
+song uses a quiet sage label. Empty and failed states explain how to open a song
+or retry, respectively. The details form edits only artist/title/album and retains
+input on failed save; dates and path are read-only. Native screenshot review and
+verification evidence are in IMPLEMENTATION_STATUS.md.
+
+## Song notes
+
+Place Notes immediately left of Measure map above the practice waveform. Its
+screen has a single full-height plain textarea on a white surface, with a Song
+notes heading and save status. Keep line breaks and whitespace; Markdown syntax
+is displayed as text. An X beside the Song notes title inside the white panel returns to practice after
+saving; mapping uses the same placement. Library remains at the top right on
+both screens. Opening Library pauses playback, while switching between notes
+and practice preserves transport. A failed save keeps the text with Retry save.
+
+Inactive Library and Notes markup is removed while session state remains mounted,
+so WebKit accessibility updates correctly when switching between screens.

@@ -17,9 +17,9 @@ audio, change playback speed, or move existing sections and temporary loops.
 
 ## A dedicated screen
 
-The **Measure map** button in the practice screen's header next to the song
-actions is enabled when a song is loaded. It opens a screen in the same window;
-**Back to practice** returns to the loop editor. Both actions belong to the
+The **Measure map** button above the practice waveform is enabled when a song
+is loaded. It opens a screen in the same window;
+the **X** beside the title inside the white panel returns to the loop editor. **Library** stays at the top right. Both actions belong to the
 shared action/keymap catalog, with descriptions and configurable bindings.
 
 The app shell owns the loaded song, document, and transport. Switching screens
@@ -216,7 +216,7 @@ including EOF, without creating a phantom next measure. Displayed beat numbers
 are local to the chosen pulse interpretation; conversion uses quarter-note
 positions rather than assuming every displayed beat is one quarter note.
 
-Version-3 song documents contain a version-1 map; valid version-2 documents
+Version-4 song documents contain a version-1 map and plain-text notes; valid version-2/3 documents
 migrate without changing the meaning of sections, controls, loops or position.
 Malformed/future-version files remain intact. Native load/update validate the map
 against the decoded source rate and frame count. A map supports up to 10,000

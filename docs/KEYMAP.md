@@ -163,3 +163,28 @@ have no default bindings so existing keymap files continue to work. For example:
 Handle nudging remains local widget behavior. Enter/Space on a focused button
 activate that button through the native WebView instead of dispatching a global
 rewind or playback toggle.
+
+## Library actions
+
+Library actions have stable identities and no default keys: `show_library`,
+`library_close`, `library_open`, `library_edit`, `library_save`, `library_cancel`,
+`library_retry`, `library_sort` and `library_reverse`. Library-only commands are
+scoped to the catalogue screen. Opening/editing require a song-key payload and
+column sorting requires a field payload, so those contextual actions cannot be
+bound to keyboard chords. Their buttons use the central action bindings and hover
+descriptions. `show_library` can be assigned a global shortcut.
+
+The global Open song command (Cmd/Ctrl+O) first opens the library, then the file
+picker. Cancelling keeps the library visible. The header navigation binds
+`show_library` in practice, mapping and notes, and `library_close` in the library.
+Its default label is Library, becoming Practice while browsing the library.
+The X beside the mapping panel title binds `show_practice`; the notes X binds `close_notes`.
+
+## Notes actions
+
+`show_notes` belongs to practice; `close_notes` and `retry_notes` belong to the
+`notes` scope. They have no default keys. Buttons, hover descriptions and optional
+keymap overrides use these same stable identities. Closing notes flushes edits
+before returning to practice; failed saves keep notes open. Global Library,
+Open song and shortcut/configuration actions remain available. Transport and
+loop shortcuts are inactive in notes, and editing a textarea suppresses shortcuts.

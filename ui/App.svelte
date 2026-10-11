@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import NotesScreen from './NotesScreen.svelte';
+  import {NotesSession,type NotesState} from './notes-session';
+  import LibraryScreen from './LibraryScreen.svelte';
   import MetronomeControls from './MetronomeControls.svelte';
   import { MetronomeSession, type MetronomeState } from './metronome-session';
   import { snapLoopPoint } from './practice-timeline';
@@ -28,7 +31,14 @@
   let keymapPath = $state<string | null>(null);
   let keymapWarning = $state<string | null>(null);
   let keymapLoading = $state(false);
-  let screen = $state<'practice' | 'mapping'>('practice');
+  let screen = $state<'practice' | 'mapping' | 'library' | 'notes'>('practice');
+  let libraryScreen=$state<LibraryScreen>();
+  const navigationButton=$derived(screen==='library'?'library_close':'show_library');
+  let notesState=$state<NotesState>({text:'',dirty:false,pending:false,error:''});
+  const notesSession=new NotesSession(async(key,text)=>{
+    if(song?.key!==key)throw new Error('The song changed before notes could be saved.');
+    await update({notes:text},true);
+  },value=>{notesState=value;});
   const shortcuts = $derived(keymap.shortcuts(screen));
   let snapToMeasures = $state(true);
   let practiceFollowing = $state(true);
@@ -67,7 +77,8 @@
   const pitch = $derived(project?.controls.semitones ?? 0);
 
   function apply(snapshot: Snapshot, documentRevision = revision) {
-    if (snapshot.song) { if(song?.key!==snapshot.song.key)practiceFollowing=true; song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
+    if(snapshot.library_error)error=snapshot.library_error;
+    if (snapshot.song) { if(song?.key!==snapshot.song.key){practiceFollowing=true;notesSession.reset(snapshot.song.key,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
@@ -77,17 +88,17 @@
       void update({ controls: project.controls });
     }
   }
-  async function open(demo = false) {
-    if (busy) return;
+  async function open(demo = false, libraryKey?:string) {
+    if (busy||!await notesSession.flush()) return;
     busy = demo ? 'Loading demo…' : 'Opening song…'; error = '';
     try {
       flushControls(); await saves.catch(()=>{});
-      const snapshot = demo ? await bridge.loadDemo() : await bridge.openSong();
+      const snapshot = libraryKey?await bridge.openLibrarySong(libraryKey):demo ? await bridge.loadDemo() : await bridge.openSong();
       if (snapshot) { revision++; apply(snapshot); saved = true; undo = []; screen = 'practice'; }
     } catch (e) { error = String(e); }
     finally { busy = ''; }
   }
-  function update(change: Partial<PracticeDocument>): Promise<void> {
+  function update(change: Partial<PracticeDocument>,throwOnError=false): Promise<void> {
     if (!project) return Promise.resolve();
     project = { ...project, ...change }; const document = $state.snapshot(project);
     const thisRevision = ++revision; saved = false;
@@ -95,7 +106,7 @@
       try {
         const snapshot = await bridge.update(document); apply(snapshot, thisRevision);
         if (thisRevision === revision) saved = true;
-      } catch (e) { error = `Changes could not be saved: ${String(e)}`; }
+      } catch (e) { error = `Changes could not be saved: ${String(e)}`;if(throwOnError)throw e; }
     });
     return saves;
   }
@@ -209,7 +220,18 @@
     if(target){if(screen==='mapping')measureEditor?.selectMeasure(target.id);return action({type:'seek',seconds:target.start/song.rate});}
   }
   const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
+  async function closeNotes(){if(await notesSession.flush())screen='practice';}
+  async function showLibrary(){
+    if(!await notesSession.flush())return;
+    if(transport.playing)await action({type:'pause'});
+    screen='library';
+  }
   const dispatcher = new ActionDispatcher({
+    show_notes:()=>{screen='notes';},close_notes:closeNotes,retry_notes:async()=>{await notesSession.flush();},
+    show_library:showLibrary,library_close:()=>{screen='practice';},library_open:({songKey})=>open(false,songKey),
+    library_edit:payload=>libraryScreen?.command('library_edit',payload),library_save:()=>libraryScreen?.command('library_save'),
+    library_cancel:()=>libraryScreen?.command('library_cancel'),library_retry:()=>libraryScreen?.command('library_retry'),
+    library_sort:payload=>libraryScreen?.command('library_sort',payload),library_reverse:()=>libraryScreen?.command('library_reverse'),
     ...mappingHandlers,
     show_measure_map:()=>{screen='mapping';}, show_practice:()=>{screen='practice';},
     previous_measure:()=>nextMeasure(-1), next_measure:()=>nextMeasure(1),
@@ -224,7 +246,7 @@
     seek_backward: () => seekBy(-5), seek_forward: () => seekBy(5),
     seek_backward_fine: () => seekBy(-.1), seek_forward_fine: () => seekBy(.1),
     previous_section: () => nextSection(-1), next_section: () => nextSection(1),
-    add_section: () => startSection(), open_song: () => open(),
+    add_section: () => startSection(), open_song: async () => { await showLibrary(); if(screen==='library')await open(); },
     disable_loop: () => update({ loop_enabled: false }), show_shortcuts: () => helpDialog.showModal(),
     reload_keymap: reloadKeymap, load_demo: () => open(true), fit_loop: fitLoop,
     zoom_in: () => { view = zoom(view, song!.duration, .5, selection ? (selection.start + selection.end) / 2 : transport.position); },
@@ -247,6 +269,10 @@
   function runButton(id: ButtonId, payload: ActionPayload = {}) { return runAction(keymap.actionFor(id), payload); }
   function actionAvailable(id:ActionId) {
     if(!dispatcher.available(id))return false;
+    if(screen==='notes'&&!['close_notes','retry_notes','show_library','open_song','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
+    if(id==='retry_notes')return notesState.dirty&&!notesState.pending;
+    if(id.startsWith('library_')&&id!=='library_close')return libraryScreen?.canRun(id)??false;
+    if(screen==='library'&&!['show_library','library_close','open_song','load_demo','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
     if(id==='practice_metronome')return native&&(clickEnabled||(!transport.audio_error&&!!audibleMap?.measures.length));
     if(id==='toggle_loop_snap')return !!mapView?.measures.length;
     if(id in MAPPING_ACTIONS)return !!measureEditor?.canRun(id as MappingActionId);
@@ -265,6 +291,14 @@
     mounted = true; busy = 'Restoring practice…';
     const restore = bridge.initialize().then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
     Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
+    let unlistenExit:(()=>void)|undefined,exiting=false;
+    void bridge.onExitRequested(async()=>{
+      if(exiting)return;exiting=true;
+      try{
+        flushControls();
+        if(await notesSession.flush()){await saves;await bridge.finishExit();}
+      }catch(e){error=String(e);}finally{exiting=false;}
+    }).then(unlisten=>{if(mounted)unlistenExit=unlisten;else unlisten();}).catch(e=>{error=String(e);});
     let polling = false;
     const timer = setInterval(async () => {
       if (!song || busy || polling) return;
@@ -272,7 +306,7 @@
       try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.song_key === song?.key) transport = status; }
       catch (e) { if (mounted) error = String(e); } finally { polling = false; }
     }, 50);
-    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); clickSession.dispose(); };
+    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();notesSession.dispose();clickSession.dispose(); };
   });
 </script>
 
@@ -284,9 +318,7 @@
       <span>OhMyLoop</span>
     </div>
     <div class="song-heading"><h1>{song?.title ?? 'Make room for practice'}</h1><span>{song ? `${time(song.duration, 0)} • ${song.path ? 'Local song' : 'Built-in demo'}` : 'One song. As many tries as it takes.'}</span></div>
-    <button class="button map-screen-button" disabled={!buttonAvailable(screen==='practice'?'show_measure_map':'show_practice')} title={keymap.title(screen==='practice'?'show_measure_map':'show_practice')} onclick={()=>runButton(screen==='practice'?'show_measure_map':'show_practice')}>{keymap.buttonLabel(screen==='practice'?'show_measure_map':'show_practice',screen==='practice'?'Measure map':'Back to practice')}</button>
-    <button class="button open-button" title={keymap.title('open_song')} onclick={() => runButton('open_song')} disabled={!buttonAvailable('open_song')}><Icon name="folder"/>Open song</button>
-    <button class="icon-button" aria-label="Keyboard shortcuts" title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}><Icon name="help"/></button>
+    <button class="button library-button" disabled={!buttonAvailable(navigationButton)} title={keymap.title(navigationButton)} onclick={()=>runButton(navigationButton)}>{keymap.buttonLabel(navigationButton,screen==='library'?'Practice':'Library')}</button>
   </header>
 
   {#if error}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
@@ -296,6 +328,8 @@
   {#if transport.save_error}<div class="notice error" role="alert"><span>{transport.save_error}</span><button class="text-button" title={keymap.title('retry_save')} onclick={() => runButton('retry_save')}>Retry save</button></div>{/if}
   {#if !native}<div class="preview-note">Interface preview · Audio playback and file opening are available in the desktop app.</div>{/if}
 
+  <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
+  {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
   <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>
     <aside class="sections-panel">
       <div class="panel-title"><h2>Sections</h2><span>{sections.length || ''}</span></div>
@@ -318,7 +352,7 @@
 
     <section class="workbench" aria-label="Practice workspace">
       {#if song && project}
-        <div class="workspace-heading"><div><h2>Your practice space</h2><p>Click to seek. Drag to loop. Scroll to zoom; middle-drag to pan.</p></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
+        <div class="workspace-heading"><div class="workspace-tools"><button class="button map-screen-button" disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}>{keymap.buttonLabel('show_notes','Notes')}</button><button class="button map-screen-button" disabled={!buttonAvailable('show_measure_map')} title={keymap.title('show_measure_map')} onclick={()=>runButton('show_measure_map')}>{keymap.buttonLabel('show_measure_map','Measure map')}</button></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
         <Waveform {mapView} {snapToMeasures} rate={song.rate} peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
         <div class="practice-listening">
           {#if mapView?.measures.length}<label class="snap-control" title={keymap.title('loop_snap')}><input type="checkbox" checked={snapToMeasures} disabled={!buttonAvailable('loop_snap')} onchange={()=>runButton('loop_snap')}/>{keymap.buttonLabel('loop_snap','Snap to measures')}</label>{/if}
@@ -340,7 +374,7 @@
         <PlaybackSettings disabled={!!busy} {speed} {pitch} {keymap} {controls} {runButton}/>
 
       {:else}
-        <div class="empty-workbench"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M10 45h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12m17 4h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12" fill="none" stroke="#9caed1" stroke-width="3" stroke-linecap="round"/></svg><h2>A good place to get it right.</h2><p>Open a song, find your passage, and play it at your pace.</p><div><button class="button primary" title={keymap.title('open_song')} onclick={() => runButton('open_song')} disabled={!buttonAvailable('open_song')}><Icon name="folder"/>Open a song</button><button class="text-button" title={keymap.title('demo')} onclick={() => runButton('demo')} disabled={!buttonAvailable('demo')}>Try the demo</button></div><span>WAV, MP3, FLAC, M4A and Ogg</span></div>
+        <div class="empty-workbench"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M10 45h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12m17 4h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12" fill="none" stroke="#9caed1" stroke-width="3" stroke-linecap="round"/></svg><h2>A good place to get it right.</h2><p>Browse your library, find a song, and play it at your pace.</p><div><button class="button primary" title={keymap.title('show_library')} onclick={() => runButton('show_library')} disabled={!buttonAvailable('show_library')}>Browse library</button><button class="text-button" title={keymap.title('demo')} onclick={() => runButton('demo')} disabled={!buttonAvailable('demo')}>Try the demo</button></div><span>WAV, MP3, FLAC, M4A and Ogg</span></div>
       {/if}
     </section>
   </main>
@@ -349,7 +383,7 @@
       {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls(value,pitch)} disabled={!!busy}/>{/snippet}
       <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.key,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
     {/key}
-    <div class="musical-navigation" hidden={!mapView?.measures.length}>
+    <div class="musical-navigation" hidden={screen==='library'||screen==='notes'||!mapView?.measures.length}>
       <span>{transport.musical_position?`Measure ${transport.musical_position.label}, beat ${transport.musical_position.beat.toFixed(2)}`:'Unmapped position'}</span>
       <button class="text-button" disabled={!buttonAvailable('previous_measure')} title={keymap.title('previous_measure')} onclick={()=>runButton('previous_measure')}>{keymap.buttonLabel('previous_measure','Previous measure')}</button>
       <button class="text-button" disabled={!buttonAvailable('next_measure')} title={keymap.title('next_measure')} onclick={()=>runButton('next_measure')}>{keymap.buttonLabel('next_measure','Next measure')}</button>
@@ -358,7 +392,7 @@
     </div>
 
   {/if}
-  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><button title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts <span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}</button></footer>
+  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><button title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts {#if screen==='practice'||screen==='mapping'}<span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}{/if}</button></footer>
 </div>
 
 <dialog class="section-dialog" bind:this={sectionDialog} onclose={() => { dialogError = ''; }}>

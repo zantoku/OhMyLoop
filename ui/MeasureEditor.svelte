@@ -2,6 +2,7 @@
   import { untrack, onDestroy, type Snippet } from 'svelte';
   import { AnalysisSession, type AnalysisState } from './analysis-session';
   import AnalysisProgress from './AnalysisProgress.svelte';
+  import Icon from './Icon.svelte';
   import MeasureBuilder from './MeasureBuilder.svelte';
   import BatchTools from './BatchTools.svelte';
   import MeasureTools from './MeasureTools.svelte';
@@ -112,7 +113,7 @@
 </script>
 <section class="measure-editor" aria-label="Measure mapping workspace" hidden={!active}>
   <div class="mapping-workspace">
-    <div class="mapping-heading"><div><h2>Measure map</h2></div><span class="map-status">{editState.preview?'Draft preview':measures.length?`${measures.length} measures`:'No map yet'}</span></div>
+    <div class="mapping-heading"><div class="screen-title"><button class="icon-button screen-close" aria-label={label('show_practice','Close measure map')} title={title('show_practice')} disabled={disabled('show_practice')} onclick={()=>run('show_practice')}><Icon name="close"/></button><h2>Measure map</h2></div><span class="map-status">{editState.preview?'Draft preview':measures.length?`${measures.length} measures`:'No map yet'}</span></div>
     <div class="mapping-toolbar" role="group" aria-label="Measure-map tools">
       <button class="text-button" disabled={disabled('map_undo')} title={title('map_undo')} onclick={()=>run('map_undo')}>{label('map_undo','Undo')}</button>
       <button class="text-button" disabled={disabled('map_redo')} title={title('map_redo')} onclick={()=>run('map_redo')}>{label('map_redo','Redo')}</button>

@@ -46,7 +46,7 @@ remain evidence-driven work; completed local checks do not settle all risks.
 
 ## Current implementation: editable measure mapping
 
-The dedicated **Measure map** screen opens from the practice header and has its
+The dedicated **Measure map** screen opens from above the practice waveform and has its
 own minimap, waveform and musical ruler. Both screens share the loaded song and
 transport; switching retains practice settings and each viewport.
 
@@ -74,7 +74,7 @@ measures and free time. Resizing a boundary evenly spaces both attached measures
 The displayed draft/map can be reviewed with a metronome and paged playhead
 following, both initially on. Optional detected-beat visibility and marker density
 reduce clutter. Mapping history is session-only; the accepted version-1 map is
-saved in version-3 song documents with version-2 migration. Practice displays the
+saved in version-4 song documents with version-2/3 migration. Practice displays the
 accepted ruler and measure navigation. Automatic replacement preserves material
 outside its target span and rejects protected conflicts.
 
@@ -86,6 +86,34 @@ provisional analysis results and remaining evaluation are in [docs/IMPLEMENTATIO
 
 The remaining features below are outside the measure-mapping pass. The map
 will supply their musical timing foundation.
+
+## Current implementation: music library
+
+The first catalogue workflow adds real songs when they are opened, seeds artist,
+title and album from embedded tags, and preserves library edits thereafter. Store
+canonical file location, UTC date added and last opened; sort the list by all six
+criteria in either direction, with default recent-first order. Search metadata
+and file locations. A Library/Practice header button switches screens. Open song lives in the library
+heading, and selecting a
+song returns to practice with its existing annotations.
+
+Library entries share the audio content identity used by practice documents and
+analysis. Keep the versioned library index separate from both. Opening a moved
+unchanged file updates its location without duplicating its record; reject a
+changed file at a stored location. Do not modify embedded tags or copy audio.
+Leave directory scans, batch imports, artwork, playlists, removal and portable
+project export outside this pass. Detailed behavior and persistence are in
+[docs/LIBRARY.md](docs/LIBRARY.md).
+
+## Current implementation: song notes
+
+A Notes button left of Measure map opens a plain-text song editor. Autosave,
+explicit close, library navigation and normal app exit retain pending edits;
+failed saves keep the text for retry. Notes and mapping use an X beside their white-panel titles to
+return to practice and retain Library at the top right. Library still uses
+Practice at the top right. Store notes in version-4 song documents, migrating
+valid version-2/3 documents without losing annotations. Defer Markdown, rich
+text and separate notes export. See [docs/NOTES.md](docs/NOTES.md).
 
 ## Later: musical timing and loop practice controls
 

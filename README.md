@@ -37,7 +37,7 @@ Windows and Linux use their platform's Tauri bundle formats. Linux also needs
 the WebKitGTK and desktop integration packages listed in
 [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Open a song or try the built-in demo. Click the waveform to seek; drag to
+Use **Library → Open song**, or try the built-in demo. Click the waveform to seek; drag to
 choose a temporary loop. The A/B handles and numeric fields adjust the bounds.
 Scroll over the waveform to zoom at the pointer; hold the middle mouse button
 and drag to pan. Click or drag the whole-song minimap to move the detailed
@@ -65,7 +65,7 @@ validation rules, and [example configuration](config/keymap.example.json).
 
 Practice documents are saved in the app's per-user data directory, under
 `practice`. They contain stable section IDs, source coordinates, controls,
-loop selection, and last position. A SHA-256 identity lets settings survive
+loop selection, last position, and plain-text song notes. A SHA-256 identity lets settings survive
 moving or renaming an unchanged audio file. Playback is restored paused.
 Corrupt or unsupported documents are reported and left intact. For development
 only, `OHMYLOOP_DATA_DIR` selects the practice-document directory itself; it does
@@ -82,10 +82,43 @@ it an estimate.
 `npm run dev` opens a frontend-only development preview with demo fixtures.
 Audio, analysis and native musical-map edits require `npm run desktop`.
 
+## Music library
+
+Open **Library** from the header to find previously opened songs. Real songs are
+added automatically on successful open; the built-in demo is excluded. Artist,
+title and album come from embedded tags when available, with the filename as a
+fallback title. **Edit → Save details** changes the library record without writing
+to your audio file. Later opens retain your edits.
+
+Search title, artist, album or file location. Click a column heading or use Sort by
+to choose any of the six fields, including Date added and Last opened; reverse the
+order with the adjacent button. The default is Last opened, descending. Click a
+song title to reopen its existing practice state. Opening the library pauses
+playback. The top-right navigation button becomes **Practice** while browsing.
+**Open song** lives in the library heading; Cmd/Ctrl+O also opens through the
+library, keeping it visible if the file picker is cancelled.
+
+The catalogue is `practice/library.json`, separate from each song's practice
+JSON and the analysis cache. It uses the same content hashes, so reopening a moved
+unchanged file updates its location and keeps its annotations. Missing or replaced
+files produce an error; use Open song to locate a moved file. Previously used
+songs join the catalogue the next time they are opened or restored. No folder
+scan/import, artwork, removal or export workflow is implemented yet.
+See [docs/LIBRARY.md](docs/LIBRARY.md) for details.
+
+## Song notes
+
+Open **Notes**, to the left of Measure map above the practice waveform, for a
+plain-text editor. Notes are saved with the song, including line breaks and
+whitespace. The **X** beside the Song notes title saves and returns to practice; **Library** stays
+at the top right. Edits autosave, and normal app quit flushes pending text.
+Failed writes retain the text and offer Retry save. Markdown rendering is deferred.
+See [docs/NOTES.md](docs/NOTES.md) for persistence and lifecycle details.
+
 ## Measure mapping
 
-Open **Measure map** from the practice header; **Back to practice** returns to the
-player. Both screens share transport and retain their own viewports.
+Open **Measure map** above the practice waveform; the **X** beside its title returns to the
+player. **Library** stays in the top-right corner. Both screens share transport and retain their own viewports.
 
 In **Measure map**, **Metronome** defaults on to play the displayed authored map,
 including a green draft before applying it. **Click level** adjusts its volume;
@@ -152,7 +185,7 @@ corrections. **Clear map** removes all measures/anchors, including protected one
 sections, loops and playback settings. Mapping undo/redo retains up to 50 edits
 during the same song session and survives switching back to practice; it is not
 saved across restarts. The accepted map is
-persisted with the song in version-3 documents; valid version-2 documents migrate.
+persisted with the song in version-4 documents; valid version-2 and version-3 documents migrate.
 Practice uses a single waveform ruler: measure numbers and vertical barlines in
 mapped audio, timecodes in free time. The separate section lane stays. Loops
 snap to whole measures by default; turn off **Snap to measures** or Shift-drag

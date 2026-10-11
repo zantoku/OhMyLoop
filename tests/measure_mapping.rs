@@ -918,7 +918,7 @@ fn persistence_migrates_v2_and_retains_invalid_original_bytes() {
     let bytes = serde_json::to_vec(&old).unwrap();
     std::fs::write(directory.join("fixture.json"), &bytes).unwrap();
     let mut migrated = store.load("fixture", 20.0).unwrap();
-    assert_eq!(migrated.version, 3);
+    assert_eq!(migrated.version, 4);
     assert_eq!(migrated.controls.speed, 0.75);
     assert_eq!(migrated.last_position, 1.234567);
     assert_eq!(

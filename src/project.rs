@@ -1,3 +1,4 @@
+use crate::storage::atomic_write;
 use crate::{audio::Audio, dsp::Controls, engine::LoopRegion};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -5,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fs::{self, File},
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -30,13 +31,15 @@ pub struct Document {
     pub loop_enabled: bool,
     pub last_position: f64,
     #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
     pub measure_map: Option<crate::timing::MeasureMap>,
 }
 
 impl Document {
     pub fn new(song_key: String) -> Self {
         Self {
-            version: 3,
+            version: 4,
             song_key,
             controls: Controls::default(),
             sections: Vec::new(),
@@ -44,18 +47,23 @@ impl Document {
             loop_selection: None,
             loop_enabled: false,
             last_position: 0.0,
+            notes: String::new(),
             measure_map: None,
         }
     }
 
     pub fn validate(&self, key: &str, duration: f64) -> Result<()> {
         ensure!(
-            self.version == 3,
+            self.version == 4,
             "Saved practice settings use an unsupported version"
         );
         ensure!(
             self.song_key == key,
             "Practice settings belong to a different song"
+        );
+        ensure!(
+            self.notes.len() <= 1_048_576,
+            "Song notes must be at most 1 MiB of UTF-8 text"
         );
         self.controls.validate()?;
         if let Some(map) = &self.measure_map {
@@ -181,6 +189,9 @@ impl Store {
             );
             document.version = 3;
         }
+        if document.version == 3 {
+            document.version = 4;
+        }
         document.validate(key, duration)?;
         Ok(document)
     }
@@ -207,14 +218,4 @@ impl Store {
             &serde_json::to_vec(source)?,
         )
     }
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    let temporary = path.with_extension("json.tmp");
-    let mut file = File::create(&temporary).context("Cannot save practice settings")?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(temporary, path).context("Cannot replace saved practice settings")?;
-    Ok(())
 }

@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -13,10 +13,12 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 beforeEach(() => {
   vi.clearAllMocks();
   mock.metronome.mockResolvedValue({});
+  mock.onExitRequested.mockResolvedValue(()=>{});mock.finishExit.mockResolvedValue(undefined);
   mock.readCachedAnalysis.mockResolvedValue(null);
+  mock.readLibrary.mockResolvedValue({version:1,songs:[]});
   mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:false,song_key:null,map_revision:0,error:null,result:null});
   mock.readKeymap.mockResolvedValue({ path: '/test/keymap.json', configuration: null, warning: null });
-  document = { version: 3, song_key: 'test', controls: { speed: 1, semitones: 0 },
+  document = { version: 4, notes:'', song_key: 'test', controls: { speed: 1, semitones: 0 },
     sections: [{ id: 'verse', name: 'Verse', start: 0, end: 8 }, { id: 'chorus', name: 'Chorus', start: 3, end: 6 }],
     selected_section: null, loop_selection: null, loop_enabled: false, last_position: 0 };
   transport = { song_key: 'test', position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: 'Test output' };
@@ -28,6 +30,7 @@ beforeEach(() => {
       const loop = document.loop_selection;
       if (document.loop_enabled && loop && (action.seconds < loop.start || action.seconds >= loop.end)) document.loop_enabled = false;
     } else if (action.type === 'toggle_play') transport.playing = !transport.playing;
+    else if(action.type==='pause')transport.playing=false;
     return response();
   });
   mock.status.mockImplementation(async () => ({ ...transport }));
@@ -183,7 +186,7 @@ describe('single-song practice workflow', () => {
     expect(previous.getAttribute('title')).toBe('Back to the riff (Q)');
     mock.action.mockClear(); await fireEvent.click(previous);
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
+    await fireEvent.click(screen.getByRole('button', { name: /^Shortcuts/ }));
     expect(screen.getByText('Back to the riff', { selector: 'dd' })).toBeTruthy();
     expect(screen.getByText('Q', { selector: 'dt' })).toBeTruthy();
   });
@@ -209,7 +212,7 @@ describe('measure-map screen integration',()=>{
     await fireEvent.input(screen.getByLabelText('Span end (seconds)'),{target:{value:'8'}});await fireEvent.input(screen.getByLabelText('Number of measures'),{target:{value:'2'}});
     await fireEvent.click(screen.getByRole('button',{name:'Preview evenly spaced measures'}));await screen.findByRole('button',{name:'Apply map'});expect(mock.update).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button',{name:'Apply map'}));await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));expect(document.loop_enabled).toBe(true);expect(transport.playing).toBe(true);
-    await waitFor(()=>expect(screen.getByRole('button',{name:'Back to practice'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));expect(screen.getByRole('region',{name:'Measure ruler'})).toBeTruthy();
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Close measure map'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));expect(screen.getByRole('region',{name:'Measure ruler'})).toBeTruthy();
     await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false);
   });
 });
@@ -272,7 +275,7 @@ it('uses detected beats by default, derives count from the preview, and prevents
   await waitFor(()=>expect((screen.getByRole('spinbutton',{name:'Meter numerator'}) as HTMLInputElement).value).toBe('3'));
   await fireEvent.change(source,{target:{value:'manual'}});expect(screen.getByLabelText('Number of measures')).toBeTruthy();
   expect(screen.getByText(/This mode does not use detected beats/)).toBeTruthy();
-  await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await waitFor(()=>expect(mock.analysisStatus.mock.calls.length).toBeGreaterThan(1));expect((screen.getByLabelText('Measure source') as HTMLSelectElement).value).toBe('manual');
   expect(showDetected.checked).toBe(true);
   await fireEvent.change(source,{target:{value:'detected'}});
@@ -661,7 +664,7 @@ it('auditions the displayed draft, reverts on discard, and disables clicks when 
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',false,.8,original.map]));
   transport.audio_error=null;
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.8,original.map]));
-  await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.8,original.map]));
   expect(transport.playing).toBe(false);expect(document.measure_map).toEqual(original.map);
 });
@@ -776,7 +779,7 @@ it('shares metronome enable/level across screens and listens to saved map on ret
   await fireEvent.click(screen.getByRole('button',{name:'Metronome off'}));
   await fireEvent.click(screen.getByRole('button',{name:'Preview numbering'}));
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.65,draft.map]));
-  await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.65,original.map]));
   expect(screen.getByRole('button',{name:'Metronome on'}).getAttribute('aria-pressed')).toBe('true');
   expect(document.measure_map).toEqual(original.map);
@@ -852,7 +855,7 @@ it('keeps practice following through gestures until manually switched off, and p
   await screen.findByText('0:01.0');expect(viewport.style.left).toBe(manual);
   await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
-  await fireEvent.click(screen.getByRole('button',{name:'Back to practice'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
   expect(screen.getByRole('button',{name:'Follow playhead off'}).getAttribute('aria-pressed')).toBe('false');
   expect(viewport.style.left).toBe(manual);
   await fireEvent.click(screen.getByRole('button',{name:'Follow playhead off'}));
@@ -922,4 +925,74 @@ it('reloads cached beats after restart and shifts with re-snapping enabled by de
   await fireEvent.click(screen.getByRole('button',{name:'Shift right'}));await waitFor(()=>expect(document.measure_map).toEqual(changed.map));
   expect(mock.previewMap.mock.lastCall?.[2]).toMatchObject({resnap:{pulses:cached.beats.map(b=>b.frame),epsilon_ms:30}});
   expect(mock.readCachedAnalysis).toHaveBeenCalledExactlyOnceWith('test');
+});
+
+const libraryEntry=(key:string,title:string,artist:string,added:number,opened:number)=>({song_key:key,metadata:{title,artist,album:'Workshop'},file_location:`/music/${title}.wav`,date_added:added,last_opened:opened});
+it('opens the searchable library, pauses playback, sorts columns and edits metadata',async()=>{
+  const current=libraryEntry('test','Workshop take','Zed',1000,2000),other=libraryEntry('other','Riff 2','Alpha',2000,1000);
+  mock.readLibrary.mockResolvedValue({version:1,songs:[current,other]});mock.updateLibrarySong.mockImplementation(async(key,metadata)=>({version:1,songs:[{...current,metadata},other]}));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Play'}));await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+  await screen.findByRole('button',{name:'Riff 2'});expect(mock.action).toHaveBeenLastCalledWith({type:'pause'});
+  const list=screen.getByRole('table',{name:'Practice songs'});
+  expect(within(list).getAllByRole('row').slice(1).map(row=>row.textContent)).toEqual([expect.stringContaining('Workshop take'),expect.stringContaining('Riff 2')]);
+  await fireEvent.click(within(list).getByRole('button',{name:'Artist'}));expect(within(list).getAllByRole('row')[1].textContent).toContain('Riff 2');
+  await fireEvent.input(screen.getByRole('searchbox',{name:'Search library'}),{target:{value:'Zed Workshop'}});expect(screen.queryByRole('button',{name:'Riff 2'})).toBeNull();
+  await fireEvent.click(screen.getByRole('button',{name:'Edit details for Workshop take'}));await fireEvent.input(screen.getByRole('textbox',{name:'Library song title'}),{target:{value:'My guitar take'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Save details'}));await screen.findByRole('heading',{name:'My guitar take'});expect(mock.updateLibrarySong).toHaveBeenCalledExactlyOnceWith('test',{title:'My guitar take',artist:'Zed',album:'Workshop'});
+  expect(screen.queryByRole('textbox',{name:'Library song title'})).toBeNull();expect(mock.update).not.toHaveBeenCalled();
+});
+it('reopens a song from the library and leaves existing practice intact on open failure',async()=>{
+  const entry=libraryEntry('other','Another take','Player',1000,2000);mock.readLibrary.mockResolvedValue({version:1,songs:[entry]});mock.openLibrarySong.mockRejectedValueOnce(new Error('File missing; use Open song'));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('button',{name:'Another take'});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByText(/File missing/);expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();expect(mock.openLibrarySong).toHaveBeenCalledWith('other');
+  mock.openLibrarySong.mockResolvedValue({...response(),song:{key:'other',title:'Another take',path:entry.file_location,duration:12,rate:48000,peaks:[[-.2,.2]]}});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByRole('heading',{name:'Another take'});expect(screen.getByRole('region',{name:'Practice workspace'})).toBeTruthy();
+});
+it('shows library load failures with retry and preserves typed metadata after a failed save',async()=>{
+  mock.readLibrary.mockRejectedValueOnce(new Error('Invalid library; original file left intact'));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByText(/Invalid library/);
+  mock.readLibrary.mockResolvedValue({version:1,songs:[libraryEntry('test','Workshop take','Player',1,2)]});await fireEvent.click(screen.getByRole('button',{name:'Retry'}));await screen.findByRole('button',{name:'Edit details for Workshop take'});
+  await fireEvent.click(screen.getByRole('button',{name:'Edit details for Workshop take'}));await fireEvent.input(screen.getByRole('textbox',{name:'Library song artist'}),{target:{value:'My artist'}});mock.updateLibrarySong.mockRejectedValue(new Error('Disk full'));await fireEvent.click(screen.getByRole('button',{name:'Save details'}));await screen.findByText(/Disk full/);expect((screen.getByRole('textbox',{name:'Library song artist'}) as HTMLInputElement).value).toBe('My artist');
+});
+
+it.each(['practice','mapping','library'] as const)('routes opening a song through the library from %s and retains the current song on cancel',async(context)=>{
+  mock.openSong.mockResolvedValue(null);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Play'}));
+  if(context==='mapping')await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  if(context==='library')await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+  await fireEvent.keyDown(window,{key:'o',ctrlKey:true});
+  await waitFor(()=>expect(mock.openSong).toHaveBeenCalledOnce());
+  await screen.findByRole('main',{name:'Music library'});
+  expect(screen.getByRole('button',{name:'Practice'})).toBeTruthy();
+  expect(screen.getAllByRole('button',{name:'Open song'})).toHaveLength(1);
+  expect(transport.playing).toBe(false);expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();
+  await fireEvent.click(screen.getByRole('button',{name:'Practice'}));
+  expect(screen.getByRole('region',{name:'Practice workspace'})).toBeTruthy();
+});
+
+it('saves plain-text notes before closing and keeps transport shortcuts out of the textarea',async()=>{
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Notes'}));
+  const notes=screen.getByRole('textbox',{name:'Notes for this song'});mock.action.mockClear();
+  const text='  Guitar in drop D\n\nWork on measures 15–17. **Plain text**  ';
+  await fireEvent.input(notes,{target:{value:text}});await fireEvent.keyDown(notes,{key:'Enter'});expect(mock.action).not.toHaveBeenCalled();
+  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await screen.findByRole('region',{name:'Practice workspace'});
+  expect(document.notes).toBe(text);expect(document.sections).toHaveLength(2);
+  await fireEvent.click(screen.getByRole('button',{name:'Notes'}));expect((screen.getByRole('textbox',{name:'Notes for this song'}) as HTMLTextAreaElement).value).toBe(text);
+  expect(screen.getByRole('button',{name:'Library'})).toBeTruthy();
+});
+it('keeps notes open and retains text on failed save, then closes after retry',async()=>{
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Notes'}));const main=screen.getByRole('main',{name:'Song notes'});
+  mock.update.mockRejectedValueOnce(new Error('Disk full'));await fireEvent.input(screen.getByRole('textbox',{name:'Notes for this song'}),{target:{value:'Do not lose this'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await within(main).findByRole('alert');expect((screen.getByRole('textbox',{name:'Notes for this song'}) as HTMLTextAreaElement).value).toBe('Do not lose this');
+  await fireEvent.click(screen.getByRole('button',{name:'Retry save'}));await waitFor(()=>expect(document.notes).toBe('Do not lose this'));
+  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));expect(await screen.findByRole('region',{name:'Practice workspace'})).toBeTruthy();
+});
+it('flushes pending notes before a normal app exit and keeps the app open on save failure',async()=>{
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Notes'}));
+  await fireEvent.input(screen.getByRole('textbox',{name:'Notes for this song'}),{target:{value:'Saved on quit'}});
+  const onExit=mock.onExitRequested.mock.lastCall![0] as ()=>Promise<void>;mock.update.mockRejectedValueOnce(new Error('Disk full'));await onExit();expect(mock.finishExit).not.toHaveBeenCalled();expect(screen.getByRole('main',{name:'Song notes'})).toBeTruthy();
+  await onExit();expect(document.notes).toBe('Saved on quit');expect(mock.finishExit).toHaveBeenCalledOnce();
+});
+it('loads stored notes and flushes them when navigating to the library',async()=>{
+  document.notes='Remember the bridge';mock.initialize.mockResolvedValue({...response(),song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Notes'}));const field=screen.getByRole('textbox',{name:'Notes for this song'}) as HTMLTextAreaElement;expect(field.value).toBe('Remember the bridge');await fireEvent.input(field,{target:{value:'Remember the bridge\nRepeat slowly'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('main',{name:'Music library'});expect(document.notes).toBe('Remember the bridge\nRepeat slowly');
 });

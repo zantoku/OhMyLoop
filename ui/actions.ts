@@ -1,7 +1,7 @@
 // Stable action identities and presentation metadata. No UI or device access.
-export type ActionScope = 'all' | 'practice' | 'mapping';
+export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'notes';
 export type Requirement = 'none' | 'song' | 'range' | 'sections' | 'audio' | 'loop_on' | 'undo' | 'editor' | 'help' | 'zoom_out';
-export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close';
+export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort';
 function define(description: string, keys: readonly string[] = [], requires: Requirement = 'song', payload: PayloadKind = 'command', repeat = false) {
   return { description, keys, requires, payload, repeat, duringBusy: false, scope: 'all' as ActionScope };
 }
@@ -45,7 +45,20 @@ export const MAPPING_ACTIONS = {
 } as const;
 export type MappingActionId = keyof typeof MAPPING_ACTIONS;
 
+const library = (...args: Parameters<typeof define>) => ({ ...define(...args), scope: 'library' as ActionScope });
 export const ACTIONS = {
+  show_notes: practice('Open song notes'),
+  close_notes: {...define('Close notes and return to practice'),scope:'notes' as ActionScope},
+  retry_notes: {...define('Retry saving song notes'),scope:'notes' as ActionScope},
+  show_library: define('Open the music library', [], 'none'),
+  library_close: library('Back to practice', [], 'none'),
+  library_open: library('Open this library song for practice', [], 'none', 'library_song'),
+  library_edit: library('Edit the song details stored in your library', [], 'none', 'library_song'),
+  library_save: library('Save song details without changing the audio file', [], 'none'),
+  library_cancel: library('Cancel editing song details', [], 'none'),
+  library_retry: library('Reload the music library', [], 'none'),
+  library_sort: library('Sort the library by this column; click again to reverse', [], 'none', 'library_sort'),
+  library_reverse: library('Reverse the library sort order', [], 'none'),
   ...MAPPING_ACTIONS,
   show_measure_map: { ...define('Open the measure map'), scope: 'practice' as ActionScope },
   show_practice: mapping('Back to practice'),
@@ -95,6 +108,9 @@ export const ACTIONS = {
 
 export type ActionId = keyof typeof ACTIONS;
 export const BUTTONS = {
+  show_notes:'show_notes',close_notes:'close_notes',retry_notes:'retry_notes',
+  show_library:'show_library', library_close:'library_close', library_open:'library_open', library_edit:'library_edit',
+  library_save:'library_save', library_cancel:'library_cancel', library_retry:'library_retry', library_sort:'library_sort', library_reverse:'library_reverse',
   ...Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id => [id, id])) as { [K in MappingActionId]: K },
   mapping_loop_off: 'disable_loop', show_measure_map: 'show_measure_map', show_practice: 'show_practice',
   previous_measure: 'previous_measure', next_measure: 'next_measure', goto_measure: 'goto_measure',

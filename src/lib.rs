@@ -6,9 +6,11 @@ pub mod desktop;
 pub mod dsp;
 pub mod engine;
 pub mod keymap;
+pub mod library;
 pub mod playback;
 pub mod project;
 pub mod session;
+mod storage;
 pub mod timing;
 
 pub mod metronome;

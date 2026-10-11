@@ -36,6 +36,7 @@ pub struct Snapshot {
     pub document: Option<Document>,
     pub transport: Transport,
     pub map_view: Option<crate::timing::MapView>,
+    pub library_error: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -50,6 +51,9 @@ pub enum Action {
 enum Command {
     Restore,
     Load(String),
+    Library,
+    OpenLibrary(String),
+    UpdateLibrary(String, crate::library::Metadata),
     Update(Document),
     Act(Action),
     Status,
@@ -61,6 +65,7 @@ enum Response {
     Snapshot(Box<Snapshot>),
     Status(Transport),
     Source(Arc<Audio>),
+    Library(crate::library::Catalogue),
 }
 struct Request {
     command: Command,
@@ -83,6 +88,7 @@ impl Desktop {
         }
     }
     pub fn start(directory: PathBuf) -> Result<Self> {
+        let library = crate::library::Store::new(&directory);
         let store = Store::new(directory)?;
         let (requests, receiver) = mpsc::sync_channel::<Request>(8);
         thread::Builder::new()
@@ -90,6 +96,8 @@ impl Desktop {
             .spawn(move || {
                 let mut controller = Controller {
                     store,
+                    library,
+                    library_error: None,
                     song: None,
                     audio: None,
                     document: None,
@@ -132,6 +140,25 @@ impl Desktop {
             _ => unreachable!(),
         }
     }
+    pub fn library(&self) -> Result<crate::library::Catalogue> {
+        match self.request(Command::Library)? {
+            Response::Library(catalogue) => Ok(catalogue),
+            _ => unreachable!(),
+        }
+    }
+    pub fn open_library(&self, key: String) -> Result<Snapshot> {
+        self.snapshot(Command::OpenLibrary(key))
+    }
+    pub fn update_library(
+        &self,
+        key: String,
+        metadata: crate::library::Metadata,
+    ) -> Result<crate::library::Catalogue> {
+        match self.request(Command::UpdateLibrary(key, metadata))? {
+            Response::Library(catalogue) => Ok(catalogue),
+            _ => unreachable!(),
+        }
+    }
     pub fn restore(&self) -> Result<Snapshot> {
         self.snapshot(Command::Restore)
     }
@@ -169,6 +196,8 @@ impl Desktop {
 
 struct Controller {
     store: Store,
+    library: crate::library::Store,
+    library_error: Option<String>,
     song: Option<Song>,
     audio: Option<Arc<Audio>>,
     document: Option<Document>,
@@ -183,11 +212,14 @@ struct Controller {
 
 impl Controller {
     fn request(&mut self, command: Command) -> Result<Response> {
-        let include_song = matches!(command, Command::Restore | Command::Load(_));
+        let include_song = matches!(
+            command,
+            Command::Restore | Command::Load(_) | Command::OpenLibrary(_)
+        );
         match command {
             Command::Restore => {
                 if let Some(source) = self.store.last_song()? {
-                    self.load(&source)?;
+                    self.load(&source, None)?;
                 }
             }
             Command::Metronome(key, enabled, volume, map) => {
@@ -230,7 +262,24 @@ impl Controller {
                 result?;
                 return Ok(Response::Status(self.transport()));
             }
-            Command::Load(source) => self.load(&source)?,
+            Command::Library => return Ok(Response::Library(self.library.read()?)),
+            Command::UpdateLibrary(key, metadata) => {
+                let catalogue = self.library.update(&key, metadata)?;
+                if let Some(song) = &mut self.song
+                    && song.key == key
+                {
+                    song.title = catalogue.entry(&key)?.metadata.title.clone();
+                }
+                self.library_error = None;
+                return Ok(Response::Library(catalogue));
+            }
+            Command::OpenLibrary(key) => {
+                let location = self.library.read()?.entry(&key)?.file_location.clone();
+                self.load(&location, Some(&key)).context(
+                    "Could not open library song. Use Open song to locate an unchanged file again.",
+                )?;
+            }
+            Command::Load(source) => self.load(&source, None)?,
             Command::Update(mut document) => {
                 let song = self.song.as_ref().context("Open a song first")?;
                 document.validate(&song.key, song.duration)?;
@@ -285,7 +334,7 @@ impl Controller {
         Ok(Response::Snapshot(Box::new(self.snapshot(include_song))))
     }
 
-    fn load(&mut self, source: &str) -> Result<()> {
+    fn load(&mut self, source: &str, expected: Option<&str>) -> Result<()> {
         let (key, title, path, audio) = if source == DEMO {
             (DEMO.into(), "Practice sketch".into(), None, Audio::demo())
         } else {
@@ -304,6 +353,10 @@ impl Controller {
                 Audio::load(&path).context("The song could not be decoded")?,
             )
         };
+        ensure!(
+            expected.is_none_or(|expected| expected == key),
+            "The file at this location has changed; open it as a new song instead"
+        );
         let first_use = !self.store.contains(&key)?;
         let mut document = self.store.load(&key, audio.duration())?;
         if let Some(map) = &document.measure_map {
@@ -325,7 +378,7 @@ impl Controller {
                 })
                 .collect();
         }
-        let song = Song {
+        let mut song = Song {
             key,
             title,
             path,
@@ -335,6 +388,26 @@ impl Controller {
         };
         self.store.save(&document, song.duration)?;
         self.store.remember(source)?;
+        self.library_error = None;
+        if let Some(path) = &song.path {
+            let metadata = crate::library::read_tags(Path::new(path)).unwrap_or_else(|_| {
+                crate::library::Metadata {
+                    title: song.title.clone(),
+                    ..Default::default()
+                }
+            });
+            match crate::library::now_ms().and_then(|now| {
+                self.library
+                    .opened(song.key.clone(), path.clone(), metadata, now)
+            }) {
+                Ok(entry) => song.title = entry.metadata.title,
+                Err(error) => {
+                    self.library_error = Some(format!(
+                        "Song opened, but the library could not be saved: {error:#}"
+                    ))
+                }
+            }
+        }
         self.persist_position();
         self.player = None;
         self.review_map = None;
@@ -501,6 +574,7 @@ impl Controller {
             song: self.song.clone().filter(|_| include_song),
             document: self.document.clone(),
             transport: self.transport(),
+            library_error: self.library_error.clone(),
             map_view: self
                 .document
                 .as_ref()

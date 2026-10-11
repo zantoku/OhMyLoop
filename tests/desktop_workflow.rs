@@ -288,3 +288,36 @@ fn review_maps_are_source_bound_and_ephemeral_even_when_clicks_are_off() {
     assert_eq!(status.musical_position.unwrap().label, "2");
     desktop.shutdown();
 }
+
+#[test]
+fn notes_round_trip_and_old_documents_migrate_without_losing_annotations() {
+    let temp = Temp::new("song-notes");
+    let store = Store::new(temp.0.clone()).unwrap();
+    let mut doc = Document::new("song".into());
+    doc.notes = "  Drop D\n\nWork on the bridge. **Plain text**  ".into();
+    doc.sections.push(Section {
+        id: "verse".into(),
+        name: "Verse".into(),
+        start: 1.0,
+        end: 2.0,
+    });
+    store.save(&doc, 10.0).unwrap();
+    assert_eq!(store.load("song", 10.0).unwrap(), doc);
+    let path = temp.0.join("song.json");
+    let valid = fs::read(&path).unwrap();
+    doc.notes = "é".repeat(600_000);
+    assert!(store.save(&doc, 10.0).is_err());
+    assert_eq!(fs::read(&path).unwrap(), valid);
+    for version in [2, 3] {
+        let mut old: serde_json::Value = serde_json::from_slice(&valid).unwrap();
+        old["version"] = version.into();
+        old.as_object_mut().unwrap().remove("notes");
+        let bytes = serde_json::to_vec(&old).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let migrated = store.load("song", 10.0).unwrap();
+        assert_eq!(migrated.version, 4);
+        assert!(migrated.notes.is_empty());
+        assert_eq!(migrated.sections.len(), 1);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+}

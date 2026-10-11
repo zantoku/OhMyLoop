@@ -29,3 +29,12 @@ describe('shared action execution', () => {
     dispatcher.run('select_section', { section }); expect(handler).toHaveBeenLastCalledWith({ section });
   });
 });
+
+it('requires library row/sort payloads and scopes library operations',()=>{
+  const handler=vi.fn<(payload:ActionPayload)=>void>(),handlers=handlersWith(()=>handler);
+  const state:ActionState={context:'library',busy:false,song:false,range:false,sections:false,audio:false,loop_on:false,undo:false,editor:false,help:false,zoom_out:false};const dispatcher=new ActionDispatcher(handlers,()=>state);
+  dispatcher.run('library_open');dispatcher.run('library_sort');expect(handler).not.toHaveBeenCalled();
+  dispatcher.run('library_open',{songKey:'song'});expect(handler).toHaveBeenLastCalledWith({songKey:'song'});
+  dispatcher.run('library_sort',{librarySort:'artist'});expect(handler).toHaveBeenLastCalledWith({librarySort:'artist'});
+  state.context='practice';expect(dispatcher.available('library_save')).toBe(false);expect(dispatcher.available('show_library')).toBe(true);
+});

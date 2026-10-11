@@ -1,3 +1,5 @@
+import type {Catalogue,SongMetadata} from './library';
+import {listen} from '@tauri-apps/api/event';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Action, PracticeDocument, Snapshot, Song, Transport } from './types';
 import type { KeymapFile } from './keymap';
@@ -16,14 +18,20 @@ function demo(): Snapshot {
   previewSong = { key: 'builtin-demo', title: 'Practice sketch', path: null, duration: 12, rate: 48000,
     peaks: Array.from({ length: 4096 }, (_, i) => { const t = i / 4096 * 12; const level = 0.06 + 0.21 * Math.exp(-5 * (t % .5)); return [-level, level]; }) };
   const saved = localStorage.getItem('ohmyloop-ui-preview');
-  previewDocument = saved ? JSON.parse(saved) : { version: 3, song_key: 'builtin-demo', controls: { speed: 1, semitones: 0 },
+  previewDocument = saved ? JSON.parse(saved) : { version: 4, notes:'', song_key: 'builtin-demo', controls: { speed: 1, semitones: 0 },
     sections: ['Verse', 'Chorus', 'Bridge', 'Outro'].map((name, i) => ({ id: `demo-${i}`, name, start: i * 3, end: (i + 1) * 3 })),
     selected_section: null, loop_selection: null, loop_enabled: false, last_position: 0 };
+  previewDocument = {...previewDocument!,version:4,notes:previewDocument!.notes??''};
   previewTransport = { ...empty, song_key: 'builtin-demo', position: previewDocument!.last_position };
   return snapshot(true);
 }
 
 export const bridge = {
+  onExitRequested:(handler:()=>void)=>native?listen('prepare-exit',handler):Promise.resolve(()=>{}),
+  finishExit:()=>native?invoke<void>('finish_exit'):Promise.resolve(),
+  readLibrary:()=>native?invoke<Catalogue>('read_library'):Promise.resolve({version:1,songs:[]}),
+  openLibrarySong:(songKey:string)=>native?invoke<Snapshot>('open_library_song',{songKey}):Promise.reject(new Error('Open library songs in the desktop app.')),
+  updateLibrarySong:(songKey:string,metadata:SongMetadata)=>native?invoke<Catalogue>('update_library_song',{songKey,metadata}):Promise.reject(new Error('Save library details in the desktop app.')),
   metronome:(songKey:string,enabled:boolean,volume:number,map:MeasureMap|null)=>native?invoke<Transport>('set_map_metronome',{songKey,enabled,volume,map}):Promise.reject(new Error('The map metronome is available in the desktop app.')),
   readCachedAnalysis: (songKey:string) => native ? invoke<Candidates|null>('read_cached_analysis',{songKey}) : Promise.resolve(null),
   analysisStatus: () => native ? invoke<AnalysisStatus>('analysis_status') : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
