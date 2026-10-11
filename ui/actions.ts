@@ -67,7 +67,7 @@ export const ACTIONS = {
   goto_measure: define('Go to the chosen measure'),
   play_pause: define('Play / pause', ['Space'], 'audio'),
   practice_follow: practice('Follow the playhead by paging the practice waveform view'),
-  practice_count_in: practice('Count in one measure at the local mapped tempo before Play starts'),
+  practice_count_in: practice('Wait one silent beat, then count in one measure at the local mapped tempo before Play starts', ['c']),
   repeat_count_in: practice('Count in one measure before each loop repetition'),
   practice_metronome: practice('Toggle the metronome for the authored measure map'),
   toggle_loop_snap: practice('Snap loop selection to measure boundaries; Shift-drag bypasses snapping'),

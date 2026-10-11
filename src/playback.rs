@@ -568,7 +568,8 @@ fn run_worker(
                             count_in_map.as_ref().unwrap(),
                             new_engine.output_position(),
                             audio.rate,
-                        )?,
+                        )?
+                        .with_silent_beat(),
                         audio.rate,
                         count_in_settings.volume,
                         new_engine.output_position() * f64::from(audio.rate),
@@ -786,13 +787,22 @@ mod tests {
                     let worker = TestWorker::new();
                     worker.configure(speed, semitones, repeat);
                     let length = (24_000.0 / speed) as usize;
-                    let intro = worker.read(length);
+                    let lead = (6000.0 / speed) as usize;
+                    let intro = worker.read(length + lead);
                     assert!(
                         intro
                             .iter()
                             .all(|f| f.count_in && f.frame.source_frame == 24_000.0)
                     );
                     let samples: Vec<_> = intro.iter().map(|f| f.frame.samples).collect();
+                    assert!(
+                        samples[..lead].iter().all(|f| *f == [0.0; 2]),
+                        "Manual starts must wait one silent beat"
+                    );
+                    assert!(
+                        samples[lead..lead + 1000].iter().any(|f| f[0].abs() > 0.01),
+                        "First click must follow the silent beat"
+                    );
                     assert!(
                         samples.iter().any(|f| f[0].abs() > 0.01),
                         "Clicks must sound with metronome off"
@@ -812,6 +822,10 @@ mod tests {
                     assert!(next.iter().all(|f| f.count_in == repeat));
                     if repeat {
                         assert!(next.iter().all(|f| f.frame.source_frame == 24_000.0));
+                        assert!(
+                            next[..1000].iter().any(|f| f.frame.samples[0].abs() > 0.01),
+                            "Loop repetition clicks must start without the extra silent beat"
+                        );
                     }
                     let next_music = worker.read(length);
                     assert!(next_music.iter().all(|f| !f.count_in));
@@ -835,7 +849,7 @@ mod tests {
                 reply,
             )
         });
-        let remaining = worker.read(2400 + (24_000 - 8400) * 2);
+        let remaining = worker.read(2400 + (30_000 - 8400) * 2);
         assert!(remaining.iter().all(|f| f.count_in));
         let music = worker.read(24_000 * 2);
         assert!(music.iter().all(|f| !f.count_in));
@@ -858,6 +872,41 @@ mod tests {
         // flushes it, then subsequent wraps must be uninterrupted music.
         worker.send(|reply| Command::Seek(0.5, Instant::now(), reply));
         assert!(worker.read(24_000 * 4).iter().all(|f| !f.count_in));
+    }
+
+    #[test]
+    fn live_speed_changes_also_retime_the_silent_beat() {
+        let worker = TestWorker::new();
+        worker.configure(1.0, 0.0, false);
+        let first = worker.read(1200);
+        assert!(
+            first
+                .iter()
+                .all(|f| f.count_in && f.frame.samples == [0.0; 2])
+        );
+        wait_until(|| worker.shared.queue.len() == 2400);
+        worker.send(|reply| {
+            Command::Controls(
+                Controls {
+                    speed: 0.5,
+                    semitones: 0.0,
+                },
+                reply,
+            )
+        });
+        let silence = worker.read(2400 + (6000 - 3600) * 2);
+        assert!(
+            silence
+                .iter()
+                .all(|f| f.count_in && f.frame.samples == [0.0; 2])
+        );
+        let clicks = worker.read(1000);
+        assert!(
+            clicks
+                .iter()
+                .all(|f| f.count_in && f.frame.source_frame == 24_000.0)
+        );
+        assert!(clicks.iter().any(|f| f.frame.samples[0].abs() > 0.01));
     }
 
     fn worker_map() -> Option<MeasureMap> {
@@ -892,7 +941,7 @@ mod tests {
         assert_eq!(worker.shared.position(), paused_at);
         assert!(worker.shared.queue.len() >= queued);
         worker.send(Command::Start);
-        let intro = worker.read(24_000);
+        let intro = worker.read(30_000);
         assert!(
             intro
                 .iter()

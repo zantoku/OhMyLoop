@@ -125,7 +125,9 @@ Implemented (2026-10-11): Practice provides an optional one-measure count-in
 before Play starts and a separate checkbox for count-in before every loop
 repetition. It requires an accepted measure map, uses the local meter,
 pulse/grouping and anchor tempo at the start, and follows effective playback
-speed. Count-in uses the shared click sound/level even with metronome off.
+speed. Manual Play/Space starts include one silent mapped pulse before the
+clicks; loop repetitions keep the immediate one-measure count-in. Count-in uses
+the shared click sound/level even with metronome off.
 Pickups and arbitrary starts preserve phase; free time uses the nearest mapped
 frame. The render worker inserts clicks into the output queue while keeping
 source coordinates fixed; the device callback uses scalar status updates.

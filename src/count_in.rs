@@ -35,6 +35,7 @@ impl Settings {
 pub struct Plan {
     pub length: f64,
     pub ticks: Vec<Tick>,
+    pulse_frames: f64,
 }
 impl Plan {
     /// Extrapolate the local anchor interval for one full notated measure.
@@ -99,8 +100,19 @@ impl Plan {
         ticks.sort_by(|a, b| a.source_frame.total_cmp(&b.source_frame));
         Ok(Self {
             length: length * frames_per_quarter,
+            pulse_frames: pulse * frames_per_quarter,
             ticks,
         })
+    }
+    /// Manual starts allow one silent mapped pulse before the count-in.
+    /// Keep it in the same source-time schedule so speed changes also retime
+    /// this lead-in, without touching the schedule used for loop repetitions.
+    pub fn with_silent_beat(mut self) -> Self {
+        self.length += self.pulse_frames;
+        for tick in &mut self.ticks {
+            tick.source_frame += self.pulse_frames;
+        }
+        self
     }
 }
 

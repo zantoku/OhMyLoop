@@ -22,6 +22,11 @@ mapping can use an unapplied draft. With snapping on, A/B use the nearest
 barline, and without an existing loop they select the containing measure. Exact
 loop-time inputs and saved sections preserve their source coordinates.
 
+The Practice action `practice_count_in` uses **C** to toggle count-in on/off,
+sharing the `count_in` button’s accepted-map requirement and on-state highlight.
+The shortcut appears in Practice help and is inactive on other screens. The
+`repeat_count_in` checkbox remains a separate action without a default key.
+
 The mapping actions `map_metronome` and `map_follow` control authored-map clicks
 and waveform paging. They have button/help metadata and no default keyboard
 bindings; custom bindings can be assigned like other mapping actions.

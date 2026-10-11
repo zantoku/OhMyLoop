@@ -49,7 +49,8 @@ and loop on/off state. Adjusting a temporary loop does not modify the saved
 section. Sections can be renamed, resized, and deleted; Undo restores deleted
 sections during the current app session.
 
-Space toggles playback, L toggles looping, and A/B set loop boundaries.
+Space toggles playback, L toggles looping, C toggles count-in on Practice,
+and A/B set loop boundaries.
 Comma jumps to A, period jumps to B, and Enter rewinds to the song start.
 Jumping to B turns looping off; seeking preserves play/pause state.
 X clears the A–B range and turns looping off, brackets navigate sections,
@@ -85,9 +86,12 @@ Audio, analysis and native musical-map edits require `npm run desktop`.
 ## Count-in
 
 On **Practice**, build and apply a measure map, then enable **Count-in on**
-beside the playback buttons.
-It sounds one full measure before each Play start, including resume. Enable
-**Before each loop repetition** separately to add a count-in between loop passes.
+beside the playback buttons (or press **C** to toggle it).
+After each Play/Space start, including resume, it waits one silent mapped beat
+then sounds one full measure: “Space — one — two — three — four — Start” in 4/4.
+The extra beat follows the local pulse and playback speed. Enable
+**Before each loop repetition** separately to add a count-in between loop passes;
+repetitions start their clicks immediately, without the extra silent beat.
 The count-in and metronome buttons highlight when on. Count-in is unavailable
 in measure mapping and uses only the accepted map, never a draft or detected
 beat suggestions. Both count-in options default off when opening a song and are

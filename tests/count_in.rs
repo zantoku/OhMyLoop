@@ -139,6 +139,66 @@ fn rendered_click_duration_and_spacing_follow_speed_and_volume() {
 }
 
 #[test]
+fn manual_lead_in_is_one_mapped_pulse_and_preserves_the_click_pattern() {
+    for meter in [
+        Meter::common(),
+        Meter {
+            numerator: 6,
+            denominator: 8,
+            pulse: Fraction::new(3, 2),
+            grouping: vec![3, 3],
+        },
+    ] {
+        let authored = map(meter);
+        for rate in [44_100, 48_000] {
+            for start in [1.0, 1.125] {
+                let plan = Plan::at(&authored, start, rate).unwrap();
+                let pulse_frames = 60.0 * f64::from(rate)
+                    / authored
+                        .position((start * 48_000.0) as u64)
+                        .unwrap()
+                        .tempo_bpm;
+                let manual = plan.clone().with_silent_beat();
+                assert!((manual.length - plan.length - pulse_frames).abs() < 1e-6);
+                assert_eq!(manual.ticks.len(), plan.ticks.len());
+                for (manual, original) in manual.ticks.iter().zip(&plan.ticks) {
+                    assert!(
+                        (manual.source_frame - original.source_frame - pulse_frames).abs() < 1e-6
+                    );
+                    assert_eq!(manual.accent, original.accent);
+                }
+                for speed in [0.5, 1.0, 2.0] {
+                    let mut count =
+                        CountIn::new(manual.clone(), rate, 1.0, start * f64::from(rate));
+                    let mut samples = vec![];
+                    while let Some(frame) = count.next(speed) {
+                        samples.push(frame);
+                    }
+                    assert_eq!(samples.len(), (manual.length / speed).ceil() as usize);
+                    let silent_frames = (pulse_frames / speed).ceil() as usize;
+                    assert!(
+                        samples[..silent_frames]
+                            .iter()
+                            .all(|frame| *frame == [0.0; 2])
+                    );
+                    let first_click = (manual.ticks[0].source_frame / speed).ceil() as usize;
+                    assert!(
+                        samples[..first_click]
+                            .iter()
+                            .all(|frame| *frame == [0.0; 2])
+                    );
+                    assert!(
+                        samples[first_click..first_click + 1000]
+                            .iter()
+                            .any(|frame| frame[0].abs() > 0.01)
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "Requires a native audio output device; plays generated clicks and tone"]
 fn native_count_in_smoke() {
     use ohmyloop::{audio::Audio, engine::LoopRegion, playback::Player};
@@ -195,6 +255,8 @@ fn native_count_in_smoke() {
         "Expected count-in, song, repetition count-in: {stages:?}"
     );
     assert_eq!(player.shared.underflow_frames.load(Ordering::Relaxed), 0);
-    assert!(player.shared.output_frames.load(Ordering::Relaxed) > 0);
+    // One-second measure + one quarter-second silent beat + half-second loop
+    // must finish before the repetition count-in can become audible.
+    assert!(player.shared.output_frames.load(Ordering::Relaxed) >= u64::from(player.rate) * 7 / 4);
     println!("Native count-in stages {stages:?}: {}", player.status());
 }

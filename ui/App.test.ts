@@ -1089,7 +1089,7 @@ it('offers count-in and independent loop repetitions only in Practice, using the
   const original=timingFixture(48000);document.measure_map=original.map;
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();
-  await fireEvent.click(screen.getByRole('button',{name:'Count-in off'}));
+  await fireEvent.keyDown(window,{key:'c'});
   const count=screen.getByRole('button',{name:'Count-in on'});
   expect(count.classList.contains('active')).toBe(true);expect(count.getAttribute('aria-pressed')).toBe('true');
   const repeat=screen.getByRole('checkbox',{name:'Before each loop repetition'}) as HTMLInputElement;
@@ -1108,7 +1108,7 @@ it('offers count-in and independent loop repetitions only in Practice, using the
   await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
   expect((screen.getByRole('checkbox',{name:'Before each loop repetition'}) as HTMLInputElement).checked).toBe(true);
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,true,.7]));
-  await fireEvent.click(screen.getByRole('button',{name:'Count-in on'}));
+  await fireEvent.keyDown(window,{key:'C',shiftKey:true});
   expect(screen.getByRole('button',{name:'Count-in off'}).classList.contains('active')).toBe(false);
   expect(screen.getByRole('checkbox',{name:'Before each loop repetition'}).hasAttribute('disabled')).toBe(true);
   expect(document.measure_map).toEqual(original.map);
