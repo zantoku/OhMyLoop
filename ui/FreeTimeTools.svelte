@@ -38,5 +38,5 @@
 {:else}<p>No uncounted ranges. Mark a measure as free time to leave its audio uncounted.</p>{/if}
 {/if}
 <style>
-  .remove{display:flex;align-items:center;gap:14px;margin-bottom:10px}.remove span,p{font-size:10px;line-height:1.5;color:#7a879d}p{margin-top:8px}.restore{display:flex;gap:14px;align-items:end;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:#596b86;min-width:180px}select{padding:6px 7px;border:1px solid #d3ddeb;border-radius:4px;background:#fff;color:#334966;font:inherit;font-size:12px}.button{font-size:11px;padding:7px 10px;white-space:nowrap}.text-button{font-size:11px;padding:7px 0}.error{color:#a7475c;background:#fff0f2;padding:8px 10px}
+  .remove{display:flex;align-items:center;gap:14px;margin-bottom:10px}.remove span,p{font-size:10px;line-height:1.5;color:var(--muted)}p{margin-top:8px}.restore{display:flex;gap:14px;align-items:end;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:var(--text-secondary);min-width:180px}select{padding:6px 7px;border:1px solid var(--border-strong);border-radius:4px;background:var(--surface);color:var(--text);font:inherit;font-size:12px}.button{font-size:11px;padding:7px 10px;white-space:nowrap}.text-button{font-size:11px;padding:7px 0}.error{color:var(--error-text);background:var(--error-bg);padding:8px 10px}
 </style>

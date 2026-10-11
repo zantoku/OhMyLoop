@@ -172,10 +172,12 @@ On this macOS host, for the current code:
   The 43 mapping/shift/metronome tests cover actual DSP clicks, variable tempo/meter,
   pickups/partials/gaps, epsilon fitting, split/join/reclaim, absorbed measures,
   exact source timing, protection and invalid edits.
-- **151 frontend tests pass** in 16 files. Svelte/TypeScript reports zero errors
+- **156 frontend tests pass** in 17 files. Svelte/TypeScript reports zero errors
   and warnings. Coverage includes gestures, scoped bindings, defaults/paging,
   selection, density, direct saves and draft workflows, failure/retry, Undo,
-  screen switching and stale/disposed async replies.
+  screen switching and stale/disposed async replies. Appearance coverage adds
+  the footer control, persisted auto/dark/light cycling, unknown-value fallback
+  and unavailable storage.
 - Rust formatting, workspace/all-target Clippy with warnings denied, vendor
   integrity (79 files) and whitespace checks pass. The production frontend and
   macOS app-only bundle build; the latest bundle is approximately 25 MiB.
@@ -302,6 +304,14 @@ This audibly plays generated material and touches no user song/settings. Use the
 `.exe` path on Windows.
 
 ## Remaining validation and scope
+
+Appearance refinement (2026-10-11): `npm test` passes all 156 tests,
+`npm run check` reports zero errors/warnings, `npm run build` succeeds and
+`git diff --check` is clean. Safari browser-preview review covered dark practice,
+notes, mapping, library and shortcut help, manual light override, preference
+retention after reload, auto matching the current light OS appearance, and
+footer visibility at increased browser zoom. Live OS switching, native Tauri
+relaunch and Linux/Windows theme behavior were not exercised in this pass.
 
 Real guitar-song evaluation, small/main-model comparison and Python preprocessing/
 prediction parity remain outstanding. Generated independent truth and the user's

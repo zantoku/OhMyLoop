@@ -22,5 +22,5 @@
 </div>
 {/if}
 <style>
-  .refit{display:flex;gap:12px;align-items:center;margin-top:10px}.check{flex-direction:row;align-items:center}.check input{width:auto}.shift{min-width:0}.row{display:flex;align-items:end;gap:10px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:#596b86}input{width:65px;padding:6px 7px;border:1px solid #d3ddeb;border-radius:4px;background:#fff;color:#334966;font:inherit;font-size:12px}.row>span{font-size:11px;color:#596b86;align-self:center}.button{font-size:11px;padding:7px 10px;white-space:nowrap}p{font-size:10px;line-height:1.5;color:#7a879d;margin-top:8px}
+  .refit{display:flex;gap:12px;align-items:center;margin-top:10px}.check{flex-direction:row;align-items:center}.check input{width:auto}.shift{min-width:0}.row{display:flex;align-items:end;gap:10px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:var(--text-secondary)}input{width:65px;padding:6px 7px;border:1px solid var(--border-strong);border-radius:4px;background:var(--surface);color:var(--text);font:inherit;font-size:12px}.row>span{font-size:11px;color:var(--text-secondary);align-self:center}.button{font-size:11px;padding:7px 10px;white-space:nowrap}p{font-size:10px;line-height:1.5;color:var(--muted);margin-top:8px}
 </style>

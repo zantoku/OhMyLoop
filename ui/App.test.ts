@@ -43,6 +43,16 @@ async function ready() {
 }
 
 describe('single-song practice workflow', () => {
+  it('keeps the appearance toggle next to shortcut help in the bottom bar', async () => {
+    await ready();
+    const footer = screen.getByRole('contentinfo');
+    const appearance = within(footer).getByRole('button', { name: /^UI: / });
+    const shortcuts = within(footer).getByRole('button', { name: /^Shortcuts/ });
+    expect(appearance.closest('.statusbar-tools')).toBe(shortcuts.parentElement);
+    await fireEvent.click(appearance);
+    expect(mock.action).not.toHaveBeenCalled();
+    expect(mock.update).not.toHaveBeenCalled();
+  });
   it('can save exact dragged boundaries without browser step-validation errors', async () => {
     document.loop_selection = { start: 1.851590106007067, end: 3.5053003533568905, fade_ms: 5 };
     mock.initialize.mockResolvedValue({ ...response(), song: { key: 'test', title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });

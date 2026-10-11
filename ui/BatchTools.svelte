@@ -14,5 +14,5 @@
   <p>TODO: Apply beat grouping to all measures with a matching time signature.</p>
 </details>
 <style>
-  .batch-tools{padding:9px 0 17px;border-bottom:1px solid #e0e6f0}summary{font-size:13px;font-weight:600;cursor:pointer;color:#3d506f}label{display:flex;flex-direction:column;gap:5px;font-size:11px;margin-top:11px;color:#596b86}input{min-width:0;width:100%;padding:7px 8px;border:1px solid #d3ddeb;border-radius:4px;background:#fff;color:#334966;font:inherit;font-size:12px}.text-button{font-size:11px;padding:5px 0;margin-top:4px}p{color:#7a879d;line-height:1.5;font-size:11px;margin:9px 0}
+  .batch-tools{padding:9px 0 17px;border-bottom:1px solid var(--border)}summary{font-size:13px;font-weight:600;cursor:pointer;color:var(--text)}label{display:flex;flex-direction:column;gap:5px;font-size:11px;margin-top:11px;color:var(--text-secondary)}input{min-width:0;width:100%;padding:7px 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--surface);color:var(--text);font:inherit;font-size:12px}.text-button{font-size:11px;padding:5px 0;margin-top:4px}p{color:var(--muted);line-height:1.5;font-size:11px;margin:9px 0}
 </style>

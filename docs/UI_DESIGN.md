@@ -10,6 +10,21 @@ Palette: canvas `#f3f5fa`, panel `#ffffff`, ink `#24314c`, waveform field
 distinguish saved sections. Warm loop handles evoke a physical practice tool;
 the surrounding controls stay quiet.
 
+Appearance defaults to the operating system's light/dark preference. A single
+button beside Shortcuts in the bottom-right status bar shows only the selected
+setting (`UI: auto`, `UI: dark`, or `UI: light`). Click to cycle auto → dark →
+light → auto. The app-wide choice survives restart, independently of songs.
+
+Shared semantic colors in `ui/theme.css` cover practice, library, notes, mapping,
+dialogs and native form controls. Dark mode uses slate canvas `#171e2b`, panel
+`#202a3b`, ink `#e1e8f3`, blue `#8ea8ed`, amber `#dfb673` and sage `#99c6b2`.
+Waveform overlays and section colors retain their contrast and meaning. CSS
+`prefers-color-scheme` handles live OS changes in auto; explicit light/dark
+choices override it. `ui/theme.ts` validates the stored preference, falling back
+to auto for unknown values without overwriting them. Startup applies the choice
+before mounting the screen. A failed save keeps the selected appearance for the
+session and displays a status message.
+
 Type: Avenir Next where available, followed by Segoe UI and Noto Sans. Use
 tabular figures for musical positions and control values. No remote fonts.
 The scale is 12/14/16/20/28 px, with readable sentence-case labels.

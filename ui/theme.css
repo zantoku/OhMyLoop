@@ -1,0 +1,133 @@
+/* Shared screen colors. Waveform overlays keep their contrast against navy. */
+:root {
+  color-scheme: light;
+  --page: #f3f5fa;
+  --surface: #ffffff;
+  --sidebar: #f9fafc;
+  --input-bg: #fdfdfe;
+  --text: #24314c;
+  --text-secondary: #596b86;
+  --muted: #6b7690;
+  --border: #e1e6f0;
+  --border-strong: #d3ddeb;
+  --hover: #edf1fa;
+  --selected: #e9eef9;
+  --selected-border: #d9e1f0;
+  --blue: #526fc0;
+  --blue-hover: #435fae;
+  --on-accent: #ffffff;
+  --link: #4f66ab;
+  --focus: #8297d2;
+  --blue-wash: #526fc013;
+  --progress-track: #dbe3f3;
+  --amber: #ad8148;
+  --amber-text: #826030;
+  --amber-bg: #fbf0dc;
+  --amber-border: #e6cd9d;
+  --warning-text: #745526;
+  --warning-bg: #fff3e0;
+  --warning-border: #ead1a6;
+  --error-text: #963e57;
+  --error-bg: #fbebef;
+  --error-border: #ebcbd4;
+  --success-text: #49695b;
+  --success-bg: #e8f1ec;
+  --success-border: #84a99a;
+  --overview-bg: #e8edf6;
+  --wave-bg: #233552;
+  --measure-bg: #dce8e2;
+  --measure-text: #334c47;
+  --measure-selected: #a7c9bd;
+  --dialog-shadow: #1b2d5040;
+  --backdrop: #23355266;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #171e2b;
+  --surface: #202a3b;
+  --sidebar: #1c2534;
+  --input-bg: #192332;
+  --text: #e1e8f3;
+  --text-secondary: #bdc9dc;
+  --muted: #9eabc1;
+  --border: #354259;
+  --border-strong: #465773;
+  --hover: #2b3850;
+  --selected: #304364;
+  --selected-border: #4c6390;
+  --blue: #8ea8ed;
+  --blue-hover: #a3bafa;
+  --on-accent: #172238;
+  --link: #a5bcf4;
+  --focus: #a5bcf4;
+  --blue-wash: #8ea8ed20;
+  --progress-track: #354764;
+  --amber: #dfb673;
+  --amber-text: #e6c18a;
+  --amber-bg: #403425;
+  --amber-border: #836940;
+  --warning-text: #e6c18a;
+  --warning-bg: #403425;
+  --warning-border: #836940;
+  --error-text: #f1acbe;
+  --error-bg: #412c39;
+  --error-border: #795064;
+  --success-text: #99c6b2;
+  --success-bg: #293d38;
+  --success-border: #547c6c;
+  --overview-bg: #2c3a51;
+  --wave-bg: #152236;
+  --measure-bg: #293d38;
+  --measure-text: #c6dfd4;
+  --measure-selected: #3f6155;
+  --dialog-shadow: #00000066;
+  --backdrop: #080e1bb3;
+}
+
+/* CSS handles live OS changes without subscriptions or frontend timers.
+   Missing preferences also follow the OS before the application mounts. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #171e2b;
+    --surface: #202a3b;
+    --sidebar: #1c2534;
+    --input-bg: #192332;
+    --text: #e1e8f3;
+    --text-secondary: #bdc9dc;
+    --muted: #9eabc1;
+    --border: #354259;
+    --border-strong: #465773;
+    --hover: #2b3850;
+    --selected: #304364;
+    --selected-border: #4c6390;
+    --blue: #8ea8ed;
+    --blue-hover: #a3bafa;
+    --on-accent: #172238;
+    --link: #a5bcf4;
+    --focus: #a5bcf4;
+    --blue-wash: #8ea8ed20;
+    --progress-track: #354764;
+    --amber: #dfb673;
+    --amber-text: #e6c18a;
+    --amber-bg: #403425;
+    --amber-border: #836940;
+    --warning-text: #e6c18a;
+    --warning-bg: #403425;
+    --warning-border: #836940;
+    --error-text: #f1acbe;
+    --error-bg: #412c39;
+    --error-border: #795064;
+    --success-text: #99c6b2;
+    --success-bg: #293d38;
+    --success-border: #547c6c;
+    --overview-bg: #2c3a51;
+    --wave-bg: #152236;
+    --measure-bg: #293d38;
+    --measure-text: #c6dfd4;
+    --measure-selected: #3f6155;
+    --dialog-shadow: #00000066;
+    --backdrop: #080e1bb3;
+  }
+}

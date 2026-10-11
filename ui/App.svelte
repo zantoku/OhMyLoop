@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import ThemeControl from './ThemeControl.svelte';
   import NotesScreen from './NotesScreen.svelte';
   import {NotesSession,type NotesState} from './notes-session';
   import LibraryScreen from './LibraryScreen.svelte';
@@ -314,7 +315,7 @@
 <div class="app-shell">
   <header class="app-header">
     <div class="brand" aria-label="OhMyLoop">
-      <svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><path d="M9 8a12 12 0 1 1-4 13" fill="none" stroke="#526fc0" stroke-width="3" stroke-linecap="round"/><path d="m5 6 4 2-1 5" fill="none" stroke="#526fc0" stroke-width="3" stroke-linecap="round"/><path d="M11 17h2l2-5 3 10 3-6h2" fill="none" stroke="#bd8941" stroke-width="2" stroke-linecap="round"/></svg>
+      <svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true"><path d="M9 8a12 12 0 1 1-4 13" fill="none" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/><path d="m5 6 4 2-1 5" fill="none" stroke="var(--blue)" stroke-width="3" stroke-linecap="round"/><path d="M11 17h2l2-5 3 10 3-6h2" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round"/></svg>
       <span>OhMyLoop</span>
     </div>
     <div class="song-heading"><h1>{song?.title ?? 'Make room for practice'}</h1><span>{song ? `${time(song.duration, 0)} • ${song.path ? 'Local song' : 'Built-in demo'}` : 'One song. As many tries as it takes.'}</span></div>
@@ -392,7 +393,7 @@
     </div>
 
   {/if}
-  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><button title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts {#if screen==='practice'||screen==='mapping'}<span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}{/if}</button></footer>
+  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><div class="statusbar-tools"><ThemeControl/><button class="shortcuts-button" title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts {#if screen==='practice'||screen==='mapping'}<span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}{/if}</button></div></footer>
 </div>
 
 <dialog class="section-dialog" bind:this={sectionDialog} onclose={() => { dialogError = ''; }}>

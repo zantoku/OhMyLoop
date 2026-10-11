@@ -9,7 +9,7 @@
   <label>Click level<input aria-label="Metronome volume" type="range" min="0" max="100" bind:value={level} disabled={!native}/><span>{level}%</span></label>
 </div>
 <style>
-  .metronome-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11px;color:#758098}
-  .button{font-size:11px;padding:7px 10px}input{accent-color:#6d82bb}
+  .metronome-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+  .button{font-size:11px;padding:7px 10px}input{accent-color:var(--blue)}
   label{display:flex;align-items:center;gap:7px}input{width:80px}label span{min-width:30px;font-variant-numeric:tabular-nums}
 </style>
