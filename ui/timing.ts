@@ -33,7 +33,7 @@ export type MapEdit =
   | { type: 'split'; id: string; frame: number; left: Fraction }
   | { type: 'split_at_beat'; id:string; beat:number }
   | { type: 'merge'; id: string }
-  | { type:'shift'; id:string; pulses:number; direction:'left'|'right' }
+  | { type:'shift'; id:string; pulses:number; direction:'left'|'right'; resnap?:{pulses:number[];epsilon_ms:number} }
   | { type: 'reclaim'; start:number; end:number; meter:Meter }
   | { type: 'respace'; first: string; last: string };
 export const commonMeter = (): Meter => ({ numerator: 4, denominator: 4, pulse: { num: 1, den: 1 }, grouping: [] });

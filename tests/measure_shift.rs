@@ -17,6 +17,7 @@ fn shift(map: &MeasureMap, index: usize, pulses: u32, direction: ShiftDirection)
         id: map.measures[index].id.clone(),
         pulses,
         direction,
+        resnap: None,
     })
     .unwrap()
     .map
@@ -226,7 +227,8 @@ fn invalid_shift_limits_protection_gaps_and_meter_overflow_are_atomic() {
             map.edit(Edit::Shift {
                 id: map.measures[index].id.clone(),
                 pulses,
-                direction
+                direction,
+                resnap: None,
             })
             .is_err()
         );
@@ -245,7 +247,8 @@ fn invalid_shift_limits_protection_gaps_and_meter_overflow_are_atomic() {
                 .edit(Edit::Shift {
                     id: locked.measures[1].id.clone(),
                     pulses: 1,
-                    direction: ShiftDirection::Left
+                    direction: ShiftDirection::Left,
+                    resnap: None,
                 })
                 .is_err()
         );
@@ -271,7 +274,8 @@ fn invalid_shift_limits_protection_gaps_and_meter_overflow_are_atomic() {
         gap.edit(Edit::Shift {
             id: gap.measures[1].id.clone(),
             pulses: 1,
-            direction: ShiftDirection::Right
+            direction: ShiftDirection::Right,
+            resnap: None,
         })
         .is_err()
     );
@@ -287,7 +291,8 @@ fn invalid_shift_limits_protection_gaps_and_meter_overflow_are_atomic() {
             huge.edit(Edit::Shift {
                 id: huge.measures[1].id.clone(),
                 pulses: 2,
-                direction
+                direction,
+                resnap: None,
             })
             .is_err()
         );
@@ -407,7 +412,8 @@ fn absorption_preserves_anchors_and_rejects_protected_consumed_measures_or_earli
                 .edit(Edit::Shift {
                     id: locked.measures[3].id.clone(),
                     pulses: 9,
-                    direction: ShiftDirection::Left
+                    direction: ShiftDirection::Left,
+                    resnap: None,
                 })
                 .is_err()
         );
@@ -423,8 +429,186 @@ fn absorption_preserves_anchors_and_rejects_protected_consumed_measures_or_earli
         gap.edit(Edit::Shift {
             id: gap.measures[2].id.clone(),
             pulses: 9,
-            direction: ShiftDirection::Left
+            direction: ShiftDirection::Left,
+            resnap: None,
         })
         .is_err()
     );
+}
+
+fn resnap_shift(
+    map: &MeasureMap,
+    index: usize,
+    direction: ShiftDirection,
+    detected: Vec<u64>,
+    epsilon_ms: f64,
+) -> anyhow::Result<MeasureMap> {
+    Ok(map
+        .edit(Edit::Shift {
+            id: map.measures[index].id.clone(),
+            pulses: 2,
+            direction,
+            resnap: Some(ohmyloop::timing::ResnapOptions {
+                pulses: detected,
+                epsilon_ms,
+            }),
+        })?
+        .map)
+}
+
+#[test]
+fn resnap_discards_old_barline_anchors_and_bounds_every_pulse_error() {
+    let detected = vec![0, 1000, 2000, 3000, 4000, 5100, 6200, 7300, 8400];
+    let map = MeasureMap::empty(1000, 9000)
+        .edit(Edit::BuildFromPulses {
+            pulses: detected.clone(),
+            downbeats: vec![0, 4000],
+            first_downbeat: None,
+            epsilon_ms: 30.0,
+            start: 0,
+            end: 8400,
+            meter: Meter::common(),
+        })
+        .unwrap()
+        .map;
+    for direction in [ShiftDirection::Left, ShiftDirection::Right] {
+        let preserved = shift(&map, 1, 2, direction);
+        assert!(preserved.measures.iter().any(|m| !m.beats.is_empty()));
+        let fitted = resnap_shift(&map, 1, direction, detected.clone(), 150.0).unwrap();
+        assert!(fitted.measures.iter().all(|m| m.beats.is_empty()));
+        for (actual, expected) in pulse_frames(&fitted).iter().zip(&detected) {
+            assert!(actual.abs_diff(*expected) <= 150);
+        }
+        assert_eq!(fitted.view().measures[0].start, 0);
+        assert_eq!(fitted.view().measures[1].end, 8400);
+        assert_eq!(fitted.revision, map.revision + 1);
+        let tolerated = resnap_shift(&map, 1, direction, detected.clone(), 30.0).unwrap();
+        for (actual, expected) in pulse_frames(&tolerated).iter().zip(&detected) {
+            assert!(actual.abs_diff(*expected) <= 30);
+        }
+        let exact = resnap_shift(&map, 1, direction, detected.clone(), 0.0).unwrap();
+        assert_eq!(pulse_frames(&exact), detected[..detected.len() - 1]);
+        exact.validate().unwrap();
+    }
+}
+
+#[test]
+fn resnap_aligns_new_boundaries_and_preserves_prefix_and_notation() {
+    let original = uniform(4, Meter::common());
+    let map = original
+        .edit(Edit::SetBeat {
+            measure: original.measures[2].id.clone(),
+            id: None,
+            offset: Fraction::new(2, 1),
+            frame: 10200,
+        })
+        .unwrap()
+        .map;
+    let shifted = shift(&map, 2, 2, ShiftDirection::Right);
+    assert_eq!(shifted.view().measures[2].start, 10200);
+    let fitted = resnap_shift(
+        &map,
+        2,
+        ShiftDirection::Right,
+        (0..=16).map(|p| p * 1000).collect(),
+        30.0,
+    )
+    .unwrap();
+    assert_eq!(fitted.view().measures[2].start, 10000);
+    assert_eq!(fitted.measures[0], map.measures[0]);
+    assert_eq!(fitted.view().measures[1].start, 4000);
+    assert_eq!(fitted.view().measures.last().unwrap().end, 16000);
+    assert!(fitted.measures.iter().all(|m| m.beats.is_empty()));
+    for (a, b) in fitted.measures.iter().zip(&shifted.measures) {
+        assert_eq!(a.id, b.id);
+        assert_eq!(a.length, b.length);
+        assert_eq!(a.meter, b.meter);
+    }
+}
+
+#[test]
+fn resnap_supports_compound_pulses_and_absorbed_measures() {
+    let map = uniform(
+        3,
+        Meter {
+            numerator: 6,
+            denominator: 8,
+            pulse: Fraction::new(3, 2),
+            grouping: vec![3, 3],
+        },
+    );
+    let detected: Vec<_> = (0..=6).map(|i| i * 2000).collect();
+    for direction in [ShiftDirection::Left, ShiftDirection::Right] {
+        let fitted = resnap_shift(&map, 1, direction, detected.clone(), 0.0).unwrap();
+        assert_eq!(fitted.measures.len(), 2);
+        assert_eq!(pulse_frames(&fitted), detected[..6]);
+        assert!(fitted.measures.iter().all(|m| m.beats.is_empty()));
+        fitted.validate().unwrap();
+    }
+}
+
+#[test]
+fn resnap_invalid_evidence_and_tolerance_reject_the_entire_shift() {
+    let map = uniform(3, Meter::common());
+    let before = map.clone();
+    let good: Vec<_> = (0..=12).map(|i| i * 1000).collect();
+    for epsilon in [-1.0, 1001.0, f64::NAN, f64::INFINITY] {
+        assert!(resnap_shift(&map, 1, ShiftDirection::Right, good.clone(), epsilon).is_err());
+    }
+    for pulses in [
+        vec![],
+        vec![0],
+        vec![0, 0, 1000],
+        vec![1000, 0],
+        vec![0, 13000],
+        vec![0, 12000],
+        good.iter().copied().filter(|p| *p != 1000).collect(),
+        {
+            let mut extra = good.clone();
+            extra.insert(1, 500);
+            extra
+        },
+    ] {
+        assert!(resnap_shift(&map, 1, ShiftDirection::Right, pulses, 30.0).is_err());
+        assert_eq!(map, before);
+    }
+    // Existing callers that omit the optional re-snap field still preserve timing.
+    let edit: Edit = serde_json::from_value(
+        serde_json::json!({"type":"shift","id":map.measures[1].id,"pulses":2,"direction":"right"}),
+    )
+    .unwrap();
+    assert_eq!(
+        map.edit(edit).unwrap().map,
+        shift(&map, 1, 2, ShiftDirection::Right)
+    );
+}
+
+#[test]
+fn resnap_fits_fractional_pickup_offsets_without_inventing_a_start_pulse() {
+    let original = uniform(2, Meter::common());
+    let mut map = original.clone();
+    map.measures[0].kind = MeasureKind::Pickup;
+    map.measures[0].length = Fraction::new(7, 2);
+    map.measures[0].offset = Fraction::new(1, 2);
+    let middle = map.measures[0].end.clone();
+    map.boundaries
+        .iter_mut()
+        .find(|b| b.id == middle)
+        .unwrap()
+        .frame = 3500;
+    let last = map.measures[1].end.clone();
+    map.boundaries
+        .iter_mut()
+        .find(|b| b.id == last)
+        .unwrap()
+        .frame = 7500;
+    map.validate().unwrap();
+    let detected: Vec<_> = (0..=7).map(|i| 500 + i * 1000).collect();
+    for direction in [ShiftDirection::Left, ShiftDirection::Right] {
+        let fitted = resnap_shift(&map, 1, direction, detected.clone(), 0.0).unwrap();
+        assert_eq!(pulse_frames(&fitted), detected[..7]);
+        assert!(fitted.measures.iter().all(|m| m.beats.is_empty()));
+        assert_eq!(fitted.view().measures[0].start, 0);
+        assert_eq!(fitted.view().measures[1].end, 7500);
+    }
 }

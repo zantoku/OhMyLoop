@@ -73,6 +73,8 @@ pub enum Edit {
         id: String,
         pulses: u32,
         direction: ShiftDirection,
+        #[serde(default)]
+        resnap: Option<ResnapOptions>,
     },
     Reclaim {
         start: u64,
@@ -573,7 +575,13 @@ impl MeasureMap {
                 id,
                 pulses,
                 direction,
-            } => next.shift_suffix(&id, pulses, direction)?,
+                resnap,
+            } => {
+                let first = next.shift_suffix(&id, pulses, direction)?;
+                if let Some(options) = resnap {
+                    next.resnap_suffix(first, options)?;
+                }
+            }
             Edit::Reclaim { start, end, meter } => {
                 ensure!(
                     start < end && end <= self.frames,

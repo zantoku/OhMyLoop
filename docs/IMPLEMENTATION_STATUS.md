@@ -55,7 +55,12 @@ The desktop has no range re-spacing control; its legacy action is unavailable.
 
 Boundary resizing evenly spaces beats in both attached measures; unrelated
 measures remain fixed. Shifting instead preserves the authored timing curve and
-moves anchors between surviving bars. Both reject affected protection and invalid
+moves anchors between surviving bars. Optional re-snapping aligns new internal
+barlines to detection and replaces affected anchors using the shared Create measures
+epsilon (30 ms initially); pulse-count conflicts reject the whole edit. Re-snapping
+defaults on and can always be toggled. Restore saved detection when the editor opens,
+so an app restart does not require rerunning analysis. Without evidence, turn the
+option off to shift while preserving authored timing. Both reject affected protection and invalid
 coordinates. Shifts also reject free-time crossings and unsupported meter/fraction
 limits. Undo restores the exact musical definitions, including absorbed bars;
 revision and generated-ID counters remain monotonic. History keeps up to 50 edits,
@@ -138,13 +143,13 @@ while keeping application code debuggable.
 
 On this macOS host, for the current code:
 
-- **67 Rust tests pass** with the analysis feature in release mode: 5 library,
+- **73 Rust tests pass** with the analysis feature in release mode: 6 library,
   1 analysis-job, 2 analysis-PCM, 10 audio-risk, 10 desktop-workflow, 1 keymap-file,
-  24 measure-mapping, 10 suffix-shift and 4 metronome tests. No doc tests are defined.
-  The 38 mapping/shift/metronome tests cover actual DSP clicks, variable tempo/meter,
+  24 measure-mapping, 15 suffix-shift and 4 metronome tests. No doc tests are defined.
+  The 43 mapping/shift/metronome tests cover actual DSP clicks, variable tempo/meter,
   pickups/partials/gaps, epsilon fitting, split/join/reclaim, absorbed measures,
   exact source timing, protection and invalid edits.
-- **117 frontend tests pass** in 13 files. Svelte/TypeScript reports zero errors
+- **125 frontend tests pass** in 13 files. Svelte/TypeScript reports zero errors
   and warnings. Coverage includes gestures, scoped bindings, defaults/paging,
   selection, density, direct saves and draft workflows, failure/retry, Undo,
   screen switching and stale/disposed async replies.
@@ -161,11 +166,19 @@ On this macOS host, for the current code:
   clicks enabled at the default 1180 × 810 window size. Practice following was
   also observed paging from 0–3 s to 3–6 s during native demo playback at 4× zoom;
   toggling following off retained the 0–3 s view through subsequent playback to EOF.
+  Shift re-snapping was also exercised after real analysis of generated demo audio:
+  the checkbox and shared 30 ms epsilon were visible, a right shift saved detected
+  internal barlines with zero fixed beat anchors, and one Undo restored all measure
+  definitions and boundaries exactly. A further native restart check restored
+  those saved suggestions with no installed model, showed re-snapping checked by
+  default, allowed toggling off and back on, and saved a re-snapped right shift
+  without rerunning analysis.
 
-The full Rust suite and workspace lint were last rerun for the 2026-10-10
-documentation audit. The 2026-10-11 practice timeline/metronome refinement changes
-frontend code only; frontend tests, type checking and the macOS app bundle build
-were rerun for that iteration. Original practice-window and
+The full Rust suite, workspace lint, frontend tests, type checking and macOS app
+bundle build were rerun for the 2026-10-11 shift re-snapping refinement. Native
+interaction evidence from earlier passes remains applicable to unchanged tools;
+re-snapping is covered by generated-data native domain tests, frontend workflow
+tests and an isolated native interaction pass. Original practice-window and
 analyzer/model-installer QA evidence is retained in
 [DESKTOP.md](DESKTOP.md) and [implementation history](IMPLEMENTATION_HISTORY.md).
 There is no new subjective click/audio quality assessment in this iteration. Linux/Windows CI matrices

@@ -225,6 +225,16 @@ measures and 80,000 internal anchors. Meter numerators are 1–99, denominators 
 65,536 and denominator at most 960. Large inference arrays live in a separate
 bounded cache, not in the document or routine playback-status payload.
 
+Saved detection is read once per song/editor session through a separate native
+cache-read command. Validate the cache version, model/preprocessing identity,
+song key, source rate/frame count and event positions before displaying it. A
+missing cache is normal; unreadable/invalid caches report an error and stay intact.
+The installed model is not needed to reload existing evidence. Keep existing
+suggestions visible during reanalysis/cancellation/failure and replace them only
+with a successful result for this song. Ignore late cache replies after a new job,
+song change or disposal. A changed map revision does not invalidate source-aligned
+suggestions; it still prompts review before using them.
+
 Manual edits and analyzer evidence remain separate. An analysis job is bound
 to song identity, map revision, preprocessing and model identity. Changing the
 song or editing the map while analysis runs makes its result a stale candidate,
@@ -515,7 +525,36 @@ and ownership recalculated. Anchors landing on a new boundary are absorbed into
 its timing. Former bar lines become anchors only where needed to preserve a
 change in timing slope; uniform measures acquire no extra corrections. Frame
 rounding permits a one-source-frame interpolation difference. Detected suggestions
-are not inputs to the operation.
+are not inputs when re-snapping is off.
+
+**Re-snap to detected beats** is initially on and can always be toggled. Saved
+detection is restored when the mapping screen opens, including after an app restart,
+without running analysis again. If no detection exists, shifting with re-snap on is
+unavailable; analyze the song or turn it off to preserve authored timing. A shift first repartitions the authored map as above, then snaps each
+new internal barline to its nearest detected pulse (ties choose the earlier pulse).
+The affected outer endpoints stay fixed, preserving the preceding map and free-time
+edges. Existing anchors in the affected measures are replaced, including anchors
+from former barlines. Meters, pickup offsets, actual extents and surviving measure
+identities remain those produced by the shift.
+
+The ε (ms) input shares the **Create measures** tolerance, initially 30 ms;
+changing either field updates the other. Pair the detected pulses strictly inside
+each resulting measure with its notated pulse positions in order, including pickup
+phase and fractional extents. Keep only the corrections needed by the same
+largest-residual, segment-rechecking fitter used for initial creation. Epsilon
+bounds the error at every matched pulse, rather than the sum of errors. At 0 ms,
+all pulses fit exactly; collinear pulses still need no fixed anchor. Grouping does
+not change the underlying pulse interval used for fitting.
+
+If snapping collapses a measure or the detected interior pulse count disagrees
+with its notated count, reject the entire shift with an explanation. Review the
+detection, adjust the map/pulse setting, or turn re-snap off; do not guess across
+missing/extra pulses. Protection, free-time and other shift checks still apply.
+Both shifting and refitting are one direct edit and one Undo restores all original
+boundaries and anchors. The checkbox and shared epsilon are song/editor-session UI settings, retained
+when selecting other measures, entering free time or changing screens;
+no document schema change is needed. Native `Edit::Shift` accepts an optional
+`resnap: { pulses, epsilon_ms }`; omitted settings preserve the previous behavior.
 
 Select a measure with a predecessor. Protected measures anywhere in the affected
 span and intervening free time reject the shift. Trailing uncounted audio stays
@@ -546,7 +585,7 @@ whole source as a range. Undo restores the original map; reclaiming is a new
 authored definition rather than recovery of previously removed timing anchors.
 
 `JoinSplitTools.svelte` owns beat/anchor form state and command parsing;
-`ShiftTools.svelte` owns the pulse-count form and shift command binding;
+`ShiftTools.svelte` owns the pulse-count/re-snap form and shift command binding;
 `FreeTimeTools.svelte` owns uncounted-range selection and reclaim form state.
 `map-ranges.ts` shares presentation-only gaps from ordered Rust-projected ranges.
 The native legacy Respace edit remains for existing domain callers/tests; its

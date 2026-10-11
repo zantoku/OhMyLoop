@@ -7,13 +7,11 @@
   import type {ButtonId,MappingActionId} from './actions';
   import type {Keymap} from './keymap';
   import {time} from './model';
-  let {song,candidates,resultId,analysisRunning,position,preview,pending,keymap,onpreview,run,available}:
-    {song:Song;candidates:Candidates|null;resultId:number;analysisRunning:boolean;position:number;preview:MapPreview|null;pending:boolean;keymap:Keymap;onpreview:(edit:MapEdit)=>Promise<void>;run:(id:ButtonId)=>void;available:(id:ButtonId)=>boolean}=$props();
+  let {song,candidates,resultId,analysisRunning,position,preview,pending,keymap,onpreview,run,available,epsilonMs=$bindable(30)}:
+    {epsilonMs?:number;song:Song;candidates:Candidates|null;resultId:number;analysisRunning:boolean;position:number;preview:MapPreview|null;pending:boolean;keymap:Keymap;onpreview:(edit:MapEdit)=>Promise<void>;run:(id:ButtonId)=>void;available:(id:ButtonId)=>boolean}=$props();
   let source=$state<'detected'|'manual'>('manual');
   let start=$state(0),end=$state(untrack(()=>song.duration)),count=$state(untrack(()=>Math.max(1,Math.round(song.duration/2))));
   let notation=$state(meterForm()),firstDownbeat=$state(0),lastSignature=$state('');
-  // Same initial tolerance as Rust's omitted-field default; this is session UI state.
-  let epsilonMs=$state(30);
   let lastResultId=-1;
   $effect(()=>{
     if(candidates&&resultId!==lastResultId){lastResultId=resultId;source='detected';const within=candidates.beats.filter(b=>b.frame>=Math.round(start*song.rate)&&b.frame<=Math.round(end*song.rate));const first=within.find(b=>b.downbeat)??within[0];if(first)firstDownbeat=first.frame/song.rate;}

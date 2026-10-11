@@ -1,7 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Action, PracticeDocument, Snapshot, Song, Transport } from './types';
 import type { KeymapFile } from './keymap';
-import type { MapEdit, MeasureMap, MapPreview, MapView, AnalysisStatus } from './timing';
+import type { MapEdit, MeasureMap, MapPreview, MapView, AnalysisStatus, Candidates } from './timing';
 
 export const native = isTauri();
 const empty: Transport = { song_key: null, position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: null };
@@ -25,6 +25,7 @@ function demo(): Snapshot {
 
 export const bridge = {
   metronome:(songKey:string,enabled:boolean,volume:number,map:MeasureMap|null)=>native?invoke<Transport>('set_map_metronome',{songKey,enabled,volume,map}):Promise.reject(new Error('The map metronome is available in the desktop app.')),
+  readCachedAnalysis: (songKey:string) => native ? invoke<Candidates|null>('read_cached_analysis',{songKey}) : Promise.resolve(null),
   analysisStatus: () => native ? invoke<AnalysisStatus>('analysis_status') : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
   installModel: () => native ? invoke<AnalysisStatus>('install_analysis_model') : Promise.reject(new Error('Install the model in the desktop app.')),
   startAnalysis: (songKey:string, revision:number) => native ? invoke<AnalysisStatus>('start_analysis', {songKey,revision}) : Promise.reject(new Error('Beat analysis is available in the desktop app.')),

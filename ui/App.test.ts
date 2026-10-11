@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -13,6 +13,7 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 beforeEach(() => {
   vi.clearAllMocks();
   mock.metronome.mockResolvedValue({});
+  mock.readCachedAnalysis.mockResolvedValue(null);
   mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:false,song_key:null,map_revision:0,error:null,result:null});
   mock.readKeymap.mockResolvedValue({ path: '/test/keymap.json', configuration: null, warning: null });
   document = { version: 3, song_key: 'test', controls: { speed: 1, semitones: 0 },
@@ -485,6 +486,7 @@ it.each(['left','right'] as const)('shifts the remaining map %s in one direct ed
   expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);
   await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));
   await waitFor(()=>expect(transport.position).toBe(4));mock.action.mockClear();
+  await fireEvent.click(screen.getByRole('checkbox',{name:'Re-snap to detected beats'}));
   expect((screen.getByRole('spinbutton',{name:'Shift by pulses'}) as HTMLInputElement).value).toBe('2');
   await fireEvent.click(screen.getByRole('button',{name:direction==='right'?'Shift right':'Shift left'}));
   await waitFor(()=>expect(document.measure_map).toEqual(changed.map));
@@ -500,6 +502,7 @@ it('validates shift pulse counts and keeps the map and typed amount after a reje
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockRejectedValue(new Error('Shift would require a meter numerator above 99; choose fewer pulses'));
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
+  await fireEvent.click(screen.getByRole('checkbox',{name:'Re-snap to detected beats'}));
   const pulses=screen.getByRole('spinbutton',{name:'Shift by pulses'}) as HTMLInputElement;
   for(const value of ['','0','1.5','65']){await fireEvent.input(pulses,{target:{value}});expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);}
   await fireEvent.input(pulses,{target:{value:'4'}});await fireEvent.click(screen.getByRole('button',{name:'Shift right'}));
@@ -748,7 +751,7 @@ it.each(['left','right'] as const)('absorbs a consumed measure on a %s shift and
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(changed);mock.mapView.mockResolvedValue({...original.view,revision:3});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
-  await fireEvent.input(screen.getByRole('spinbutton',{name:'Shift by pulses'}),{target:{value:'4'}});
+  await fireEvent.click(screen.getByRole('checkbox',{name:'Re-snap to detected beats'}));await fireEvent.input(screen.getByRole('spinbutton',{name:'Shift by pulses'}),{target:{value:'4'}});
   await fireEvent.click(screen.getByRole('button',{name:direction==='right'?'Shift right':'Shift left'}));
   await waitFor(()=>expect(document.measure_map?.measures).toEqual(changed.map.measures));
   expect(await screen.findByRole('heading',{name:'Measure 1'})).toBeTruthy();expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();
@@ -854,4 +857,69 @@ it('keeps practice following through gestures until manually switched off, and p
   expect(viewport.style.left).toBe(manual);
   await fireEvent.click(screen.getByRole('button',{name:'Follow playhead off'}));
   await waitFor(()=>expect(viewport.style.left).toBe('0%'));expect(viewport.style.width).toBe(width);
+});
+
+it('shares epsilon between measure creation and default shift refitting, with one Undo',async()=>{
+  const original=timingFixture(48000),changed=structuredClone(original);
+  changed.map.revision=2;changed.view.revision=2;
+  document.measure_map=structuredClone(original.map);
+  const result={version:1,song_key:'test',map_revision:1,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
+  mock.analysisStatus.mockResolvedValue({id:3,running:false,kind:'analysis',phase:'Complete',model_ready:true,model_path:'/models',progress:null,elapsed_seconds:3,song_key:'test',map_revision:1,error:null,result});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockResolvedValue(changed);mock.mapView.mockResolvedValue(original.view);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const epsilon=await screen.findByRole('spinbutton',{name:'Beat timing tolerance (ms)'});
+  await fireEvent.input(epsilon,{target:{value:'15'}});
+  await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
+  const checkbox=screen.getByRole('checkbox',{name:'Re-snap to detected beats'}) as HTMLInputElement;
+  expect(checkbox.checked).toBe(true);
+  const shiftEpsilon=screen.getByRole('spinbutton',{name:'Shift beat timing tolerance (ms)'}) as HTMLInputElement;
+  expect(shiftEpsilon.value).toBe('15');
+  for(const value of ['', '-1','1001']) {
+    await fireEvent.input(shiftEpsilon,{target:{value}});
+    expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);
+  }
+  await fireEvent.input(shiftEpsilon,{target:{value:'0'}});
+  expect((epsilon as HTMLInputElement).value).toBe('0');
+  await fireEvent.click(screen.getByRole('button',{name:'Shift right'}));
+  await waitFor(()=>expect(document.measure_map).toEqual(changed.map));
+  expect(mock.previewMap).toHaveBeenCalledExactlyOnceWith('test',original.map,{type:'shift',id:'map-5',pulses:2,direction:'right',resnap:{pulses:result.beats.map(b=>b.frame),epsilon_ms:0}});
+  expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();
+  await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));
+});
+
+it('defaults re-snapping on without detection and allows toggling either way',async()=>{
+  const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
+  const checkbox=screen.getByRole('checkbox',{name:'Re-snap to detected beats'}) as HTMLInputElement;
+  expect(checkbox.disabled).toBe(false);expect(checkbox.checked).toBe(true);
+  await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));
+  expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);
+  await fireEvent.click(checkbox);expect(checkbox.checked).toBe(false);
+  expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(false);
+  await fireEvent.keyDown(screen.getByRole('slider',{name:'Measure-map song position'}),{key:'ArrowRight'});
+  await screen.findByRole('heading',{name:'Free time'});
+  await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
+  const restored=screen.getByRole('checkbox',{name:'Re-snap to detected beats'}) as HTMLInputElement;
+  expect(restored.checked).toBe(false);
+  await fireEvent.click(restored);expect(restored.checked).toBe(true);
+  expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);
+});
+
+it('reloads cached beats after restart and shifts with re-snapping enabled by default',async()=>{
+  const original=timingFixture(48000),changed=structuredClone(original);changed.map.revision=2;changed.view.revision=2;
+  document.measure_map=structuredClone(original.map);
+  const cached={version:1,song_key:'test',map_revision:0,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
+  mock.readCachedAnalysis.mockResolvedValue(cached);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});mock.previewMap.mockResolvedValue(changed);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await screen.findByText(/9 suggested beats/);
+  await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
+  const checkbox=screen.getByRole('checkbox',{name:'Re-snap to detected beats'}) as HTMLInputElement;expect(checkbox.disabled).toBe(false);expect(checkbox.checked).toBe(true);
+  await fireEvent.click(screen.getByRole('button',{name:'Shift right'}));await waitFor(()=>expect(document.measure_map).toEqual(changed.map));
+  expect(mock.previewMap.mock.lastCall?.[2]).toMatchObject({resnap:{pulses:cached.beats.map(b=>b.frame),epsilon_ms:30}});
+  expect(mock.readCachedAnalysis).toHaveBeenCalledExactlyOnceWith('test');
 });

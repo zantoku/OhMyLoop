@@ -159,7 +159,7 @@ impl MeasureMap {
         id: &str,
         pulses: u32,
         direction: ShiftDirection,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         ensure!(
             (1..=64).contains(&pulses),
             "Shift by a whole number from 1 through 64 pulses"
@@ -303,6 +303,6 @@ impl MeasureMap {
             shifted.push(measure);
         }
         self.measures.splice(first.., shifted);
-        Ok(())
+        Ok(first)
     }
 }

@@ -129,6 +129,20 @@ async fn analysis_status(
     Ok(state.status())
 }
 #[tauri::command]
+async fn read_cached_analysis(
+    song_key: String,
+    desktop: State<'_, Desktop>,
+    state: State<'_, ohmyloop::analysis::AnalysisManager>,
+) -> Result<Option<ohmyloop::analysis::Candidates>, String> {
+    let desktop = desktop.inner().clone();
+    let manager = state.inner().clone();
+    work(move || {
+        let audio = desktop.source(song_key.clone())?;
+        manager.cached_result(&song_key, &audio)
+    })
+    .await
+}
+#[tauri::command]
 async fn install_analysis_model(
     state: State<'_, ohmyloop::analysis::AnalysisManager>,
 ) -> Result<ohmyloop::analysis::JobStatus, String> {
@@ -191,6 +205,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             read_keymap,
             analysis_status,
+            read_cached_analysis,
             install_analysis_model,
             cancel_analysis,
             start_analysis,

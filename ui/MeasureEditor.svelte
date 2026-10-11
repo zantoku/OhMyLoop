@@ -19,10 +19,11 @@
     { song: Song; map: MeasureMap | null; mapView: MapView | null; transport: Transport; keymap: Keymap; active: boolean; clickEnabled?:boolean; clickLevel?:number; onreview:(map:MeasureMap|null)=>void; playback?:Snippet;
       oncommit: (value: MapPreview, songKey:string) => Promise<void>; onseek: (seconds:number)=>void; run:(id:ButtonId)=>void; available:(id:ButtonId)=>boolean } = $props();
   let editState = $state<MappingState>({pending:false,error:'',preview:null,undo:0,redo:0});
-  let analysis = $state<AnalysisState>({status:null,requesting:false,error:''});
+  let analysis = $state<AnalysisState>({status:null,candidates:null,requesting:false,error:''});
   const analyzer = new AnalysisSession(()=>({key:song.key,revision:map?.revision??0}),value=>{analysis=value;});
-  const candidates = $derived(analysis.status?.result?.song_key===song.key?analysis.status.result:null);
+  const candidates = $derived(analysis.candidates?.song_key===song.key?analysis.candidates:null);
   let followingPlayhead=$state(true);
+  let epsilonMs=$state(30),resnap=$state(true);
   const audibleMap=$derived(editState.preview?.map??map);
   let detectedVisibility=$state<boolean|null>(null);
   const showDetected=$derived(detectedVisibility??!audibleMap?.measures.length);
@@ -32,7 +33,7 @@
   let builder=$state<MeasureBuilder>();
   let tools=$state<MeasureTools>();
   let batch=$state<BatchTools>();
-  const toolActions:readonly MappingActionId[]=['map_notation','map_boundary','map_beat','map_remove_beat','map_split','map_merge','map_shift_left','map_shift_right','map_remove','map_reclaim','map_protect','map_anchor_playhead'];
+  const toolActions:readonly MappingActionId[]=['map_notation','map_boundary','map_beat','map_remove_beat','map_split','map_merge','map_shift_left','map_shift_right','map_shift_resnap','map_remove','map_reclaim','map_protect','map_anchor_playhead'];
   const builderActions:readonly MappingActionId[]=['map_build','map_use_analysis','map_span_start','map_span_end','map_first_downbeat'];
   let automaticOpen=$state(false);
   let automaticInitialized=false;
@@ -69,7 +70,7 @@
     if(id==='map_origin')return !!map?.measures.length&&!editState.preview;
     if(id==='map_notation')return !!measure&&!measure.protected&&!editState.preview;
     if(id==='map_respace')return false;
-    if(['map_beat','map_remove_beat','map_split','map_merge','map_shift_left','map_shift_right','map_remove','map_reclaim','map_anchor_playhead'].includes(id))return !editState.preview&&(tools?.canRun(id)??false);
+    if(['map_beat','map_remove_beat','map_split','map_merge','map_shift_left','map_shift_right','map_shift_resnap','map_remove','map_reclaim','map_anchor_playhead'].includes(id))return !editState.preview&&(tools?.canRun(id)??false);
     if(builderActions.includes(id))return builder?.canRun(id)??false;
     if(id==='map_undo')return editState.undo>0;if(id==='map_redo')return editState.redo>0;
     if(['map_boundary','map_protect'].includes(id))return !!measure&&!editState.preview;
@@ -139,10 +140,10 @@
     {#if candidates}<div class="analysis-summary"><span>{candidates.beats.length} suggested beats · {candidates.elapsed_seconds.toFixed(1)} s analysis</span><span>Use Create measures to group these beats into a draft.</span>{#if candidates.map_revision!==(map?.revision??0)}<span>The map has changed since analysis. Review this draft before applying.</span>{/if}</div>{/if}
     <details bind:open={automaticOpen}><summary>Analysis model</summary><p>Beat This! suggests beats and downbeats. Meter and accepted corrections stay yours.</p><button class="button full-width" disabled={disabled('map_install_model')} title={title('map_install_model')} onclick={()=>run('map_install_model')}>{label('map_install_model',analysis.status?.model_ready?'Verify / reinstall model':'Download analysis model (83 MB)')}</button>{#if analysis.status?.model_path}<p class="model-location">{analysis.status.model_ready?'Installed model folder':'Model download folder'}<code title={analysis.status.model_path}>{analysis.status.model_path}</code></p>{/if}<p>The model uses the MIT license. Installed models work offline. Manual mapping needs no download.</p></details>
     </details>
-    <MeasureBuilder bind:this={builder} {song} {candidates} resultId={analysis.status?.id??0} analysisRunning={!!analysis.status?.running} position={transport.position} preview={editState.preview} pending={editState.pending} {keymap} onpreview={edit} {run} {available}/>
+    <MeasureBuilder bind:epsilonMs bind:this={builder} {song} {candidates} resultId={analysis.status?.id??0} analysisRunning={!!analysis.status?.running} position={transport.position} preview={editState.preview} pending={editState.pending} {keymap} onpreview={edit} {run} {available}/>
     <BatchTools bind:this={batch} songKey={song.key} map={audibleMap} {keymap} {run} {available} onedit={edit}/>
   </aside>
-  <MeasureTools bind:this={tools} {song} map={audibleMap} mapView={displayed} {measure} position={transport.position} {keymap} {active} {run} {available} onedit={edit} onselect={select}/>
+  <MeasureTools bind:resnap bind:this={tools} {candidates} bind:epsilonMs {song} map={audibleMap} mapView={displayed} {measure} position={transport.position} {keymap} {active} {run} {available} onedit={edit} onselect={select}/>
 </section>
 <style>
   .review-listening{display:flex;gap:15px;align-items:center;flex-wrap:wrap;flex-shrink:0;margin-bottom:8px;font-size:11px;color:#596b86}.review-listening .text-button{margin-left:auto;font-size:11px}

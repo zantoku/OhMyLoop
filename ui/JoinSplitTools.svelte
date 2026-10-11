@@ -1,18 +1,19 @@
 <script lang="ts">
-  import {fractionText,parseFraction,type MeasureMap,type MapView,type MeasureView,type MapEdit} from './timing';
+  import {fractionText,parseFraction,type Candidates,type MeasureMap,type MapView,type MeasureView,type MapEdit} from './timing';
   import {time} from './model';
   import ShiftTools from './ShiftTools.svelte';
   import type {Song} from './types';
   import type {Keymap} from './keymap';
   import type {ButtonId,MappingActionId} from './actions';
-  let {song,map,mapView,measure,position,keymap,run,available,onedit,visible=true}:
-    {song:Song;map:MeasureMap|null;mapView:MapView|null;measure:MeasureView;position:number;keymap:Keymap;run:(id:ButtonId)=>void;available:(id:ButtonId)=>boolean;onedit:(value:MapEdit,preview?:boolean)=>Promise<void>;visible?:boolean}=$props();
+  let {song,candidates,epsilonMs=$bindable(30),resnap=$bindable(true),map,mapView,measure,position,keymap,run,available,onedit,visible=true}:
+    {song:Song;candidates:Candidates|null;epsilonMs?:number;resnap?:boolean;map:MeasureMap|null;mapView:MapView|null;measure:MeasureView;position:number;keymap:Keymap;run:(id:ButtonId)=>void;available:(id:ButtonId)=>boolean;onedit:(value:MapEdit,preview?:boolean)=>Promise<void>;visible?:boolean}=$props();
   let splitBeat=$state(2),beatId=$state(''),beatSeconds=$state(0),beatQuarter=$state('1'),advanced=$state(false),error=$state(''),identity='';
   const next=$derived(mapView?.measures[(mapView?.measures.findIndex(m=>m.id===measure.id)??-1)+1]??null);
   const splitPoints=$derived(measure.split_points);
   let shift=$state<ShiftTools>();
   $effect(()=>{const value=JSON.stringify([measure,mapView?.revision]);if(value!==identity){identity=value;splitBeat=splitPoints[0]?.beat??2;beatId='';beatSeconds=(measure.start+(measure.end-measure.start)/4)/song.rate;beatQuarter='1';error='';}});
   export function canRun(id:MappingActionId){
+    if(id==='map_shift_resnap')return true;
     if(id==='map_shift_left'||id==='map_shift_right')return shift?.canRun()??false;
     if(id==='map_anchor_playhead')return true;
     if(measure.protected)return false;
@@ -23,7 +24,7 @@
   }
   export async function command(id:MappingActionId){
     if(!canRun(id))return;error='';
-    if(id==='map_shift_left'||id==='map_shift_right'){await shift?.command(id);return;}
+    if(id==='map_shift_left'||id==='map_shift_right'||id==='map_shift_resnap'){await shift?.command(id);return;}
     try{
       if(id==='map_split')await onedit({type:'split_at_beat',id:measure.id,beat:splitBeat},false);
       if(id==='map_merge')await onedit({type:'merge',id:measure.id},false);
@@ -45,7 +46,7 @@
     <p>{#if splitPoints.length}Creates two partial {measure.meter.numerator}/{measure.meter.denominator} measures at the selected beat.{:else}There is no internal beat to split at.{/if}</p>
   </div>
   {/if}
-  <div class="shift-tool"><ShiftTools bind:this={shift} {mapView} {measure} {keymap} {run} {available} {onedit} {visible}/></div>
+  <div class="shift-tool"><ShiftTools bind:resnap {candidates} bind:epsilonMs bind:this={shift} {mapView} {measure} {keymap} {run} {available} {onedit} {visible}/></div>
 </div>
 {#if visible}
 <details bind:open={advanced}><summary>Advanced — beat anchor positions</summary>

@@ -18,6 +18,11 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+fn valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= 128
+        && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+}
 #[derive(Clone, Serialize)]
 pub struct JobStatus {
     pub id: u64,
@@ -154,6 +159,29 @@ impl AnalysisManager {
         }
         Ok(self.status())
     }
+    /// Reload suggestions independently of job state and accepted musical edits.
+    pub fn cached_result(&self, key: &str, audio: &Audio) -> Result<Option<Candidates>> {
+        ensure!(valid_key(key), "Invalid analysis song identity");
+        let path = self.0.cache.join(format!(
+            "{}-{}-{}.json",
+            key,
+            models::MODEL_ID,
+            crate::analysis_pcm::PREPROCESSING
+        ));
+        match fs::metadata(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+            Ok(_) => {}
+        }
+        let result = read_result(&path)?;
+        ensure!(
+            result.song_key == key
+                && result.rate == audio.rate
+                && result.frames == audio.frames.len() as u64,
+            "Cached analysis belongs to another source"
+        );
+        Ok(Some(result))
+    }
     pub fn worker_pid(&self) -> Option<u32> {
         self.0.child.lock().unwrap().as_ref().map(Child::id)
     }
@@ -164,12 +192,7 @@ impl AnalysisManager {
         key: String,
         revision: u64,
     ) -> Result<JobStatus> {
-        ensure!(
-            !key.is_empty()
-                && key.len() <= 128
-                && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'),
-            "Invalid analysis song identity"
-        );
+        ensure!(valid_key(&key), "Invalid analysis song identity");
         ensure!(
             audio.duration() <= 3600.0,
             "Automatic analysis is limited to one hour; manual mapping remains available"
@@ -370,6 +393,50 @@ impl AnalysisManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cached_suggestions_restore_without_models_and_validate_source_preserving_invalid_files() {
+        let root =
+            std::env::temp_dir().join(format!("ohmyloop-analysis-cache-{}", std::process::id()));
+        let cache = root.join("cache");
+        let manager = AnalysisManager::new(root.join("missing-models"), cache.clone()).unwrap();
+        let audio = Audio::tone(1000, 2.0, 220.0);
+        assert!(manager.cached_result("song", &audio).unwrap().is_none());
+        assert!(manager.cached_result("../song", &audio).is_err());
+        let path = cache.join(format!(
+            "song-{}-{}.json",
+            models::MODEL_ID,
+            crate::analysis_pcm::PREPROCESSING
+        ));
+        let valid = serde_json::json!({"candidates": {
+            "version":1,"song_key":"song","map_revision":8,"rate":audio.rate,"frames":audio.frames.len(),
+            "model":models::MODEL_ID,"preprocessing":crate::analysis_pcm::PREPROCESSING,"elapsed_seconds":1.0,
+            "beats":[{"frame":0,"score":0.9,"downbeat":true},{"frame":1000,"score":0.8,"downbeat":false}]
+        },"beat_logits":[],"downbeat_logits":[]});
+        fs::write(&path, serde_json::to_vec(&valid).unwrap()).unwrap();
+        let result = manager.cached_result("song", &audio).unwrap().unwrap();
+        assert_eq!(result.map_revision, 8);
+        assert_eq!(result.beats.len(), 2);
+        assert!(manager.status().result.is_none());
+        assert!(!manager.status().running);
+        for (field, value) in [
+            ("song_key", serde_json::json!("other")),
+            ("rate", serde_json::json!(2000)),
+            ("frames", serde_json::json!(100)),
+            ("version", serde_json::json!(2)),
+            ("model", serde_json::json!("other")),
+        ] {
+            let mut invalid = valid.clone();
+            invalid["candidates"][field] = value;
+            let bytes = serde_json::to_vec(&invalid).unwrap();
+            fs::write(&path, &bytes).unwrap();
+            assert!(manager.cached_result("song", &audio).is_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        fs::write(&path, b"broken JSON").unwrap();
+        assert!(manager.cached_result("song", &audio).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"broken JSON");
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn progress_is_bound_to_a_running_job_and_elapsed_time_freezes_at_finish() {
         let root =

@@ -4,16 +4,16 @@
   import JoinSplitTools from './JoinSplitTools.svelte';
   import FreeTimeTools from './FreeTimeTools.svelte';
   import {meterForm,readMeter} from './meter-form';
-  import {fractionText,parseFraction,pulseName,type MeasureMap,type MapView,type MeasureView,type MeasureKind,type MapEdit} from './timing';
+  import {fractionText,parseFraction,pulseName,type Candidates,type MeasureMap,type MapView,type MeasureView,type MeasureKind,type MapEdit} from './timing';
   import {time} from './model';
   import type {Song} from './types';
   import type {Keymap} from './keymap';
   import type {ButtonId,MappingActionId} from './actions';
-  let {song,map,mapView,measure,position,keymap,active,run,available,onedit,onselect}:
-    {song:Song;map:MeasureMap|null;mapView:MapView|null;measure:MeasureView|null;position:number;keymap:Keymap;active:boolean;run:(id:ButtonId)=>void;available:(id:ButtonId)=>boolean;onedit:(value:MapEdit,preview?:boolean)=>Promise<void>;onselect:(id:string|null)=>void}=$props();
+  let {song,candidates,epsilonMs=$bindable(30),resnap=$bindable(true),map,mapView,measure,position,keymap,active,run,available,onedit,onselect}:
+    {song:Song;candidates:Candidates|null;epsilonMs?:number;resnap?:boolean;map:MeasureMap|null;mapView:MapView|null;measure:MeasureView|null;position:number;keymap:Keymap;active:boolean;run:(id:ButtonId)=>void;available:(id:ButtonId)=>boolean;onedit:(value:MapEdit,preview?:boolean)=>Promise<void>;onselect:(id:string|null)=>void}=$props();
   let panel=$state<'measure'|'join'|'free'>('measure');
   let join=$state<JoinSplitTools>(),free=$state<FreeTimeTools>();
-  const joinActions:readonly MappingActionId[]=['map_split','map_merge','map_shift_left','map_shift_right','map_beat','map_remove_beat','map_anchor_playhead'];
+  const joinActions:readonly MappingActionId[]=['map_split','map_merge','map_shift_left','map_shift_right','map_shift_resnap','map_beat','map_remove_beat','map_anchor_playhead'];
   export function canRun(id:MappingActionId){if(joinActions.includes(id))return join?.canRun(id)??false;if(id==='map_remove'||id==='map_reclaim')return free?.canRun(id)??false;return true;}
   export function selectFreeTime(frame:number){panel='free';free?.selectAt(frame);}
   let notation=$state(meterForm()),kind=$state<MeasureKind>('full'),extent=$state('4'),following=$state(false);
@@ -60,7 +60,7 @@
       </div></div>
     </details>
   {/if}
-  {#if measure}<JoinSplitTools bind:this={join} {song} {map} {mapView} {measure} {position} {keymap} {run} {available} {onedit} visible={panel==='join'}/>{/if}
+  {#if measure}<JoinSplitTools bind:resnap {candidates} bind:epsilonMs bind:this={join} {song} {map} {mapView} {measure} {position} {keymap} {run} {available} {onedit} visible={panel==='join'}/>{/if}
   <FreeTimeTools bind:this={free} {song} {mapView} {measure} {position} {keymap} {run} {available} {onedit} visible={!measure||panel==='free'} onuncounted={()=>onselect(null)} onreclaim={id=>{onselect(id);panel='measure';}}/>
 </section>
 <style>

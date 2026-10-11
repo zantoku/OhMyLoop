@@ -11,16 +11,38 @@ pub(super) fn default_beat_epsilon_ms() -> f64 {
 // every remaining pulse is within epsilon. Check newly created segments too:
 // simply comparing all pulses to the original straight line is insufficient.
 pub(super) fn fitted_anchor_indices(points: &[u64], epsilon_frames: f64) -> Vec<usize> {
+    fit(points, epsilon_frames, |start, end, i| {
+        let intervals = (end - start) as u128;
+        let numerator = u128::from(points[end] - points[start]) * (i - start) as u128;
+        points[start] + ((numerator + intervals / 2) / intervals) as u64
+    })
+}
+
+// Unequal notated intervals support pickups and fractional final pulses.
+pub(super) fn fitted_anchor_indices_at(
+    points: &[u64],
+    offsets: &[f64],
+    epsilon_frames: f64,
+) -> Vec<usize> {
+    fit(points, epsilon_frames, |start, end, i| {
+        let ratio = (offsets[i] - offsets[start]) / (offsets[end] - offsets[start]);
+        points[start] + ((points[end] - points[start]) as f64 * ratio).round() as u64
+    })
+}
+
+fn fit(
+    points: &[u64],
+    epsilon_frames: f64,
+    interpolate: impl Fn(usize, usize, usize) -> u64,
+) -> Vec<usize> {
     let mut segments = vec![(0, points.len() - 1)];
     let mut anchors = vec![];
     while let Some((start, end)) = segments.pop() {
-        let intervals = (end - start) as u128;
         let mut worst = None;
         let mut error = epsilon_frames;
-        for i in start + 1..end {
-            let numerator = u128::from(points[end] - points[start]) * (i - start) as u128;
-            let interpolated = points[start] + ((numerator + intervals / 2) / intervals) as u64;
-            let residual = points[i].abs_diff(interpolated) as f64;
+        for (i, point) in points.iter().enumerate().take(end).skip(start + 1) {
+            let interpolated = interpolate(start, end, i);
+            let residual = point.abs_diff(interpolated) as f64;
             if residual > error {
                 error = residual;
                 worst = Some(i);

@@ -122,7 +122,12 @@ draft form with derived detected-measure counts and the epsilon field.
 
 Join / Split / Shift arranges all three tools horizontally with vertical
 separators. The compact split dropdown shows only beat numbers; the shift tool
-contains a pulse-count input and Shift left/right buttons. At narrow widths,
+contains a pulse-count input, Shift left/right buttons, and an optional
+Re-snap to detected beats checkbox. When enabled, its epsilon input shares the
+Create measures tolerance (initially 30 ms). Re-snapping defaults on; the checkbox
+can always be toggled. Restore saved detection on opening the editor. Without
+detected beats, explain why re-snapped shifts are unavailable; unchecked shifts
+retain authored timing. At narrow widths,
 stack the tools with horizontal separators to keep controls accessible. Show
 the selected pulse unit and explain the endpoint effects beside the controls.
 Shift retains authored timing, absorbing consumed bars at fixed endpoints and

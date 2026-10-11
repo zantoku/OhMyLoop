@@ -64,7 +64,8 @@ propagation and precise timing. A title lock protects each measure. Join sums
 numerators over a common denominator, and a numbered split creates two partial
 measures with the original meter. Explicit pulse-based shifts realign later bar
 lines while retaining authored timing and fixed endpoints; consumed measures are
-absorbed and extended meters grow instead of becoming overfull. Free-time ranges
+absorbed and extended meters grow instead of becoming overfull. Optional detected-beat
+re-snapping rebuilds affected timing using the shared creation epsilon. Free-time ranges
 can be reclaimed as one new, evenly spaced measure. Batch tools contains global
 numbering and a TODO for grouping matching time signatures.
 

@@ -34,6 +34,12 @@ and `map_reclaim` creates a measure in the selected uncounted range. These actio
 use direct validated edits with Undo and share button/hover metadata.
 Notation and anchor/boundary edits also commit directly; draft creation and
 global numbering retain the Preview/Apply/Discard flow.
+`map_shift_resnap` toggles optional detected-beat refitting for subsequent shifts.
+Its checkbox uses the same action identity and hover description; it has no default
+shortcut and can be toggled even without detected beats. Re-snapping defaults on;
+shifting then requires current or restored detection. Epsilon is shared with Create
+measures. Configured shift keys honor the checkbox and current tolerance.
+
 `map_shift_left` and `map_shift_right` shift the selected and remaining bars by
 the form’s pulse count. They share central button/help metadata and have no
 default keys; custom shortcuts work from any selected-measure panel, using the
