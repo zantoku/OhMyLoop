@@ -81,3 +81,13 @@ it('provides configurable library actions with no default shortcut and validates
   expect(keymap.match(key('Escape'),'mapping')).toBe('disable_loop');
   expect(()=>new Keymap(false,{version:1,keys:{library_sort:['s']}})).toThrow(/contextual/);
 });
+
+it('uses the registered batch grouping action for buttons, help and configured mapping shortcuts',()=>{
+  expect(new Keymap().shortcut('map_grouping')).toBe('');
+  const map=new Keymap(false,{version:1,keys:{map_grouping:['g']}});
+  expect(map.actionFor('map_grouping')).toBe('map_grouping');
+  expect(map.match(key('g'),'mapping')).toBe('map_grouping');
+  expect(map.match(key('g'),'practice')).toBeUndefined();
+  expect(map.shortcuts('mapping').find(row=>row.action==='map_grouping')?.description).toBe(map.description('map_grouping'));
+  expect(map.title('map_grouping')).toBe(`${map.description('map_grouping')} (G)`);
+});

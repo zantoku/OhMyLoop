@@ -55,7 +55,7 @@ inference, model verification, progress and cancellation. Detected beats/downbea
 are suggestions: the user chooses meter, pulse and first downbeat. Detected drafts
 derive measure counts and observed boundaries; epsilon controls whether internal
 beats need timing anchors. Manual evenly spaced drafts work without a model.
-Draft construction and global numbering use Preview/Apply; accepted map edits
+Draft construction, global numbering and batch grouping use Preview/Apply; other accepted map edits
 commit directly after validation, with Undo/Redo.
 
 The full-width editor provides **Measure**, **Join / Split / Shift**, and **Free
@@ -67,7 +67,9 @@ lines while retaining authored timing and fixed endpoints; consumed measures are
 absorbed and extended meters grow instead of becoming overfull. Optional detected-beat
 re-snapping rebuilds affected timing using the shared creation epsilon. Free-time ranges
 can be reclaimed as one new, evenly spaced measure. Batch tools contains global
-numbering and a TODO for grouping matching time signatures.
+numbering and grouping for all unlocked measures sharing an exact time signature.
+Batch grouping preserves authored timing and pulse values, with Preview/Apply,
+changed/skipped counts and one Undo step.
 
 Authored maps support tempo/meter changes, odd/compound meters, pickups, incomplete
 measures and free time. Resizing a boundary evenly spaces both attached measures.
@@ -263,7 +265,7 @@ outside the playback worker and report progress to the UI.
 The editable measure-mapping workflow in docs/MEASURE_MAPPING.md is implemented
 with automatic draft generation and measure navigation. Next, evaluate it on real
 guitar material and gather cross-platform and user-workflow feedback. Batch
-grouping of matching meters within a song remains a TODO. Count-ins, rests,
+grouping of matching meters within a song is implemented. Count-ins, rests,
 ladders, section settings, sequences, export UI, recording, stems and transcription
 remain later work.
 

@@ -69,6 +69,7 @@
     if(id==='map_discard')return !!editState.preview;
     if(id==='map_clear')return !!map?.measures.length||!!editState.preview;
     if(id==='map_origin')return !!map?.measures.length&&!editState.preview;
+    if(id==='map_grouping')return !!map?.measures.length&&!editState.preview&&(batch?.canRun(id)??false);
     if(id==='map_notation')return !!measure&&!measure.protected&&!editState.preview;
     if(id==='map_respace')return false;
     if(['map_beat','map_remove_beat','map_split','map_merge','map_shift_left','map_shift_right','map_shift_resnap','map_remove','map_reclaim','map_anchor_playhead'].includes(id))return !editState.preview&&(tools?.canRun(id)??false);
@@ -85,7 +86,7 @@
     if(!canRun(id))return;
     try{
       if(builderActions.includes(id)){await builder?.command(id);return;}
-      if(id==='map_origin'){await batch?.command();return;}
+      if(id==='map_origin'||id==='map_grouping'){await batch?.command(id);return;}
       if(toolActions.includes(id)){await tools?.command(id);return;}
       const commands:Partial<Record<MappingActionId,()=>void|Promise<void>>>={
         map_metronome:()=>{clickEnabled=!clickEnabled;},map_follow:()=>{followingPlayhead=!followingPlayhead;},
@@ -142,7 +143,7 @@
     <details bind:open={automaticOpen}><summary>Analysis model</summary><p>Beat This! suggests beats and downbeats. Meter and accepted corrections stay yours.</p><button class="button full-width" disabled={disabled('map_install_model')} title={title('map_install_model')} onclick={()=>run('map_install_model')}>{label('map_install_model',analysis.status?.model_ready?'Verify / reinstall model':'Download analysis model (83 MB)')}</button>{#if analysis.status?.model_path}<p class="model-location">{analysis.status.model_ready?'Installed model folder':'Model download folder'}<code title={analysis.status.model_path}>{analysis.status.model_path}</code></p>{/if}<p>The model uses the MIT license. Installed models work offline. Manual mapping needs no download.</p></details>
     </details>
     <MeasureBuilder bind:epsilonMs bind:this={builder} {song} {candidates} resultId={analysis.status?.id??0} analysisRunning={!!analysis.status?.running} position={transport.position} preview={editState.preview} pending={editState.pending} {keymap} onpreview={edit} {run} {available}/>
-    <BatchTools bind:this={batch} songKey={song.key} map={audibleMap} {keymap} {run} {available} onedit={edit}/>
+    <BatchTools bind:this={batch} songKey={song.key} {map} editable={active&&!editState.pending&&!editState.preview} {keymap} {run} {available} onedit={edit}/>
   </aside>
   <MeasureTools bind:resnap bind:this={tools} {candidates} bind:epsilonMs {song} map={audibleMap} mapView={displayed} {measure} position={transport.position} {keymap} {active} {run} {available} onedit={edit} onselect={select}/>
 </section>

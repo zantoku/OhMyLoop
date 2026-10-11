@@ -145,7 +145,13 @@ previous boundary and anchors.
 The Measure panel uses a compact meter pair and one **Apply changes** action with
 Undo. Its **Advanced** fold-out contains pulse, grouping and exact boundary
 positions; the title lock protects the measure. **Batch tools**, below Create
-measures, holds global numbering and a TODO for grouping matching time signatures.
+measures, holds global numbering and batch beat grouping, both with Preview/Apply.
+Choose a time signature and groups such as `2+2+3` for 7/8, or leave grouping blank
+to clear it. Grouping applies throughout the song to unlocked measures with that
+exact signature, including pickups and partial measures; the form reports changed
+and skipped locked measures. It preserves corrected timing and pulse values and
+creates one Undo step. Pulse controls click spacing; grouping accents clicks only
+where group starts coincide with a pulse.
 **Join / Split / Shift** lays out all three tools horizontally with vertical
 separators. Join sums numerators over a common denominator; Split before beat
 shows only beat numbers and produces two incomplete measures retaining the prior

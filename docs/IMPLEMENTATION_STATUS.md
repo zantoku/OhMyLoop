@@ -48,9 +48,12 @@ The full-width editing panel has three tabs:
   overwrites existing measures and creates fresh identities.
 
 Notation, boundaries, anchors, protection, Join/Split/Shift, free time and Clear
-map commit directly after validation and save. Draft creation and global numbering
+map commit directly after validation and save. Draft creation, global numbering and batch grouping
 retain Preview/Apply/Discard. **Batch tools**, below Create measures, owns First
-full measure number and a TODO for future grouping across matching signatures.
+full measure number and grouping across all exact matching signatures. Grouping
+includes pickups/partials and noncontiguous regions, skips locked measures with
+counts, preserves anchors and pulse values, and supports clearing with blank input.
+One batch is one Undo step; the existing saved-map format needs no migration.
 The desktop has no range re-spacing control; its legacy action is unavailable.
 
 Boundary resizing evenly spaces beats in both attached measures; unrelated
@@ -166,18 +169,21 @@ notes on migration from valid version 2/3. Details are in [NOTES.md](NOTES.md).
 
 On this macOS host, for the current code:
 
-- **79 Rust tests pass** with the analysis feature in release mode: 6 unit, 5 music-library,
+- **82 Rust tests pass** with the analysis feature in release mode: 6 unit, 5 music-library,
   1 analysis-job, 2 analysis-PCM, 10 audio-risk, 11 desktop-workflow, 1 keymap-file,
-  24 measure-mapping, 15 suffix-shift and 4 metronome tests. No doc tests are defined.
-  The 43 mapping/shift/metronome tests cover actual DSP clicks, variable tempo/meter,
+  27 measure-mapping, 15 suffix-shift and 4 metronome tests. No doc tests are defined.
+  The 46 mapping/shift/metronome tests cover actual DSP clicks, variable tempo/meter,
   pickups/partials/gaps, epsilon fitting, split/join/reclaim, absorbed measures,
-  exact source timing, protection and invalid edits.
-- **156 frontend tests pass** in 17 files. Svelte/TypeScript reports zero errors
+  exact source timing, protection, batch grouping/clearing and invalid edits.
+- **161 frontend tests pass** in 18 files. Svelte/TypeScript reports zero errors
   and warnings. Coverage includes gestures, scoped bindings, defaults/paging,
   selection, density, direct saves and draft workflows, failure/retry, Undo,
   screen switching and stale/disposed async replies. Appearance coverage adds
   the footer control, persisted auto/dark/light cycling, unknown-value fallback
   and unavailable storage.
+  Batch coverage includes exact-signature selection, locked/no-op counts,
+  invalid-input retention, review-metronome maps, preview/discard, saved grouping
+  and one-step Undo/Redo.
 - Rust formatting, workspace/all-target Clippy with warnings denied, vendor
   integrity (79 files) and whitespace checks pass. The production frontend and
   macOS app-only bundle build; the latest bundle is approximately 25 MiB.
@@ -210,9 +216,14 @@ On this macOS host, for the current code:
   normally and saved the exact pending text. Removing inactive Library/Notes
   markup fixed a WebKit accessibility-tree failure after a Library round trip;
   session state remains mounted. Save-failure/quit refusal is covered by tests.
+  The batch-grouping pass used the built native app with isolated generated demo
+  data at 1180 × 810: the sidebar form and scroll layout, changed/locked counts,
+  preserved fixed anchor in the preview, Discard and Apply were observed. Reading
+  the isolated saved document verified that preview did not save, Apply changed
+  only grouping and revision, and one Undo restored the full map with a new revision.
 
 The full Rust suite, workspace lint, frontend tests, type checking and macOS app
-bundle build were rerun for the 2026-10-11 song-notes implementation. Native
+bundle build were rerun for the 2026-10-11 batch-grouping implementation. Native
 interaction evidence from earlier passes remains applicable to unchanged tools;
 re-snapping is covered by generated-data native domain tests, frontend workflow
 tests and an isolated native interaction pass. Original practice-window and
@@ -324,7 +335,7 @@ stacking implemented but not rechecked natively at the minimum size.
 
 Code signing, installers, automatic device reconnection, streaming large files and
 a complete binary-release dependency-license inventory remain release/engineering
-work. Whole-measure loop selection/snapping, per-gap numbering resets and batch
-matching-meter grouping are not implemented. Count-ins, inter-loop rests, speed
+work. Whole-measure loop selection/snapping and per-gap numbering resets are not
+implemented. Count-ins, inter-loop rests, speed
 ladders, section automation, sequences, export UI, recording, stems and synchronized
 tabs remain later milestones in [PLAN.md](../PLAN.md).

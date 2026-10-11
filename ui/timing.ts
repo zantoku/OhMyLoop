@@ -22,6 +22,7 @@ export type MusicalPosition = { measure: string; label: string; beat: number; te
 export type MapEdit =
   | { type: 'clear' }
   | { type: 'set_origin'; first_number:number }
+  | { type: 'set_grouping_for_meter'; numerator:number; denominator:number; grouping:number[] }
   | { type: 'build_from_pulses'; pulses:number[]; downbeats:number[]; first_downbeat?:number|null; epsilon_ms?:number; start:number; end:number; meter:Meter }
   | { type: 'build'; start: number; end: number; count: number; meter: Meter }
   | { type: 'move_boundary'; id: string; frame: number }

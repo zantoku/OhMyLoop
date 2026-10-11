@@ -46,6 +46,210 @@ fn detected(rate: u32, pulses: Vec<u64>, epsilon_ms: f64) -> ohmyloop::timing::P
 }
 
 #[test]
+fn batch_grouping_matches_exact_signatures_across_gaps_and_preserves_authored_timing() {
+    let mut map = build(0, 14_000, 7, Meter::common());
+    let mut eighths = Meter::common();
+    eighths.denominator = 8;
+    map = notation(&map, 1, eighths, MeasureKind::Full, Fraction::new(2, 1));
+    let mut triple = Meter::common();
+    triple.numerator = 3;
+    map = notation(&map, 2, triple, MeasureKind::Full, Fraction::new(3, 1));
+    let mut pickup_meter = Meter::common();
+    pickup_meter.pulse = Fraction::new(1, 2);
+    map = notation(
+        &map,
+        0,
+        pickup_meter,
+        MeasureKind::Pickup,
+        Fraction::new(1, 1),
+    );
+    let mut partial_meter = Meter::common();
+    partial_meter.pulse = Fraction::new(2, 1);
+    map = notation(
+        &map,
+        5,
+        partial_meter,
+        MeasureKind::Incomplete,
+        Fraction::new(2, 1),
+    );
+    map.measures[0].meter.grouping = vec![1, 3];
+    map.measures[4].meter.grouping = vec![1, 3];
+    map.measures[6].meter.grouping = vec![1, 3];
+    map.measures[6].protected = true;
+    map = map
+        .edit(Edit::SetBeat {
+            measure: map.measures[4].id.clone(),
+            id: None,
+            frame: 8650,
+            offset: Fraction::new(1, 1),
+        })
+        .unwrap()
+        .map;
+    map = map
+        .edit(Edit::Remove {
+            id: map.measures[3].id.clone(),
+        })
+        .unwrap()
+        .map;
+    let original = map.clone();
+    let preview = map
+        .edit(Edit::SetGroupingForMeter {
+            numerator: 4,
+            denominator: 4,
+            grouping: vec![2, 2],
+        })
+        .unwrap();
+    let mut expected = original.clone();
+    for measure in &mut expected.measures {
+        if measure.meter.numerator == 4 && measure.meter.denominator == 4 && !measure.protected {
+            measure.meter.grouping = vec![2, 2];
+        }
+    }
+    expected.revision += 1;
+    assert_eq!(preview.map, expected);
+    assert_eq!(map, original);
+    assert_eq!(
+        preview.warnings,
+        ["3 measures changed; 1 locked measure skipped."]
+    );
+    assert_eq!(
+        preview.view.measures[3]
+            .grid
+            .iter()
+            .find(|p| p.id.is_some())
+            .unwrap()
+            .frame,
+        8650
+    );
+    for (before, after) in original.measures.iter().zip(&preview.map.measures) {
+        for step in 0..=(before.length.value() * 4.0) as u32 {
+            let quarter = f64::from(step) / 4.0;
+            assert_eq!(
+                original.frame_at(before, quarter),
+                preview.map.frame_at(after, quarter)
+            );
+        }
+    }
+    let before = original.pulse_events().unwrap();
+    let after = preview.map.pulse_events().unwrap();
+    assert_eq!(
+        before.iter().map(|p| p.frame).collect::<Vec<_>>(),
+        after.iter().map(|p| p.frame).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        after.iter().find(|p| p.frame == 8650).unwrap().accent,
+        ohmyloop::timing::Accent::Beat
+    );
+    assert_eq!(
+        after.iter().find(|p| p.frame == 9100).unwrap().accent,
+        ohmyloop::timing::Accent::Group
+    );
+    let cleared = preview
+        .map
+        .edit(Edit::SetGroupingForMeter {
+            numerator: 4,
+            denominator: 4,
+            grouping: vec![],
+        })
+        .unwrap()
+        .map;
+    expected.revision += 1;
+    for measure in &mut expected.measures {
+        if measure.meter.numerator == 4 && measure.meter.denominator == 4 && !measure.protected {
+            measure.meter.grouping.clear();
+        }
+    }
+    assert_eq!(cleared, expected);
+}
+
+#[test]
+fn batch_grouping_counts_changes_and_does_not_create_clicks_between_pulses() {
+    let mut map = build(
+        0,
+        10_500,
+        3,
+        Meter {
+            numerator: 7,
+            denominator: 8,
+            pulse: Fraction::new(3, 2),
+            grouping: vec![],
+        },
+    );
+    map.measures[0].meter.grouping = vec![2, 2, 3];
+    map.measures[2].protected = true;
+    let before = map.pulse_events().unwrap();
+    let preview = map
+        .edit(Edit::SetGroupingForMeter {
+            numerator: 7,
+            denominator: 8,
+            grouping: vec![2, 2, 3],
+        })
+        .unwrap();
+    assert_eq!(
+        preview.warnings,
+        ["1 measure changed; 1 locked measure skipped."]
+    );
+    assert_eq!(preview.map.measures[0], map.measures[0]);
+    assert_eq!(preview.map.measures[2], map.measures[2]);
+    // Group starts at 1 and 2 quarter notes do not align with the 1.5-quarter pulse.
+    assert_eq!(preview.map.pulse_events().unwrap(), before);
+    assert_eq!(
+        preview.view.measures[1]
+            .grid
+            .iter()
+            .map(|p| p.quarter)
+            .collect::<Vec<_>>(),
+        [0.0, 1.0, 2.0]
+    );
+}
+
+#[test]
+fn batch_grouping_rejects_invalid_input_and_no_changes_atomically() {
+    let original = build(0, 8000, 2, Meter::common());
+    for (numerator, denominator, grouping) in [
+        (4, 4, vec![2, 3]),
+        (4, 4, vec![0, 4]),
+        (4, 4, vec![u32::MAX, 1]),
+        (4, 4, vec![1; 100]),
+        (0, 4, vec![]),
+        (100, 4, vec![]),
+        (4, 3, vec![]),
+        (4, 4, vec![]),
+        (7, 8, vec![2, 2, 3]),
+    ] {
+        let map = original.clone();
+        assert!(
+            map.edit(Edit::SetGroupingForMeter {
+                numerator,
+                denominator,
+                grouping
+            })
+            .is_err()
+        );
+        assert_eq!(map, original);
+    }
+    let mut locked = original.clone();
+    for measure in &mut locked.measures {
+        measure.protected = true;
+    }
+    assert!(
+        locked
+            .edit(Edit::SetGroupingForMeter {
+                numerator: 4,
+                denominator: 4,
+                grouping: vec![2, 2]
+            })
+            .is_err()
+    );
+    assert!(
+        serde_json::from_str::<Edit>(
+            r#"{"type":"set_grouping_for_meter","numerator":4,"denominator":4,"grouping":[-1,5]}"#
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn detected_fit_keeps_boundaries_but_omits_jitter_anchors_at_any_source_rate() {
     for rate in [1000, 44_100, 48_000] {
         let r = u64::from(rate);
@@ -925,7 +1129,16 @@ fn persistence_migrates_v2_and_retains_invalid_original_bytes() {
         std::fs::read(directory.join("fixture.json")).unwrap(),
         bytes
     );
-    migrated.measure_map = Some(build(500, 8000, 3, Meter::common()));
+    migrated.measure_map = Some(
+        build(500, 8000, 3, Meter::common())
+            .edit(Edit::SetGroupingForMeter {
+                numerator: 4,
+                denominator: 4,
+                grouping: vec![2, 2],
+            })
+            .unwrap()
+            .map,
+    );
     store.save(&migrated, 20.0).unwrap();
     assert_eq!(store.load("fixture", 20.0).unwrap(), migrated);
     let invalid = br#"{"version":4,"song_key":"fixture"}"#;

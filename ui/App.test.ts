@@ -345,7 +345,8 @@ it('keeps the Measure panel compact and moves global numbering below Create meas
   const batch=within(sidebar).getByText('Batch tools',{selector:'summary'}).closest('details')!;
   expect(batch.previousElementSibling?.querySelector('summary')?.textContent).toBe('Create measures');
   expect(within(batch).getByRole('spinbutton',{name:'First full measure number'})).toBeTruthy();
-  expect(within(batch).getByText('TODO: Apply beat grouping to all measures with a matching time signature.')).toBeTruthy();
+  expect(within(batch).getByRole('combobox',{name:'Time signature'})).toBeTruthy();
+  expect(within(batch).getByRole('button',{name:'Preview grouping'}).hasAttribute('disabled')).toBe(true);
   await fireEvent.click(within(tools).getByText('Advanced',{selector:'summary'}));
   expect(within(tools).getByRole('combobox',{name:'Pulse note value'})).toBeTruthy();
   expect(within(tools).getByRole('textbox',{name:'Beat grouping (optional)'})).toBeTruthy();
@@ -375,6 +376,67 @@ it('saves meter, pulse and grouping together without a preview and restores them
   await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
   await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));
   expect(document.measure_map?.boundaries).toEqual(original.map.boundaries);
+});
+
+it('reviews batch grouping without saving, discards it, then saves once with Undo and Redo',async()=>{
+  const original=timingFixture(48000);
+  original.map.measures[0].meter={...original.map.measures[0].meter,grouping:[1,3]};
+  original.view.measures[0].meter=original.map.measures[0].meter;
+  original.map.measures[0].beats=[{id:'map-6',frame:57600,offset:{num:1,den:1}}];original.map.next_id=7;
+  original.map.measures[1].protected=true;original.view.measures[1].protected=true;
+  document.measure_map=structuredClone(original.map);
+  const changed=structuredClone(original);
+  changed.map.measures[0].meter.grouping=[2,2];changed.map.revision=2;changed.view.revision=2;
+  changed.view.measures[0].grid=[{id:null,frame:0,quarter:0,label:'1'},{id:'map-6',frame:57600,quarter:1,label:'Anchor'},{id:null,frame:102400,quarter:2,label:'3'}];
+  changed.warnings=['1 measure changed; 1 locked measure skipped.'];
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.previewMap.mockResolvedValue(changed);
+  mock.mapView.mockImplementation(async map=>({...structuredClone(map.measures[0].meter.grouping[0]===1?original.view:changed.view),revision:map.revision}));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const grouping=screen.getByRole('textbox',{name:'Batch beat grouping (optional)'}) as HTMLInputElement;
+  await fireEvent.input(grouping,{target:{value:'2+2'}});
+  await screen.findByText('1 measure will change; 1 locked measure skipped.');
+  await fireEvent.click(screen.getByRole('button',{name:'Preview grouping'}));
+  await screen.findByText('1 measure changed; 1 locked measure skipped.');
+  expect(mock.previewMap).toHaveBeenCalledExactlyOnceWith('test',original.map,{type:'set_grouping_for_meter',numerator:4,denominator:4,grouping:[2,2]});
+  expect(document.measure_map).toEqual(original.map);expect(mock.update).not.toHaveBeenCalled();expect(grouping.disabled).toBe(true);
+  await waitFor(()=>expect(mock.metronome.mock.lastCall?.[3]).toEqual(changed.map));
+  await fireEvent.click(screen.getByRole('button',{name:'Discard'}));
+  expect(document.measure_map).toEqual(original.map);expect(grouping.value).toBe('2+2');expect(grouping.disabled).toBe(false);
+  await waitFor(()=>expect(mock.metronome.mock.lastCall?.[3]).toEqual(original.map));
+  await fireEvent.click(screen.getByRole('button',{name:'Preview grouping'}));
+  await screen.findByRole('button',{name:'Apply map'});
+  await fireEvent.click(screen.getByRole('button',{name:'Apply map'}));
+  await waitFor(()=>expect(document.measure_map).toEqual(changed.map));
+  expect(mock.update).toHaveBeenCalledOnce();expect(screen.getByRole('button',{name:'Preview grouping'}).hasAttribute('disabled')).toBe(true);
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));
+  await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));
+  expect(document.measure_map?.boundaries).toEqual(original.map.boundaries);
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Redo'}).hasAttribute('disabled')).toBe(false));
+  await fireEvent.click(screen.getByRole('button',{name:'Redo'}));
+  await waitFor(()=>expect(document.measure_map?.measures).toEqual(changed.map.measures));
+  expect(document.measure_map?.revision).toBe(4);
+});
+
+it('retains rejected batch grouping input and the accepted map for correction',async()=>{
+  const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  const grouping=screen.getByRole('textbox',{name:'Batch beat grouping (optional)'}) as HTMLInputElement;
+  await fireEvent.input(grouping,{target:{value:'2++2'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Preview grouping'}));
+  await screen.findByText(/Enter grouping as whole numbers/);expect(mock.previewMap).not.toHaveBeenCalled();
+  mock.previewMap.mockRejectedValueOnce(new Error('Grouping must add up to the time-signature numerator'));
+  await fireEvent.input(grouping,{target:{value:'2+3'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Preview grouping'}));
+  await screen.findByText(/Grouping must add up/);expect(grouping.value).toBe('2+3');expect(document.measure_map).toEqual(original.map);
+  expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();expect(mock.update).not.toHaveBeenCalled();
+  const changed=structuredClone(original);changed.map.revision=2;changed.view.revision=2;
+  for(const m of changed.map.measures)m.meter.grouping=[2,2];
+  mock.previewMap.mockResolvedValue(changed);
+  await fireEvent.input(grouping,{target:{value:'2+2'}});await fireEvent.click(screen.getByRole('button',{name:'Preview grouping'}));
+  await screen.findByRole('button',{name:'Apply map'});expect(document.measure_map).toEqual(original.map);
 });
 
 it('keeps a rejected direct meter edit intact for correction and retry',async()=>{

@@ -11,6 +11,11 @@ pub enum Edit {
     SetOrigin {
         first_number: u32,
     },
+    SetGroupingForMeter {
+        numerator: u32,
+        denominator: u32,
+        grouping: Vec<u32>,
+    },
     BuildFromPulses {
         pulses: Vec<u64>,
         #[serde(default)]
@@ -149,6 +154,40 @@ impl MeasureMap {
             }
             Edit::SetOrigin { first_number } => {
                 next.first_number = first_number;
+            }
+            Edit::SetGroupingForMeter {
+                numerator,
+                denominator,
+                grouping,
+            } => {
+                Meter::validate_signature(numerator, denominator)?;
+                Meter::validate_grouping(numerator, &grouping)?;
+                let mut changed = 0;
+                let mut skipped = 0;
+                for measure in &mut next.measures {
+                    if measure.meter.numerator != numerator
+                        || measure.meter.denominator != denominator
+                    {
+                        continue;
+                    }
+                    if measure.protected {
+                        skipped += 1;
+                    } else if measure.meter.grouping != grouping {
+                        // Grouping only changes presentation and pulse accents.
+                        // Preserve the authored timing curve and pulse interval.
+                        measure.meter.grouping.clone_from(&grouping);
+                        changed += 1;
+                    }
+                }
+                ensure!(
+                    changed > 0,
+                    "No unlocked measures with this time signature need a grouping change"
+                );
+                warnings.push(format!(
+                    "{changed} {} changed; {skipped} locked {} skipped.",
+                    if changed == 1 { "measure" } else { "measures" },
+                    if skipped == 1 { "measure" } else { "measures" },
+                ));
             }
             Edit::BuildFromPulses {
                 pulses,

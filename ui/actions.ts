@@ -15,6 +15,7 @@ export const MAPPING_ACTIONS = {
   map_clear: mapping('Clear all measures and anchors; Undo restores them. Keep detected beats for rebuilding'),
   map_first_downbeat: mapping('Set the first downbeat near the playhead'),
   map_origin: mapping('Preview the first full measure number'),
+  map_grouping: mapping('Preview beat grouping for all unlocked measures with the chosen time signature'),
   map_span_start: mapping('Set the map span start at the playhead'),
   map_span_end: mapping('Set the map span end at the playhead'),
   map_anchor_playhead: mapping('Set the beat anchor position at the playhead'),

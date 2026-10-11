@@ -110,7 +110,7 @@ through contiguous following measures until the next existing meter/pulse/groupi
 change or free-time gap. There is no separate selected-end propagation control.
 Selected-measure notation uses one **Apply changes**
 action, with native validation and Undo, rather than a preview gate. Global
-renumbering retains its preview/apply workflow; changing a label alone must not
+renumbering and batch grouping retain their preview/apply workflow; changing a label alone must not
 pretend the existing grid now fits.
 
 Use quarter-note units internally, with explicit rational note values. A
@@ -461,13 +461,25 @@ dotted-quarter click while its denominator still counts eighth notes.
 
 **Batch tools** follows Create measures in the sidebar. It owns First full measure
 number and the existing Preview numbering action, which applies to the song map
-without requiring a selected measure. A TODO records future grouping updates for
-all measures with a matching time signature; this batch operation is not yet
-implemented. Analysis, model setup and draft creation stay in the sidebar.
+without requiring a selected measure. **Time signature** lists the song's distinct
+numerator/denominator pairs; **Beat grouping (optional)** accepts denominator-note
+groups such as 2+2+3 in 7/8. A blank field clears explicit grouping. **Preview
+grouping** replaces grouping on all unlocked measures with that exact signature
+throughout the song, across meter changes and free-time gaps, including pickups
+and incomplete measures. Matching locked measures are skipped and reported.
+The form shows changed/skipped counts and disables preview when nothing changes.
+Native validation requires positive whole-number groups summing to the numerator;
+invalid edits retain the accepted map and typed input. Preview/Apply/Discard and
+one Undo/Redo step use the existing mapping session. Grouping changes preserve
+source boundaries, fixed beat anchors, measure identities, kind, extent, offset
+and pulse values. The displayed grouping grid changes; metronome click times stay
+fixed, and group starts accent only clicks coinciding with the existing pulse.
+Grouping already belongs to the version-1 map, so no persistence migration is
+needed. Analysis, model setup and draft creation stay in the sidebar.
 Selected-measure form state lives in the
 cohesive `MeasureTools.svelte` component; map/session ownership stays in the editor,
-batch numbering form state lives in `BatchTools.svelte`, and the timeline receives
-playback presentation through a Svelte snippet. Draft construction and numbering
+batch numbering/grouping form state lives in `BatchTools.svelte`, and the timeline receives
+playback presentation through a Svelte snippet. Draft construction, numbering and batch grouping
 keep their preview/apply workflows. Join, split, shift, mark free time and reclaim commit
 directly after native validation, with Undo for each operation.
 

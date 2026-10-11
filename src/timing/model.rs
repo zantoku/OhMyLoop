@@ -69,21 +69,27 @@ impl Meter {
         Fraction::new(self.numerator * 4, self.denominator)
     }
     pub(super) fn validate(&self) -> Result<()> {
-        ensure!(
-            (1..=99).contains(&self.numerator)
-                && [1, 2, 4, 8, 16, 32, 64].contains(&self.denominator),
-            "Choose a valid time signature"
-        );
+        Self::validate_signature(self.numerator, self.denominator)?;
         self.pulse.validate(true)?;
         ensure!(
             self.pulse.value() <= self.length().value(),
             "Pulse is longer than the measure"
         );
+        Self::validate_grouping(self.numerator, &self.grouping)
+    }
+    pub(super) fn validate_signature(numerator: u32, denominator: u32) -> Result<()> {
         ensure!(
-            self.grouping.len() <= 99
-                && (self.grouping.is_empty()
-                    || (self.grouping.iter().all(|v| *v > 0 && *v <= 99)
-                        && self.grouping.iter().sum::<u32>() == self.numerator)),
+            (1..=99).contains(&numerator) && [1, 2, 4, 8, 16, 32, 64].contains(&denominator),
+            "Choose a valid time signature"
+        );
+        Ok(())
+    }
+    pub(super) fn validate_grouping(numerator: u32, grouping: &[u32]) -> Result<()> {
+        ensure!(
+            grouping.len() <= 99
+                && (grouping.is_empty()
+                    || (grouping.iter().all(|v| *v > 0 && *v <= 99)
+                        && grouping.iter().sum::<u32>() == numerator)),
             "Grouping must add up to the time-signature numerator"
         );
         Ok(())

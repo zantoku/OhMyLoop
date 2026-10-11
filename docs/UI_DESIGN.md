@@ -132,8 +132,10 @@ type stack, pale `#f9fafc` surface, `#e0e6f0` dividers, `#334966` text and muted
 `#7a879d` hints. A small lock beside the title uses the map's green accent when
 protected. Advanced folds away grouping, pulse and boundary positions; it can
 scroll within the editing panel without filling the default view. The sidebar's
-Batch tools owns global numbering (Preview/Apply) and a future grouping-operation
-TODO for measures sharing a time signature. Create measures remains a separate
+Batch tools owns global numbering and batch grouping (Preview/Apply). A compact
+signature dropdown and grouping field show changed/locked counts; blank grouping
+clears it. Grouping affects all unlocked measures with that exact signature and
+preserves timing corrections and pulse values. Create measures remains a separate
 draft form with derived detected-measure counts and the epsilon field.
 
 Join / Split / Shift arranges all three tools horizontally with vertical
