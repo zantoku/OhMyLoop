@@ -263,7 +263,7 @@ fn loading_a_map_with_the_wrong_decoded_rate_preserves_the_saved_file() {
         .unwrap();
     let file = directory.join(format!("{key}.json"));
     let mut json: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-    json["timelines"][0]["measure_map"] =
+    json["timeline"]["measure_map"] =
         serde_json::to_value(ohmyloop::timing::MeasureMap::empty(48000, 48000)).unwrap();
     fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
     let before = fs::read(&file).unwrap();
@@ -351,7 +351,7 @@ fn review_maps_are_source_bound_and_ephemeral_even_when_clicks_are_off() {
 }
 
 #[test]
-fn notes_are_song_level_and_persist_across_reference_timelines() {
+fn notes_are_song_level_and_survive_replacing_the_only_timeline() {
     let temp = Temp::new("notes");
     let store = Store::new(temp.0.clone()).unwrap();
     let audio = Audio::tone(1000, 10.0, 220.0);
@@ -379,7 +379,7 @@ fn notes_are_song_level_and_persist_across_reference_timelines() {
     let current = store.load(&doc.song_key, 5.0).unwrap();
     assert_eq!(current.notes, doc.notes);
     assert!(current.sections.is_empty());
-    assert_eq!(record.timelines[0].sections, doc.sections);
+    assert!(record.timeline.sections.is_empty());
     let valid = fs::read(temp.0.join(format!("{}.json", doc.song_key))).unwrap();
     let mut invalid = current;
     invalid.notes = "é".repeat(600000);

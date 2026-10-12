@@ -26,9 +26,9 @@ persisted; this is not a recovery journal.
   disposal guards; App connects it to the existing document-save queue.
 - `ui/actions.ts` centralizes notes/close/retry identities, button bindings and
   descriptions. Notes has its own action scope and typing suppresses shortcuts.
-- `src/project.rs` validates and stores song-level `notes` in the atomic version-1
-  `<practice-directory>/<song-uuid>.json` envelope. Replacement recording/timeline
-  selection keeps the notes, while intentional separate imports get their own notes.
+- `src/project.rs` validates and stores song-level `notes` in the atomic version-2
+  `<practice-directory>/<song-uuid>.json` envelope. Replacing the recording
+  keeps the notes, while intentional separate imports get their own notes.
   No audio tags are modified.
 - The UI practice DTO is version 5. Recognized pre-UUID metadata is reset once on
   launch rather than migrated; malformed/future UUID data remains preserved.

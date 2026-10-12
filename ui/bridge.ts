@@ -15,7 +15,7 @@ let previewDocument: PracticeDocument | null = null;
 let previewTransport = { ...empty };
 const snapshot = (include = false): Snapshot => ({ song: include ? previewSong : null, document: structuredClone(previewDocument), transport: { ...previewTransport } });
 function demo(): Snapshot {
-  previewSong = { key: 'builtin-demo', reference_token:'builtin-demo', asset_id:'preview',timeline_id:'preview',reference_revision:1,session_id:'preview', retained_recordings:[], title: 'Practice sketch', path: null, duration: 12, rate: 48000,
+  previewSong = { key: 'builtin-demo', reference_token:'builtin-demo', asset_id:'preview',timeline_id:'preview',reference_revision:1,session_id:'preview',  title: 'Practice sketch', path: null, duration: 12, rate: 48000,
     peaks: Array.from({ length: 4096 }, (_, i) => { const t = i / 4096 * 12; const level = 0.06 + 0.21 * Math.exp(-5 * (t % .5)); return [-level, level]; }) };
   const saved = localStorage.getItem('ohmyloop-ui-preview');
   previewDocument = saved ? JSON.parse(saved) : { version: 4, notes:'', song_key: 'builtin-demo',reference_token:'builtin-demo', controls: { speed: 1, semitones: 0 },
@@ -46,7 +46,6 @@ export const bridge = {
   loadDemo: () => native ? invoke<Snapshot>('load_demo') : Promise.resolve(demo()),
   openSong: () => native ? invoke<Snapshot | null>('open_song') : Promise.reject(new Error('Open songs in the desktop app. This browser preview has no audio device.')),
   importSeparate:()=>native?invoke<Snapshot|null>('import_separate_song'):Promise.reject(new Error('Import songs in the desktop app.')),
-  selectRecording:(referenceToken:string,assetId:string)=>native?invoke<Snapshot>('select_recording',{referenceToken,assetId}):Promise.reject(new Error('Select recordings in the desktop app.')),
   libraryReference:(songKey:string)=>native?invoke<string>('library_reference',{songKey}):Promise.reject(new Error('Replace recordings in the desktop app.')),
   replaceLibraryReference:(songKey:string,referenceToken:string,timingUnchanged:boolean)=>native?invoke<Snapshot|null>('replace_library_reference',{songKey,referenceToken,timingUnchanged}):Promise.reject(new Error('Replace recordings in the desktop app.')),
   replaceRecording:(referenceToken:string,timingUnchanged:boolean)=>native?invoke<Snapshot|null>('replace_recording',{referenceToken,timingUnchanged}):Promise.reject(new Error('Replace recordings in the desktop app.')),

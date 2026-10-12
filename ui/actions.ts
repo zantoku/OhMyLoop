@@ -51,9 +51,8 @@ export const ACTIONS = {
   import_separate: define('Import a separate song with independent notes and maps', [], 'none'),
   replace_recording: define('Replace the current song reference recording'),
   replacement_same_timing: define('Replace the recording and explicitly confirm unchanged timing', [], 'none'),
-  replacement_new_timeline: define('Replace the recording using a new timeline', [], 'none'),
-  replacement_select: define('Switch to a retained recording and its timeline'),
-  replacement_cancel: define('Cancel recording replacement', [], 'none'),
+  replacement_new_timeline: define('Replace the recording and clear the measure map, sections, loop and position', [], 'none'),
+  replacement_cancel: define('Close recording replacement', [], 'none'),
   show_notes: practice('Open song notes'),
   close_notes: {...define('Close notes and return to practice'),scope:'notes' as ActionScope},
   retry_notes: {...define('Retry saving song notes'),scope:'notes' as ActionScope},
@@ -118,7 +117,7 @@ export const ACTIONS = {
 
 export type ActionId = keyof typeof ACTIONS;
 export const BUTTONS = {
-  import_separate:'import_separate',replace_recording:'replace_recording',replacement_same_timing:'replacement_same_timing',replacement_new_timeline:'replacement_new_timeline',replacement_cancel:'replacement_cancel',replacement_select:'replacement_select',
+  import_separate:'import_separate',replace_recording:'replace_recording',replacement_same_timing:'replacement_same_timing',replacement_new_timeline:'replacement_new_timeline',replacement_cancel:'replacement_cancel',
   show_notes:'show_notes',close_notes:'close_notes',retry_notes:'retry_notes',
   show_library:'show_library', library_close:'library_close', library_open:'library_open', library_edit:'library_edit',library_replace:'library_replace',
   library_save:'library_save', library_cancel:'library_cancel', library_retry:'library_retry', library_sort:'library_sort', library_reverse:'library_reverse',

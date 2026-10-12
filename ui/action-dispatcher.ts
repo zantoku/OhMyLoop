@@ -1,7 +1,7 @@
 import { ACTIONS, type ActionId } from './actions';
 import type { Section } from './types';
 
-export type ActionPayload = { section?: Section; assetId?: string; speed?: number; songKey?:string; librarySort?:import('./library').LibrarySort };
+export type ActionPayload = { section?: Section; speed?: number; songKey?:string; librarySort?:import('./library').LibrarySort };
 export type ActionHandlers = Record<ActionId, (payload: ActionPayload) => void | Promise<void>>;
 export type ActionState = {
   context?: 'practice' | 'mapping' | 'library' | 'notes'; busy: boolean; song: boolean; range: boolean; sections: boolean; audio: boolean;

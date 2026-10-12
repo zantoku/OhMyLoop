@@ -24,8 +24,9 @@ of deleting future unreadable data.
 ## Consequences
 
 - Audio assets have their own IDs and immutable content revisions. Replacing a
-  recording changes the selected asset, not the song UUID. Keep previous assets
-  until explicitly removed.
+  recording changes the current asset, not the song UUID. The user subsequently
+  simplified this to one reference recording/map per song: discard previous
+  recording references and positional history, without deleting external audio.
 - Exact-copy detection offers opening the existing song or importing a separate
   song. Neither filenames nor hashes silently merge user records. Intentional
   duplicates can have independent notes and maps.

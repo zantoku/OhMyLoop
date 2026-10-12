@@ -157,16 +157,6 @@ async fn replace_library_reference(
 }
 
 #[tauri::command]
-async fn select_recording(
-    reference_token: String,
-    asset_id: String,
-    state: State<'_, Desktop>,
-) -> Result<Snapshot, String> {
-    let desktop = state.inner().clone();
-    work(move || desktop.select_recording(reference_token, asset_id)).await
-}
-
-#[tauri::command]
 async fn read_library(state: State<'_, Desktop>) -> Result<ohmyloop::library::Catalogue, String> {
     let desktop = state.inner().clone();
     work(move || desktop.library()).await
@@ -333,7 +323,6 @@ fn main() {
             open_song,
             import_separate_song,
             replace_recording,
-            select_recording,
             library_reference,
             replace_library_reference,
             read_library,

@@ -2,10 +2,7 @@ use crate::{
     audio::Audio,
     count_in::Settings as CountInSettings,
     playback::Player,
-    project::{
-        AudioAssetId, Document, Reference, SessionId, Song, SongRecord, Store, asset_digest,
-        waveform,
-    },
+    project::{Document, Reference, SessionId, Song, SongRecord, Store, asset_digest, waveform},
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -62,7 +59,6 @@ enum Command {
     Replace(String, String, bool),
     LibraryReference(String),
     ReplaceLibrary(String, String, String, bool),
-    SelectRecording(String, String),
     Library,
     OpenLibrary(String),
     UpdateLibrary(String, crate::library::Metadata),
@@ -212,9 +208,6 @@ impl Desktop {
     ) -> Result<Snapshot> {
         self.snapshot(Command::ReplaceLibrary(key, token, path, timing_unchanged))
     }
-    pub fn select_recording(&self, token: String, asset_id: String) -> Result<Snapshot> {
-        self.snapshot(Command::SelectRecording(token, asset_id))
-    }
 
     pub fn status(&self) -> Result<Transport> {
         match self.request(Command::Status)? {
@@ -284,13 +277,12 @@ impl Controller {
                 | Command::OpenLibrary(_)
                 | Command::Separate(_)
                 | Command::Replace(..)
-                | Command::SelectRecording(..)
                 | Command::ReplaceLibrary(..)
         );
         match command {
             Command::Restore => {
                 if let Some(source) = self.store.last_song()? {
-                    let location = self.store.record(&source)?.asset()?.path.clone();
+                    let location = self.store.record(&source)?.asset.path.clone();
                     self.load(&location, Some(&source), false)?;
                 }
             }
@@ -396,27 +388,6 @@ impl Controller {
                 let key = self.song.as_ref().unwrap().key.clone();
                 self.replace_recording(&key, &token, &path, timing_unchanged)?;
             }
-            Command::SelectRecording(token, asset) => {
-                self.check_reference(&token)?;
-                self.persist_position();
-                let key = self.song.as_ref().unwrap().key.clone();
-                let mut record = self.store.record(&key)?;
-                let asset: AudioAssetId = asset.try_into()?;
-                record.select_recording(asset)?;
-                let path = record.asset()?.path.clone();
-                ensure!(
-                    asset_digest(Path::new(&path))? == record.asset()?.digest,
-                    "Retained recording changed; replace it explicitly"
-                );
-                let audio = Audio::load(Path::new(&path))?;
-                ensure!(
-                    audio.rate == record.asset()?.rate
-                        && audio.frames.len() as u64 == record.asset()?.frames
-                        && asset_digest(Path::new(&path))? == record.asset()?.digest,
-                    "Retained recording changed while decoding"
-                );
-                self.activate(record, audio, false, vec![])?;
-            }
             Command::Update(mut document) => {
                 let song = self.song.as_ref().context("Open a song first")?;
                 ensure!(
@@ -515,8 +486,8 @@ impl Controller {
         self.persist_position();
         let mut record = self.store.record(key)?;
         ensure!(
-            record.reference.asset == expected.asset
-                && record.reference.timeline == expected.timeline
+            record.asset.id == expected.asset
+                && record.timeline.id == expected.timeline
                 && record.reference_revision == expected.revision,
             "Reference recording changed; reopen replacement choices"
         );
@@ -544,8 +515,7 @@ impl Controller {
         if let Some(song) = &self.song {
             let current = song.path.is_none()
                 || self.store.record(&song.key).is_ok_and(|r| {
-                    r.reference_revision == song.reference_revision
-                        && r.reference.asset == song.asset_id
+                    r.reference_revision == song.reference_revision && r.asset.id == song.asset_id
                 });
             if current {
                 self.persist_position();
@@ -606,7 +576,7 @@ impl Controller {
                             continue;
                         }
                     };
-                    if record.asset()?.digest == digest {
+                    if record.asset.digest == digest {
                         found = Some(entry.song_key.clone());
                         break;
                     }
@@ -617,11 +587,11 @@ impl Controller {
         let mut record = if let Some(key) = &existing {
             let r = self.store.record(key)?;
             ensure!(
-                r.asset()?.digest == digest,
+                r.asset.digest == digest,
                 "Recording changed. Use Replace recording to retain this song and choose its timeline explicitly"
             );
             ensure!(
-                r.asset()?.rate == audio.rate && r.asset()?.frames == audio.frames.len() as u64,
+                r.asset.rate == audio.rate && r.asset.frames == audio.frames.len() as u64,
                 "Decoded recording geometry changed"
             );
             r
@@ -629,12 +599,7 @@ impl Controller {
             SongRecord::new(path.clone().unwrap_or_else(|| DEMO.into()), digest, &audio)
         };
         if let Some(path) = &path {
-            record
-                .assets
-                .iter_mut()
-                .find(|a| a.id == record.reference.asset)
-                .unwrap()
-                .path = path.clone();
+            record.asset.path = path.clone();
         }
         self.activate(record, audio, demo, warnings)
     }
@@ -646,11 +611,10 @@ impl Controller {
         mut warnings: Vec<String>,
     ) -> Result<()> {
         ensure!(
-            record.asset()?.rate == audio.rate
-                && record.asset()?.frames == audio.frames.len() as u64,
+            record.asset.rate == audio.rate && record.asset.frames == audio.frames.len() as u64,
             "Decoded asset geometry differs from its record"
         );
-        let path = (!demo).then(|| record.asset().unwrap().path.clone());
+        let path = (!demo).then(|| record.asset.path.clone());
         let session = SessionId::new();
         let mut document = record.document(session)?;
         if demo {
@@ -678,12 +642,11 @@ impl Controller {
             .unwrap_or_else(|| "Practice sketch".into());
         let mut song = Song {
             key: record.id.to_string(),
-            asset_id: record.reference.asset,
-            timeline_id: record.reference.timeline,
+            asset_id: record.asset.id,
+            timeline_id: record.timeline.id,
             reference_revision: record.reference_revision,
             session_id: session,
             reference_token: record.reference(session).token(),
-            retained_recordings: record.recording_options(),
             title,
             path,
             duration: audio.duration(),
@@ -694,7 +657,7 @@ impl Controller {
             // The song envelope is authoritative; catalogue/restoration projections
             // can fail without leaving the committed reference and actor out of sync.
             self.store.save_record(&record)?;
-            let location = record.asset()?.path.clone();
+            let location = record.asset.path.clone();
             let metadata = crate::library::read_tags(Path::new(&location)).unwrap_or_else(|_| {
                 crate::library::Metadata {
                     title: song.title.clone(),

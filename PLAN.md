@@ -106,8 +106,8 @@ have separate IDs; hashes verify file contents and analysis inputs. The versione
 library index remains separate from the authoritative song envelope. Opening a
 moved unchanged file can update its location; Import separate song deliberately
 creates independent notes and maps even for identical audio. Explicit replacement
-keeps the song UUID and either confirms compatible timing or creates a retained
-new timeline. Library replacement recovers changed/missing files after restart.
+keeps the song UUID and either preserves compatible timing or clears its positional
+annotations for changed timing. Each song has one current recording/map. Library replacement recovers changed/missing files after restart.
 Do not modify embedded tags or copy audio in this identity slice.
 Leave directory scans, batch imports, artwork, playlists, removal and portable
 project export outside this pass. Detailed behavior and persistence are in

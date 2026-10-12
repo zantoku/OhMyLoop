@@ -6,8 +6,8 @@ Issue #2 now uses stable song UUIDs, separately typed asset/timeline IDs, atomic
 song envelopes, scoped legacy metadata reset and reference/session guards across
 native/Tauri/UI contracts. Library replacement recovers changed/missing references
 without re-identifying songs; compatible replacement requires explicit same-timing
-confirmation plus equal decoded rate/frame count. Independent imports and retained
-timelines are available. [Persistence and checks](UUID_IDENTITY.md) describes the
+confirmation plus equal decoded rate/frame count. Independent imports are available; songs now keep one recording/map without
+retained history. [Persistence and checks](UUID_IDENTITY.md) describes the
 exact slice; managed root/copying remains issue #3.
 
 Automated macOS checks: all native targets with `beat-analysis`, workspace strict
@@ -119,7 +119,7 @@ numbering and grids are derived. Meter, pulse and optional grouping belong to ea
 measure; gaps continue global numbering without independent numbering resets.
 
 `src/project.rs` owns UUID song envelopes with song-level notes/controls and
-versioned reference timelines containing version-1 maps, sections and loop positions.
+one versioned reference timeline containing a version-1 map, sections and loop positions.
 Incompatible pre-UUID metadata is reset as authorized; malformed/future UUID files
 are preserved. The flattened UI document is version 5. Native load and update
 validate decoded source rate/frame count. Failed saves leave the accepted map intact:

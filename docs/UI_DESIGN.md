@@ -94,6 +94,21 @@ selection and section navigation. A single waveform workspace, two prominent
 independent practice controls, and restrained section colors serve the guitar
 practice workflow without turning the screen into a DAW mixer.
 
+## Close controls and dialog spacing
+
+Close controls should practically always be an **X icon button in the top
+leading corner of the containing element**: a dialog, panel or dedicated screen.
+Put it before the title in the heading row (top left in this left-to-right UI),
+with an accessible name describing what closes, a hover description and visible
+keyboard focus. Avoid a footer Cancel button when its only purpose is dismissal.
+Keep cancellation of running work distinct from closing its presentation.
+
+Replacement opens from **Library → Edit**, below File location. Its dialog has
+one leading X, clear spacing between the heading, explanation and choices, and
+stacked actions that fit narrow windows. Explain that unchanged timing preserves
+the current annotations, while changed timing clears the map, sections, loop and
+position. A song has one current recording/map; there is no recording-history UI.
+
 ## Measure-mapping screen
 
 Current implementation: updated 2026-10-11.

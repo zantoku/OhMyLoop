@@ -67,7 +67,7 @@ validation rules, and [example configuration](config/keymap.example.json).
 Practice documents are saved in the app's per-user data directory, under
 `practice`. They contain stable section IDs, source coordinates, controls,
 loop selection, last position, and plain-text song notes. Songs have stable UUIDs independent of audio revisions. Notes/settings belong to
-the song; sections/maps/loops/positions belong to its retained reference timeline.
+the song; sections/maps/loops/positions belong to its single reference timeline.
 Playback is restored paused. [UUID persistence and reset](docs/UUID_IDENTITY.md)
 describes the one-time legacy metadata reset; audio and preferences are retained.
 Corrupt or unsupported documents are reported and left intact. For development
@@ -147,8 +147,8 @@ library, keeping it visible if the file picker is cancelled.
 The catalogue is `practice/library.json`, separate from each song's practice
 JSON and the analysis cache. It uses song UUIDs. Reopening a moved unchanged file updates its location;
 **Import separate song** creates independent notes/maps for identical audio.
-Missing/changed recordings can be recovered with the library row’s **Replace
-recording** action, preserving song identity. Explicit unchanged-timing confirmation
+Missing/changed recordings can be recovered from **Library → Edit → Replace
+recording…**, below **File location**, preserving song identity. Explicit unchanged-timing confirmation
 requires matching decoded rate/frame count; a new timeline preserves the old map. No folder
 scan/import, artwork, removal or export workflow is implemented yet.
 See [docs/LIBRARY.md](docs/LIBRARY.md) for details.

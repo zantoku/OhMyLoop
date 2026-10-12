@@ -15,7 +15,7 @@ A particular stored recording or derived audio file associated with a song.
 _Avoid_: Song
 
 **Reference recording**:
-The song's selected full recording used for waveform review and automatic timing
+The song's current full recording used for waveform review and automatic timing
 analysis, against which its practice timeline is established.
 _Avoid_: Original mix (when referring to the timing reference)
 

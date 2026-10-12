@@ -75,21 +75,14 @@
   let helpDialog: HTMLDialogElement;
   let replacementDialog: RecordingChooser;
   const replacement=new RecordingReplacement();
-  let replacingLibrary=$state(false);
   async function replaceLibrary(songKey?:string){
     if(!songKey||busy||!await notesSession.flush())return;
     busy='Checking reference recording…';error='';
-    try{flushControls();await saves.catch(()=>{});await replacement.library(songKey);replacingLibrary=true;replacementDialog.showModal();}
+    try{flushControls();await saves.catch(()=>{});if(song?.key===songKey){replacement.active(song.reference_token);}else{await replacement.library(songKey);}replacementDialog.showModal();}
     catch(e){error=String(e);}finally{busy='';}
   }
   function showReplacement(){
-    if(!song||busy)return;replacement.active(song.reference_token);replacingLibrary=false;replacementDialog.showModal();
-  }
-  async function selectRetained(assetId?:string){
-    if(!song||busy||!assetId||!await notesSession.flush())return;
-    const token=song.reference_token;busy='Switching recording…';replacementDialog.close();
-    try{flushControls();await saves.catch(()=>{});const snapshot=await bridge.selectRecording(token,assetId!);revision++;apply(snapshot);saved=true;undo=[];screen='practice';}
-    catch(e){error=String(e);}finally{busy='';}
+    if(!song||busy)return;replacement.active(song.reference_token);replacementDialog.showModal();
   }
   let nameInput: HTMLInputElement;
   let sectionId = $state<string | null>(null);
@@ -270,7 +263,7 @@
     screen='library';
   }
   const dispatcher = new ActionDispatcher({
-    import_separate:()=>recordingChange(),replace_recording:showReplacement,replacement_select:({assetId})=>selectRetained(assetId),replacement_same_timing:()=>recordingChange(true),replacement_new_timeline:()=>recordingChange(false),replacement_cancel:()=>{replacementDialog.close();},
+    import_separate:()=>recordingChange(),replace_recording:showReplacement,replacement_same_timing:()=>recordingChange(true),replacement_new_timeline:()=>recordingChange(false),replacement_cancel:()=>{replacementDialog.close();},
     show_notes:()=>{screen='notes';},close_notes:closeNotes,retry_notes:async()=>{await notesSession.flush();},
     library_replace:({songKey})=>replaceLibrary(songKey),
     show_library:showLibrary,library_close:()=>{screen='practice';},library_open:({songKey})=>open(false,songKey),
@@ -380,7 +373,7 @@
 
   <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
   {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
-  <RecordingChooser bind:this={replacementDialog} recordings={replacingLibrary?[]:song?.retained_recordings??[]} {keymap} run={(id,payload)=>{void runButton(id,payload);}}/>
+  <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
   <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>
     <aside class="sections-panel">
       <div class="panel-title"><h2>Sections</h2><span>{sections.length || ''}</span></div>
@@ -403,7 +396,7 @@
 
     <section class="workbench" aria-label="Practice workspace">
       {#if song && project}
-        <div class="workspace-heading"><div class="workspace-tools"><button class="text-button" disabled={!native||!buttonAvailable('replace_recording')} title={keymap.title('replace_recording')} onclick={()=>runButton('replace_recording')}>Replace recording…</button><button class="button map-screen-button" disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}>{keymap.buttonLabel('show_notes','Notes')}</button><button class="button map-screen-button" disabled={!buttonAvailable('show_measure_map')} title={keymap.title('show_measure_map')} onclick={()=>runButton('show_measure_map')}>{keymap.buttonLabel('show_measure_map','Measure map')}</button></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
+        <div class="workspace-heading"><div class="workspace-tools"><button class="button map-screen-button" disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}>{keymap.buttonLabel('show_notes','Notes')}</button><button class="button map-screen-button" disabled={!buttonAvailable('show_measure_map')} title={keymap.title('show_measure_map')} onclick={()=>runButton('show_measure_map')}>{keymap.buttonLabel('show_measure_map','Measure map')}</button></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
         <Waveform {mapView} {snapToMeasures} rate={song.rate} peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
         <div class="practice-listening">
           {#if mapView?.measures.length}<label class="snap-control" title={keymap.title('loop_snap')}><input type="checkbox" checked={snapToMeasures} disabled={!buttonAvailable('loop_snap')} onchange={()=>runButton('loop_snap')}/>{keymap.buttonLabel('loop_snap','Snap to measures')}</label>{/if}

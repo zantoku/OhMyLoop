@@ -41,7 +41,7 @@ fn typed_ids_reject_invalid_noncanonical_and_nil_values() {
     assert!(Reference::parse("../song").is_err());
 }
 #[test]
-fn replacements_duplicates_retained_timelines_and_stale_sessions_are_explicit() {
+fn replacements_keep_one_recording_and_map_and_reject_stale_sessions() {
     let temp = Temp::new();
     let data = temp.0.join("practice");
     let a = temp.0.join("original.wav");
@@ -157,29 +157,30 @@ fn replacements_duplicates_retained_timelines_and_stale_sessions_are_explicit() 
     assert!(trimmed_doc.sections.is_empty());
     assert!(trimmed_doc.measure_map.is_none());
     assert_eq!(trimmed_doc.last_position, 0.0);
-    let prior = desktop
-        .select_recording(
-            trimmed_song.reference_token.clone(),
-            original.asset_id.to_string(),
-        )
+    let record = Store::new(data.clone())
+        .unwrap()
+        .record(&original.key)
         .unwrap();
-    let prior_song = prior.song.unwrap();
-    let prior_doc = prior.document.unwrap();
-    assert_eq!(prior_doc.sections, doc.sections);
-    assert_eq!(prior_doc.measure_map, doc.measure_map);
-    assert_eq!(prior_song.retained_recordings.len(), 3);
+    assert_eq!(record.asset.id, trimmed_song.asset_id);
+    assert_eq!(record.timeline.id, trimmed_song.timeline_id);
+    assert!(record.timeline.sections.is_empty());
+    let serialized = serde_json::to_value(&record).unwrap();
+    assert!(serialized.get("assets").is_none());
+    assert!(serialized.get("timelines").is_none());
+    assert!(serialized.get("recordings").is_none());
     let reopened = desktop.open_library(original.key.clone()).unwrap();
     let reopened_song = reopened.song.unwrap();
-    assert_eq!(reopened_song.asset_id, original.asset_id);
-    assert_ne!(reopened_song.session_id, prior_song.session_id);
-    assert!(desktop.source(prior_song.reference_token).is_err());
-    assert!(desktop.update(prior_doc).is_err());
+    assert_eq!(reopened_song.asset_id, trimmed_song.asset_id);
+    assert_ne!(reopened_song.session_id, trimmed_song.session_id);
+    assert!(reopened.document.as_ref().unwrap().measure_map.is_none());
+    assert!(desktop.source(trimmed_song.reference_token).is_err());
+    assert!(desktop.update(trimmed_doc).is_err());
     let existing = desktop
-        .load(Some(a.to_string_lossy().into_owned()))
+        .load(Some(c.to_string_lossy().into_owned()))
         .unwrap();
     assert_eq!(existing.song.unwrap().key, original.key);
     let duplicate = desktop
-        .load_separate(a.to_string_lossy().into_owned())
+        .load_separate(c.to_string_lossy().into_owned())
         .unwrap();
     let duplicate_song = duplicate.song.unwrap();
     assert_ne!(duplicate_song.key, original.key);
@@ -379,23 +380,28 @@ fn corrupt_or_unwritable_projections_do_not_block_restoration_or_strand_referenc
             .unwrap()
             .record(&song.key)
             .unwrap()
-            .reference
-            .asset,
+            .asset
+            .id,
         current.asset_id
     );
     assert!(desktop.source(current.reference_token.clone()).is_ok());
     // Write failure of a valid catalogue and an unknown future last-song record
-    // preserve their bytes while a retained-reference commit still activates.
+    // preserve their bytes while replacing the only reference still activates.
     fs::write(&catalogue, &valid).unwrap();
     fs::create_dir(data.join("library.json.tmp")).unwrap();
     let last = data.join("last-song.json");
     let future = b"{\"version\":99,\"song_id\":\"11111111-1111-4111-8111-111111111111\"}";
     fs::write(&last, future).unwrap();
     let selected = desktop
-        .select_recording(current.reference_token, song.asset_id.to_string())
+        .replace_reference(
+            current.reference_token,
+            a.to_string_lossy().into_owned(),
+            true,
+        )
         .unwrap();
     let selected_song = selected.song.unwrap();
-    assert_eq!(selected_song.asset_id, song.asset_id);
+    assert_ne!(selected_song.asset_id, song.asset_id);
+    assert_eq!(selected_song.key, song.key);
     assert!(
         selected
             .library_error
@@ -413,9 +419,85 @@ fn corrupt_or_unwritable_projections_do_not_block_restoration_or_strand_referenc
             .unwrap()
             .record(&song.key)
             .unwrap()
-            .reference
-            .asset,
+            .asset
+            .id,
         selected_song.asset_id
     );
     desktop.shutdown();
+}
+
+#[test]
+fn old_uuid_history_is_read_as_only_the_active_recording_and_map() {
+    let temp = Temp::new();
+    let store = Store::new(temp.0.clone()).unwrap();
+    let audio = Audio::tone(1000, 4.0, 220.0);
+    let original = SongRecord::new("/original.wav".into(), "a".repeat(64), &audio);
+    let mut current = original.clone();
+    current
+        .replace(
+            "/current.wav".into(),
+            "b".repeat(64),
+            &Audio::tone(1000, 2.0, 330.0),
+            false,
+        )
+        .unwrap();
+    let mut document = current.document(SessionId::new()).unwrap();
+    document.notes = "Current song notes".into();
+    document.controls.speed = 0.75;
+    document.sections.push(ohmyloop::project::Section {
+        id: "current-section".into(),
+        name: "Current phrase".into(),
+        start: 0.2,
+        end: 1.2,
+    });
+    document.measure_map = Some(
+        MeasureMap::empty(1000, 2000)
+            .edit(Edit::Build {
+                start: 0,
+                end: 2000,
+                count: 2,
+                meter: Meter::common(),
+            })
+            .unwrap()
+            .map,
+    );
+    current.update_document(&document).unwrap();
+    let legacy = serde_json::json!({
+        "version":1,"id":current.id,"reference_revision":current.reference_revision,
+        "reference":{"asset":current.asset.id,"timeline":current.timeline.id},
+        "assets":[original.asset,current.asset], "timelines":[original.timeline,current.timeline],
+        "recordings":[{"asset":original.asset.id,"timeline":original.timeline.id},
+            {"asset":current.asset.id,"timeline":current.timeline.id}],
+        "controls":current.controls,"notes":current.notes
+    });
+    let path = temp.0.join(format!("{}.json", current.id));
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    let loaded = store.record(&current.id.to_string()).unwrap();
+    assert_eq!(loaded.version, 2);
+    assert_eq!(loaded.id, current.id);
+    assert_eq!(loaded.asset.id, current.asset.id);
+    assert_eq!(loaded.timeline.id, current.timeline.id);
+    assert_eq!(loaded.timeline.measure_map, document.measure_map);
+    assert_eq!(loaded.timeline.sections, document.sections);
+    assert_eq!(loaded.notes, document.notes);
+    assert_eq!(loaded.controls, document.controls);
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        bytes,
+        "reading must not rewrite user data"
+    );
+    store.save_record(&loaded).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["version"], 2);
+    for old in ["assets", "timelines", "recordings", "reference"] {
+        assert!(saved.get(old).is_none());
+    }
+    let mut malformed = legacy;
+    malformed["timelines"][0]["version"] = 99.into();
+    let bytes = serde_json::to_vec(&malformed).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    assert!(store.record(&current.id.to_string()).is_err());
+    assert!(store.save_record(&loaded).is_err());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
 }

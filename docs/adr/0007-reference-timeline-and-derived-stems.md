@@ -1,10 +1,10 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Keep maps on the reference timeline and attach stems as derived audio
 
-Proposed: 2026-10-12. A song selects a reference recording and a reference timeline.
+Decision updated: 2026-10-12. A song has one reference recording and one reference timeline.
 Measure maps, sections and loop bounds belong to that timeline; timing analysis
 always reads the reference recording, independently of the audible mix. A stem
 set records the exact input asset, preprocessing and a mapping from its sample
@@ -27,9 +27,11 @@ from equal durations. Clips may be supported later through explicit span mapping
   requires explicit confirmation of unchanged timing and compatible geometry;
   matching length alone does not prove correspondence. Different decoded rates
   need an explicit origin/rate mapping, with canonical timeline coordinates kept.
-- A trimmed, shifted or different recording requires a new timeline. Keep the
-  previous sections/map/loops with the old timeline, and offer deliberate transfer
-  later; do not silently clamp, stretch or discard them. Notes remain song-level.
+- A trimmed, shifted or different recording replaces the timeline. Choosing
+  changed timing explicitly clears the current map, sections, loop and position;
+  explain this before the file picker. There is no retained-recording or map
+  history. Notes and speed/pitch settings remain song-level. This revises the
+  earlier proposal to keep annotations for every recording version.
 - Even a confirmed timing-compatible replacement invalidates automatic evidence
   for the new reference input. Existing stems retain their old input provenance
   and can be auditioned if timeline-compatible, clearly marked as coming from a

@@ -31,11 +31,13 @@ and reset boundaries; [Managed songs and stems](STEMS.md) describes later work.
   Use **Open song** to locate a moved unchanged file; its existing entry and
   annotations are reused and its canonical location is updated. **Import separate
   song** intentionally creates independent notes/maps for identical audio.
-- **Replace recording** is available for the loaded song and each library row,
-  including changed/missing files after restart. Choose unchanged timing explicitly
-  (same decoded rate/frame count required) or a new retained timeline. Notes and
-  controls stay with the song UUID; previous recordings/maps remain available.
-  [Reference handling](UUID_IDENTITY.md) describes retained selection and limits.
+- **Replace recording…** is in the song edit panel below **File location**.
+  Open it with the library row’s **Edit** button, including for changed/missing
+  files after restart. Choose unchanged timing explicitly
+  (same decoded rate/frame count required) or changed timing, which clears the
+  map, sections, loop and position. Notes and controls stay with the song UUID.
+  Each song has one recording/map, with no history.
+  [Reference handling](UUID_IDENTITY.md) describes compatibility and limits.
 - **Edit → Save details** edits title, artist and album in the library. Title is
   required. Fields are trimmed and bounded to 1024 UTF-8 bytes each. Opening the
   file again preserves these overrides. File location and dates are read-only.
@@ -52,7 +54,7 @@ practice flow and resets its single-song mapping session as before.
 and `last-song.json`. Normally this is the per-user app data directory's `practice`
 folder; `OHMYLOOP_DATA_DIR` redirects the entire practice directory, including the
 catalogue. Back up this file along with practice annotations, analysis and audio.
-The library index is separate from the version-1 song envelope, which embeds
+The library index is separate from the version-2 song envelope, which embeds
 versioned song-level data and reference-timeline records. See [the schema](UUID_IDENTITY.md).
 
 Version-2 shape:

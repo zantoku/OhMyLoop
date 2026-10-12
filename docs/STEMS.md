@@ -68,13 +68,13 @@ commands need expected IDs/revisions, not a bare path or song UUID alone.
 Use separate typed IDs for Song, AudioAsset, Timeline, StemSet, Library and Job.
 Use UUIDs for durable domain IDs; model/preprocessing identity remains immutable
 versioned descriptors and digests. Human filenames and stem labels are display
-data. Asset roles are explicit: reference recording, prior recording or stem.
+data. Asset roles are explicit: reference recording or stem.
 
 A song record owns metadata, notes, selected reference asset/timeline, asset/set
-references and persisted practice preferences. Each timeline owns its positional
+references and persisted practice preferences. The song’s single timeline owns its positional
 annotations: sections, accepted map, saved loop selection and last position.
-Switching reference timelines restores the corresponding annotations rather
-than validating old positions against a new duration. Temporary transport state,
+Compatible replacement preserves these; changed timing explicitly clears them.
+There is no retained-recording or map history. Temporary transport state,
 unapplied map drafts, solo audition and job progress remain session state.
 
 Asset records contain immutable relative location, content digest, decoded
@@ -91,7 +91,7 @@ Suggested initial layout (versioned JSON, consistent with existing persistence):
   library.json                 # library UUID/schema; catalogue projection
   songs/<song-uuid>/
     song.json                  # authoritative song record, revision
-    timelines/<timeline-uuid>.json
+    timeline.json              # only the current reference timeline
     assets/<asset-uuid>/<safe-import-name>
     stems/<set-uuid>/manifest.json
     stems/<set-uuid>/<role>.wav
@@ -142,14 +142,15 @@ replacement choices; they must not silently overwrite provenance.
 
 **Replace reference recording** is explicit and imports a new asset. A gain-only
 edit keeps the song UUID and can reuse its timeline after compatible geometry
-checks and the user's **Timing is unchanged** confirmation. The old asset remains
-available. For differing sample rates, implement and validate rate/origin mapping
+checks and the user's **Timing is unchanged** confirmation. The previous reference
+link is removed; external audio is not deleted. For differing sample rates,
+implement and validate rate/origin mapping
 before enabling that confirmation; otherwise require a new timeline in the first
 slice. Same length alone cannot establish unchanged timing.
 
 A trimmed or different performance gets a new timeline under the same song.
-Preserve old annotations; offer switching back to the prior recording/timeline.
-Automatic annotation transfer is deferred. Notes and metadata always survive.
+The replacement dialog explicitly warns that positional annotations will be
+cleared; no previous map is saved for restoration. Notes and metadata always survive.
 Timing evidence is invalid for a changed input even when the accepted map remains
 usable. Previously generated stems are labelled **From previous recording** and
 playable only when their timeline mapping is compatible.
@@ -211,7 +212,7 @@ the failed attempt's diagnostic provenance and any already verified model files.
 
 At commit, recheck input asset integrity and recording/timeline revisions. If the
 reference changed while inference ran, retain validated output only against its
-actual retained input, marked as a previous-recording set; never attach it to the
+actual input provenance, marked as a previous-recording set; never attach it to the
 new reference by UUID alone. Removed song/input assets reject commit. Active jobs
 hold explicit references so removal waits for cancel/completion rather than
 deleting input beneath a child process.
@@ -314,7 +315,8 @@ Implemented storage/contracts and verification are documented in [UUID identity]
 - [ ] Root selection/locking, journal recovery, relative asset links, staged
   verified copies and duplicate choices. Existing songs are imported afresh.
 - [ ] Show disk usage and missing/changed recordings; support explicit replacement
-  and switching to retained timelines. Provide root relocation/open and backup docs.
+  with compatible-map preservation or explicit reset for changed timing. Provide
+  root relocation/open and backup docs.
 - [ ] Inject disk-full, permission, disconnect, corrupt schema, copy interruption
   and every commit-step failure; verify retry and original-data preservation.
 - [ ] Guard owned paths/symlinks and reference-aware removal/trash; never delete

@@ -1,4 +1,5 @@
 mod identity;
+mod legacy;
 mod records;
 pub mod reset;
 use crate::storage::atomic_write;
@@ -131,7 +132,6 @@ pub struct Song {
     pub reference_revision: u64,
     pub session_id: SessionId,
     pub reference_token: String,
-    pub retained_recordings: Vec<RecordingOption>,
     pub title: String,
     pub path: Option<String>,
     pub duration: f64,
@@ -194,8 +194,9 @@ impl Store {
             file.metadata()?.len() <= 16 * 1024 * 1024,
             "Song record exceeds 16 MiB"
         );
-        let record: SongRecord = serde_json::from_reader(file)
+        let value = serde_json::from_reader(file)
             .context("Cannot read song record; original file preserved")?;
+        let record = SongRecord::read(value)?;
         record.validate()?;
         ensure!(
             record.id.to_string() == key,

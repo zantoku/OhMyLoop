@@ -27,7 +27,7 @@ Frontend control updates are serialized and coalesced, and older replies do
 not overwrite newer edits. The audio engine owns playback timing.
 
 Saved song envelopes are keyed by stable UUIDs. Asset hashes check recording
-integrity; source annotations belong to retained reference timelines. Reference
+integrity; source annotations belong to the song’s single reference timeline. Reference
 and session tokens reject stale commands/replies even within one song UUID.
 Atomic replacement preserves the last complete envelope on failed writes;
 unsupported/future records are preserved. Last-song UUID restoration is paused.
