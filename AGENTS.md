@@ -69,3 +69,20 @@ existing practice workflows while extending the desktop UI.
 - Persist stable section identities and source coordinates. Keep temporary
   loops independent from saved sections. Version saved song documents.
 - Preserve user changes and keep generated assets reproducible.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues for `zantoku/OhMyLoop`.
+For tracker operations, read `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five canonical triage labels.
+For label meanings and mappings, read `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use a single-context layout: root `GLOSSARY.md` and `docs/adr/`.
+Before exploring the codebase, read `docs/agents/domain.md`.
