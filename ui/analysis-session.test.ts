@@ -2,7 +2,7 @@ import {beforeEach,describe,expect,it,vi} from 'vitest';
 import {AnalysisSession,type AnalysisState} from './analysis-session';
 import type {AnalysisStatus} from './timing';
 const api=vi.hoisted(()=>({analysisStatus:vi.fn(),readCachedAnalysis:vi.fn(),installModel:vi.fn(),startAnalysis:vi.fn(),cancelAnalysis:vi.fn()}));vi.mock('./bridge',()=>({bridge:api}));
-const status:AnalysisStatus={id:7,running:true,kind:'analysis',phase:'Analyzing',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:true,song_key:'song',map_revision:3,error:null,result:null};
+const status:AnalysisStatus={id:7,running:true,kind:'analysis',phase:'Analyzing',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:true,reference_token:'song',map_revision:3,error:null,result:null};
 beforeEach(()=>{vi.resetAllMocks();api.readCachedAnalysis.mockResolvedValue(null);});
 describe('analysis job orchestration',()=>{
   it('binds requests to source and map revision and exposes cancellation',async()=>{
@@ -35,7 +35,7 @@ it('ignores a stale status failure after starting a newer job',async()=>{
   expect(states.at(-1)?.status?.id).toBe(7);expect(states.at(-1)?.error).toBe('');
 });
 
-const evidence={version:1,song_key:'song',map_revision:1,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:[{frame:0,score:.8,downbeat:true},{frame:48000,score:.8,downbeat:false}]};
+const evidence={version:2,reference_token:'song',map_revision:1,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:[{frame:0,score:.8,downbeat:true},{frame:48000,score:.8,downbeat:false}]};
 it('restores saved evidence once without requiring a new job or matching map revision',async()=>{
   api.analysisStatus.mockResolvedValue({...status,id:0,running:false,result:null});api.readCachedAnalysis.mockResolvedValue(evidence);
   let state:AnalysisState|undefined;const session=new AnalysisSession(()=>({key:'song',revision:9}),s=>{state=s;});
@@ -54,5 +54,19 @@ it.each(['song change','new job','dispose'])('ignores cached evidence after %s',
 it('surfaces corrupt cache errors and rejects evidence for a different song',async()=>{
   api.analysisStatus.mockResolvedValue({...status,id:0,running:false});api.readCachedAnalysis.mockRejectedValue(new Error('Unsupported analysis cache'));
   let state:AnalysisState|undefined;const session=new AnalysisSession(()=>({key:'song',revision:3}),s=>{state=s;});await session.refresh();expect(state?.error).toContain('Unsupported analysis cache');expect(state?.candidates).toBeNull();
-  api.readCachedAnalysis.mockResolvedValue({...evidence,song_key:'other'});const other=new AnalysisSession(()=>({key:'song',revision:3}),s=>{state=s;});await other.refresh();expect(state?.candidates).toBeNull();
+  api.readCachedAnalysis.mockResolvedValue({...evidence,reference_token:'other'});const other=new AnalysisSession(()=>({key:'song',revision:3}),s=>{state=s;});await other.refresh();expect(state?.candidates).toBeNull();
+});
+
+it('rejects cached replies from a previous asset of the same UUID song',async()=>{
+  let token='same-song:asset-a:timeline:revision-1:session-a';
+  let finish!:(value:typeof evidence)=>void;
+  api.analysisStatus.mockResolvedValue({...status,id:0,running:false,reference_token:null});
+  api.readCachedAnalysis.mockReturnValue(new Promise(resolve=>{finish=resolve;}));
+  let state:AnalysisState|undefined;
+  const session=new AnalysisSession(()=>({key:token,revision:3}),s=>{state=s;});
+  const request=session.refresh();
+  await vi.waitFor(()=>expect(api.readCachedAnalysis).toHaveBeenCalledWith(token));
+  const previous=token;token='same-song:asset-b:timeline:revision-2:session-b';
+  finish({...evidence,reference_token:previous});await request;
+  expect(state?.candidates).toBeNull();
 });

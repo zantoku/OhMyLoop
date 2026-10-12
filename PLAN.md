@@ -76,7 +76,9 @@ measures and free time. Resizing a boundary evenly spaces both attached measures
 The displayed draft/map can be reviewed with a metronome and paged playhead
 following, both initially on. Optional detected-beat visibility and marker density
 reduce clutter. Mapping history is session-only; the accepted version-1 map is
-saved in version-4 song documents with version-2/3 migration. Practice displays the
+saved in version-1 reference-timeline records inside the UUID song envelope.
+The flattened UI practice document is version 5; incompatible pre-UUID metadata
+is reset on launch instead of migrated. Practice displays the
 accepted ruler and measure navigation. Automatic replacement preserves material
 outside its target span and rejects protected conflicts.
 
@@ -99,10 +101,14 @@ and file locations. A Library/Practice header button switches screens. Open song
 heading, and selecting a
 song returns to practice with its existing annotations.
 
-Library entries share the audio content identity used by practice documents and
-analysis. Keep the versioned library index separate from both. Opening a moved
-unchanged file updates its location without duplicating its record; reject a
-changed file at a stored location. Do not modify embedded tags or copy audio.
+Library entries now use stable song UUIDs. Audio assets and reference timelines
+have separate IDs; hashes verify file contents and analysis inputs. The versioned
+library index remains separate from the authoritative song envelope. Opening a
+moved unchanged file can update its location; Import separate song deliberately
+creates independent notes and maps even for identical audio. Explicit replacement
+keeps the song UUID and either confirms compatible timing or creates a retained
+new timeline. Library replacement recovers changed/missing files after restart.
+Do not modify embedded tags or copy audio in this identity slice.
 Leave directory scans, batch imports, artwork, playlists, removal and portable
 project export outside this pass. Detailed behavior and persistence are in
 [docs/LIBRARY.md](docs/LIBRARY.md).
@@ -113,8 +119,9 @@ A Notes button left of Measure map opens a plain-text song editor. Autosave,
 explicit close, library navigation and normal app exit retain pending edits;
 failed saves keep the text for retry. Notes and mapping use an X beside their white-panel titles to
 return to practice and retain Library at the top right. Library still uses
-Practice at the top right. Store notes in version-4 song documents, migrating
-valid version-2/3 documents without losing annotations. Defer Markdown, rich
+Practice at the top right. Notes are song-level data in the UUID song envelope;
+positional annotations belong to reference timelines. Incompatible pre-UUID
+metadata is reset on launch, as authorized by the sole user. Defer Markdown, rich
 text and separate notes export. See [docs/NOTES.md](docs/NOTES.md).
 
 ## Musical timing and loop practice controls
@@ -219,16 +226,19 @@ model, service, or delivery order yet.
 
 The user has authorized architectural planning for a managed library, stable
 UUID song identity, local stem separation and synchronized practice mixing.
-See [docs/STEMS.md](docs/STEMS.md) for ADRs, migration, storage ownership,
-reference-timeline rules, UI and dependency-ordered delivery slices. Planning
-does not mark the feature implemented or select the final separation model.
+See [docs/STEMS.md](docs/STEMS.md) for ADRs, launch reset, storage ownership,
+reference-timeline rules, UI and dependency-ordered delivery slices. UUID
+identity/reset/replacement is implemented; managed copying and stem playback
+remain planned, and the final separation model is still unselected.
 
 Song UUIDs replace content hashes as identity; hashes remain asset integrity and
 inference provenance. The proposed user-selected library copies imported audio
 and holds generated sets. Measure mapping and timing analysis stay on the
-reference recording regardless of the audible mix. Deliver UUID migration and
+reference recording regardless of the audible mix. Deliver UUID identity and
 managed imports before attaching stems; prove shared practice DSP before mixer
-UI and integrated model setup. Preserve all current annotations and CLI behavior.
+UI and integrated model setup. The sole user authorized resetting incompatible
+legacy app metadata on launch instead of migrating annotations. Preserve audio,
+prototype outputs, new UUID data and existing CLI behavior.
 
 ## Architectural direction
 

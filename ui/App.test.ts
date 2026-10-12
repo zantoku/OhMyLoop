@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),recordings:vi.fn(),selectRecording:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -12,18 +12,19 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.recordings.mockResolvedValue([]);
   mock.metronome.mockResolvedValue({});
   mock.countIn.mockResolvedValue({});
   mock.onExitRequested.mockResolvedValue(()=>{});mock.finishExit.mockResolvedValue(undefined);
   mock.readCachedAnalysis.mockResolvedValue(null);
   mock.readLibrary.mockResolvedValue({version:1,songs:[]});
-  mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:false,song_key:null,map_revision:0,error:null,result:null});
+  mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:false,reference_token:null,map_revision:0,error:null,result:null});
   mock.readKeymap.mockResolvedValue({ path: '/test/keymap.json', configuration: null, warning: null });
-  document = { version: 4, notes:'', song_key: 'test', controls: { speed: 1, semitones: 0 },
+  document = { version: 4, notes:'', song_key: 'test',reference_token:'test', controls: { speed: 1, semitones: 0 },
     sections: [{ id: 'verse', name: 'Verse', start: 0, end: 8 }, { id: 'chorus', name: 'Chorus', start: 3, end: 6 }],
     selected_section: null, loop_selection: null, loop_enabled: false, last_position: 0 };
-  transport = { song_key: 'test', position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: 'Test output' };
-  mock.initialize.mockResolvedValue({ ...response(), song: { key: 'test', title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
+  transport = { song_key: 'test',reference_token:'test', position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: 'Test output' };
+  mock.initialize.mockResolvedValue({ ...response(), song: { key: 'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[], title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
   mock.update.mockImplementation(async (value: PracticeDocument) => { document = structuredClone(value); return response(); });
   mock.action.mockImplementation(async (action) => {
     if (action.type === 'seek') {
@@ -56,7 +57,7 @@ describe('single-song practice workflow', () => {
   });
   it('can save exact dragged boundaries without browser step-validation errors', async () => {
     document.loop_selection = { start: 1.851590106007067, end: 3.5053003533568905, fade_ms: 5 };
-    mock.initialize.mockResolvedValue({ ...response(), song: { key: 'test', title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
+    mock.initialize.mockResolvedValue({ ...response(), song: { key: 'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[], title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
     await ready(); await fireEvent.click(screen.getByRole('button', { name: 'Save as section' }));
     const start = screen.getByLabelText('Start (seconds)') as HTMLInputElement;
     const end = screen.getByLabelText('End (seconds)') as HTMLInputElement;
@@ -67,7 +68,7 @@ describe('single-song practice workflow', () => {
   });
   it('selects a section range without implicitly enabling looping', async () => {
     await ready(); await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     expect(document.loop_selection).toEqual({ start: 3, end: 6, fade_ms: 5 });
     expect(document.loop_enabled).toBe(false);
     await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
@@ -78,7 +79,7 @@ describe('single-song practice workflow', () => {
     await ready(); await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
     await screen.findByRole('button', { name: 'Loop on' });
     await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     expect(document.loop_selection).toEqual({ start: 3, end: 6, fade_ms: 5 });
     expect(document.selected_section).toBe('chorus'); expect(transport.playing).toBe(false);
   });
@@ -108,16 +109,16 @@ describe('single-song practice workflow', () => {
     await ready(); await fireEvent.keyDown(screen.getByLabelText('Pitch semitones'), { key: ' ', code: 'Space' });
     expect(mock.action).not.toHaveBeenCalled();
     await fireEvent.keyDown(window, { key: ' ', code: 'Space' });
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' },'test'));
   });
   it.each([false, true])('jumps to the precise A marker with comma while preserving active state (%s)', async active => {
     document.loop_selection = { start: 2.3456789, end: 5.6789, fade_ms: 5 };
     document.loop_enabled = active; document.selected_section = 'verse';
     transport.playing = active; transport.position = 9;
     const before = structuredClone(document);
-    mock.initialize.mockResolvedValue({ ...response(), song: { key: 'test', title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
+    mock.initialize.mockResolvedValue({ ...response(), song: { key: 'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[], title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
     await ready(); await fireEvent.keyDown(window, { key: ',', code: 'Comma' });
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 2.3456789 }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 2.3456789 },'test'));
     expect(transport.position).toBe(2.3456789); expect(transport.playing).toBe(active);
     expect(document.loop_enabled).toBe(active); expect(document.loop_selection).toEqual(before.loop_selection);
     expect(document.sections).toEqual(before.sections); expect(document.selected_section).toBe('verse');
@@ -128,7 +129,7 @@ describe('single-song practice workflow', () => {
     await fireEvent.keyDown(window, { key: ',', code: 'Comma' });
     expect(mock.action).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     mock.action.mockClear();
     const decimal = new KeyboardEvent('keydown', { key: '.', code: 'Period', bubbles: true, cancelable: true });
     await fireEvent(screen.getByLabelText('Loop start seconds'), decimal);
@@ -139,7 +140,7 @@ describe('single-song practice workflow', () => {
   });
   it('clears the A–B range with X while preserving saved sections and ongoing playback', async () => {
     await ready(); await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
     await waitFor(() => expect(document.loop_enabled).toBe(true));
     await fireEvent.keyDown(window, { key: ' ', code: 'Space' });
@@ -192,11 +193,11 @@ describe('single-song practice workflow', () => {
     await fireEvent.keyDown(window, { key: ',', code: 'Comma' });
     expect(mock.action).not.toHaveBeenCalled();
     await fireEvent.keyDown(window, { key: 'q', code: 'KeyQ' });
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     const previous = within(screen.getByRole('group', { name: 'Playback controls' })).getByRole('button', { name: 'Back to the riff' });
     expect(previous.getAttribute('title')).toBe('Back to the riff (Q)');
     mock.action.mockClear(); await fireEvent.click(previous);
-    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     await fireEvent.click(screen.getByRole('button', { name: /^Shortcuts/ }));
     expect(screen.getByText('Back to the riff', { selector: 'dd' })).toBeTruthy();
     expect(screen.getByText('Q', { selector: 'dt' })).toBeTruthy();
@@ -216,7 +217,7 @@ describe('single-song practice workflow', () => {
 describe('measure-map screen integration',()=>{
   it('preserves transport and loops across screen changes and saves only an applied preview',async()=>{
     document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;transport.playing=true;transport.position=4;
-    mock.initialize.mockResolvedValue({...response(),song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+    mock.initialize.mockResolvedValue({...response(),song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
     mock.previewMap.mockResolvedValue(timingFixture(48000));await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
     const workspace=screen.getByRole('region',{name:'Measure mapping workspace'});expect(workspace).toBeTruthy();expect(transport.playing).toBe(true);expect(document.loop_enabled).toBe(true);
     await fireEvent.keyDown(window,{key:'x'});await fireEvent.keyDown(window,{key:'a'});expect(mock.update).not.toHaveBeenCalled();
@@ -237,7 +238,7 @@ it('keeps the accepted map on a failed save and can retry the same preview',asyn
 });
 
 it('polls visible analysis progress and shows the installed model folder',async()=>{
-  const status={id:4,running:true,kind:'analysis',phase:'Finding beats and downbeats',model_ready:true,model_path:'/test/installed/models',progress:{completed:1,total:4,unit:'segments'},elapsed_seconds:61,song_key:'test',map_revision:0,error:null,result:null};
+  const status={id:4,running:true,kind:'analysis',phase:'Finding beats and downbeats',model_ready:true,model_path:'/test/installed/models',progress:{completed:1,total:4,unit:'segments'},elapsed_seconds:61,reference_token:'test',map_revision:0,error:null,result:null};
   mock.analysisStatus.mockResolvedValueOnce(status).mockResolvedValue({...status,progress:{completed:2,total:4,unit:'segments'},elapsed_seconds:62});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await screen.findByText('1 / 4 segments completed · 25%');
@@ -247,8 +248,8 @@ it('polls visible analysis progress and shows the installed model folder',async(
 });
 
 it('uses detected beats by default, derives count from the preview, and prevents applying changed settings',async()=>{
-  const result={version:1,song_key:'test',map_revision:0,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
-  mock.analysisStatus.mockImplementation(async()=>structuredClone({id:3,running:false,kind:'analysis',phase:'Complete',model_ready:true,model_path:'/models',progress:null,elapsed_seconds:3,song_key:'test',map_revision:0,error:null,result}));
+  const result={version:2,reference_token:'test',map_revision:0,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
+  mock.analysisStatus.mockImplementation(async()=>structuredClone({id:3,running:false,kind:'analysis',phase:'Complete',model_ready:true,model_path:'/models',progress:null,elapsed_seconds:3,reference_token:'test',map_revision:0,error:null,result}));
   mock.previewMap.mockResolvedValue({...timingFixture(48000),draft:{epsilon_ms:30,anchor_count:0,pulse_count:9,pulses_per_measure:4,full_measures:2,partial_pulses:0,measure_count:2,first_frame:0,last_frame:384000}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const source=await screen.findByLabelText('Measure source');await waitFor(()=>expect((source as HTMLSelectElement).value).toBe('detected'));
@@ -295,7 +296,7 @@ it('uses detected beats by default, derives count from the preview, and prevents
 
 it('keeps compact playback over the waveform without turning its controls into seeks',async()=>{
   document.controls={speed:.75,semitones:-3};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
-  mock.initialize.mockResolvedValue({...response(),song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const waveform=screen.getByRole('region',{name:/Measure-map waveform/}),playback=within(waveform).getByRole('group',{name:'Measure mapping playback'});
   expect(within(screen.getByRole('region',{name:'Measure mapping workspace'})).queryByLabelText('Pitch semitones')).toBeNull();
@@ -305,14 +306,14 @@ it('keeps compact playback over the waveform without turning its controls into s
   await fireEvent.change(speedInput,{target:{value:'50'}});
   await waitFor(()=>expect(document.controls).toEqual({speed:.5,semitones:-3}));
   await fireEvent.click(within(playback).getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
-  expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'toggle_play'});
+  expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'toggle_play'},'test');
   const wheel=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-100});await fireEvent(speedInput,wheel);expect(wheel.defaultPrevented).toBe(false);
   await fireEvent.click(within(playback).getByRole('button',{name:'Turn looping off'}));await waitFor(()=>expect(document.loop_enabled).toBe(false));
 });
 
 it('edits measure timing and anchors in the panel below the waveform',async()=>{
   const original=timingFixture(48000);document.measure_map=original.map;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   const moved=structuredClone(original);moved.map.boundaries[0].frame=12000;moved.map.revision=2;moved.view.revision=2;moved.view.measures[0].start=12000;
   mock.previewMap.mockResolvedValue(moved);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
@@ -334,7 +335,7 @@ it('edits measure timing and anchors in the panel below the waveform',async()=>{
 });
 it('keeps the Measure panel compact and moves global numbering below Create measures',async()=>{
   const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const tools=screen.getByRole('region',{name:'Measure editing tools'}),sidebar=screen.getByRole('complementary',{name:'Measure-map inspector'});
   expect(within(tools).getByRole('spinbutton',{name:'Meter numerator'})).toBeTruthy();
@@ -360,7 +361,7 @@ it('saves meter, pulse and grouping together without a preview and restores them
   const changed=structuredClone(original),meter={numerator:6,denominator:8,pulse:{num:3,den:2},grouping:[3,3]};
   changed.map.measures[0]={...changed.map.measures[0],meter,length:{num:3,den:1},beats:[]};changed.map.revision=2;
   changed.view.measures[0]={...changed.view.measures[0],meter,length:{num:3,den:1}};changed.view.revision=2;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(changed);mock.mapView.mockResolvedValue({...original.view,revision:3});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const tools=screen.getByRole('region',{name:'Measure editing tools'});
@@ -390,7 +391,7 @@ it('reviews batch grouping without saving, discards it, then saves once with Und
   changed.map.measures[0].meter.grouping=[2,2];changed.map.revision=2;changed.view.revision=2;
   changed.view.measures[0].grid=[{id:null,frame:0,quarter:0,label:'1'},{id:'map-6',frame:57600,quarter:1,label:'Anchor'},{id:null,frame:102400,quarter:2,label:'3'}];
   changed.warnings=['1 measure changed; 1 locked measure skipped.'];
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(changed);
   mock.mapView.mockImplementation(async map=>({...structuredClone(map.measures[0].meter.grouping[0]===1?original.view:changed.view),revision:map.revision}));
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
@@ -422,7 +423,7 @@ it('reviews batch grouping without saving, discards it, then saves once with Und
 
 it('retains rejected batch grouping input and the accepted map for correction',async()=>{
   const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const grouping=screen.getByRole('textbox',{name:'Batch beat grouping (optional)'}) as HTMLInputElement;
   await fireEvent.input(grouping,{target:{value:'2++2'}});
@@ -442,7 +443,7 @@ it('retains rejected batch grouping input and the accepted map for correction',a
 
 it('keeps a rejected direct meter edit intact for correction and retry',async()=>{
   const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockRejectedValueOnce(new Error('Choose a valid time signature'));
   const accepted={...original,map:{...original.map,revision:2},view:{...original.view,revision:2}};
   mock.previewMap.mockResolvedValue(accepted);
@@ -457,7 +458,7 @@ it('keeps a rejected direct meter edit intact for correction and retry',async()=
 
 it('locks and unlocks from the measure title across editing panels',async()=>{
   const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockImplementation(async(_key,map,edit)=>{
     const result=structuredClone(original);result.map=structuredClone(map);result.map.revision++;result.view.revision=result.map.revision;
     result.map.measures[0].protected=edit.protected;result.view.measures[0].protected=edit.protected;return result;
@@ -481,7 +482,7 @@ it('joins adjacent measures with a derived meter and no preview gate, and can Un
   joined.map.measures=[{...joined.map.measures[0],end:'map-4',meter:{...joined.map.measures[0].meter,numerator:8},length:{num:8,den:1},beats:[{id:'map-6',frame:192000,offset:{num:4,den:1}}]}];
   joined.map.boundaries=joined.map.boundaries.filter(b=>b.id!=='map-2');joined.map.next_id=7;joined.map.revision=2;
   joined.view.measures=[{...joined.view.measures[0],end_id:'map-4',end:384000,meter:joined.map.measures[0].meter,length:{num:8,den:1}}];joined.view.revision=2;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(joined);mock.mapView.mockResolvedValue({...original.view,revision:3});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   expect(screen.queryByRole('button',{name:'Respace or free time'})).toBeNull();expect(screen.queryByRole('button',{name:'Preview spacing'})).toBeNull();
@@ -501,7 +502,7 @@ it('chooses a numbered fixed beat for splitting without typing source time or of
   split.map.measures=[first,{...first,id:'map-8',start:'map-7',end:'map-2'},split.map.measures[1]];split.map.boundaries.push({id:'map-7',frame:72000});split.map.next_id=9;split.map.revision=2;
   const left={...split.view.measures[0],end:72000,end_id:'map-7',kind:'incomplete' as const,length:{num:2,den:1},split_points:[{beat:2,frame:36000,anchor:false}]};
   split.view.measures=[left,{...left,id:'map-8',start:72000,start_id:'map-7',end:192000,end_id:'map-2',label:'2',number:2}, {...split.view.measures[1],label:'3',number:3}];split.view.revision=2;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});mock.previewMap.mockResolvedValue(split);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});mock.previewMap.mockResolvedValue(split);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   await fireEvent.change(screen.getByRole('combobox',{name:'Split before beat'}),{target:{value:'3'}});
   await fireEvent.click(screen.getByRole('button',{name:'Split measure'}));
@@ -514,7 +515,7 @@ it('chooses a numbered fixed beat for splitting without typing source time or of
 it('disables joining unequal denominators and does not modify the map',async()=>{
   const original=timingFixture(48000);original.map.measures[1].meter={...original.map.measures[1].meter,denominator:8};original.view.measures[1].meter=original.map.measures[1].meter;
   document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   expect(screen.getByRole('button',{name:'Join with next'}).hasAttribute('disabled')).toBe(true);
   await fireEvent.click(screen.getByRole('button',{name:'Join with next'}));expect(mock.previewMap).not.toHaveBeenCalled();
@@ -524,7 +525,7 @@ it('marks a measure as free time, selects its waveform gap and reclaims it witho
   const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
   const removed=structuredClone(original);removed.map.measures.shift();removed.map.boundaries.shift();removed.map.revision=2;removed.view.measures.shift();removed.view.measures[0].label='1';removed.view.revision=2;
   const reclaimed=structuredClone(original);reclaimed.map.measures[0].id='map-7';reclaimed.map.measures[0].start='map-6';reclaimed.map.boundaries[0].id='map-6';reclaimed.map.next_id=8;reclaimed.map.revision=3;reclaimed.view.measures[0].id='map-7';reclaimed.view.measures[0].start_id='map-6';reclaimed.view.revision=3;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValueOnce(removed).mockResolvedValueOnce(reclaimed);mock.mapView.mockResolvedValue({...removed.view,revision:4});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Free time'}));
   await fireEvent.click(screen.getByRole('button',{name:'Mark measure 1 as free time'}));
@@ -556,7 +557,7 @@ it.each(['left','right'] as const)('shifts the remaining map %s in one direct ed
   changed.map.measures[1]={...changed.map.measures[1],meter:{...changed.map.measures[1].meter,numerator:direction==='left'?6:4},length:{num:direction==='left'?6:2,den:1},kind:direction==='left'?'full':'incomplete'};
   changed.view.measures[0]={...changed.view.measures[0],end:frame,meter:changed.map.measures[0].meter,length:changed.map.measures[0].length,kind:changed.map.measures[0].kind};
   changed.view.measures[1]={...changed.view.measures[1],start:frame,meter:changed.map.measures[1].meter,length:changed.map.measures[1].length,kind:changed.map.measures[1].kind};
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(changed);mock.mapView.mockResolvedValue({...original.view,revision:3});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);
@@ -575,7 +576,7 @@ it.each(['left','right'] as const)('shifts the remaining map %s in one direct ed
 
 it('validates shift pulse counts and keeps the map and typed amount after a rejected meter-overflow shift',async()=>{
   const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockRejectedValue(new Error('Shift would require a meter numerator above 99; choose fewer pulses'));
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   await fireEvent.click(screen.getByRole('checkbox',{name:'Re-snap to detected beats'}));
@@ -590,7 +591,7 @@ it.each(['protected','gap'])('blocks shifting a remaining span with a %s',async(
   if(reason==='protected'){original.map.measures[0].protected=true;original.view.measures[0].protected=true;}
   else{original.map.boundaries[1].frame=96000;original.view.measures[0].end=96000;original.map.boundaries.push({id:'map-6',frame:192000});original.map.measures[1].start='map-6';original.map.next_id=7;original.view.measures[1].start_id='map-6';}
   document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);expect(screen.getByRole('button',{name:'Shift left'}).hasAttribute('disabled')).toBe(true);expect(mock.previewMap).not.toHaveBeenCalled();
 });
@@ -604,7 +605,7 @@ it.each([
   document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3};
   document.loop_selection={start:1,end:3,fade_ms:5};document.loop_enabled=true;
   transport.playing=playing;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(preview);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   if(draft){await fireEvent.click(screen.getByRole('button',{name:'Preview numbering'}));await screen.findByRole('button',{name:'Apply map'});}
@@ -612,7 +613,7 @@ it.each([
   const lane=screen.getByLabelText('Measures on timeline'),measure=within(lane).getByRole('button',{name:'2 4/4'});
   await fireEvent.click(measure);
   const seconds=draft?5.25:4;
-  await waitFor(()=>expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'seek',seconds}));
+  await waitFor(()=>expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'seek',seconds},'test'));
   await waitFor(()=>expect(screen.getByRole('slider',{name:'Measure-map song position'}).getAttribute('aria-valuenow')).toBe(String(seconds)));
   expect(measure.classList.contains('selected')).toBe(true);
   expect(transport.playing).toBe(playing);expect(document.loop_enabled).toBe(false);
@@ -629,7 +630,7 @@ it.each([false,true])('selects the measure under a waveform click without snappi
   preview.map.boundaries[1].frame=336000;preview.map.revision=2;
   preview.view.measures[0].end=336000;preview.view.measures[1].start=336000;preview.view.revision=2;
   document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(preview);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   if(draft){await fireEvent.click(screen.getByRole('button',{name:'Preview numbering'}));await screen.findByRole('button',{name:'Apply map'});}
@@ -637,7 +638,7 @@ it.each([false,true])('selects the measure under a waveform click without snappi
   vi.spyOn(waveform,'getBoundingClientRect').mockReturnValue({left:0,width:1000,height:200,top:0,right:1000,bottom:200,x:0,y:0,toJSON(){}});
   waveform.setPointerCapture=vi.fn();waveform.hasPointerCapture=vi.fn(()=>false);
   for(const type of ['pointerdown','pointerup']){const event=new MouseEvent(type,{bubbles:true,clientX:500,button:0});Object.defineProperty(event,'pointerId',{value:1});await fireEvent(waveform,event);}
-  await waitFor(()=>expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'seek',seconds:6}));
+  await waitFor(()=>expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'seek',seconds:6},'test'));
   const lane=screen.getByLabelText('Measures on timeline');
   expect(within(lane).getByRole('button',{name:draft?'1 4/4':'2 4/4',pressed:true})).toBeTruthy();
   expect(screen.getByRole('heading',{name:draft?'Measure 1':'Measure 2'})).toBeTruthy();
@@ -652,7 +653,7 @@ it('selects the playing measure independently of viewport following, including p
   Object.assign(original.view.measures[0],{kind:'pickup',length:{num:1,den:1},label:'Pickup',number:null,end:96000,grid:[]});
   Object.assign(original.view.measures[1],{start_id:'map-6',label:'1',number:1});
   document.measure_map=structuredClone(original.map);transport.playing=true;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await fireEvent.click(screen.getByRole('button',{name:'Follow playhead on'}));
   const lane=screen.getByLabelText('Measures on timeline');
@@ -681,7 +682,7 @@ it('resizes a shared boundary as one undoable edit that restores both measures a
   const resized=structuredClone(original);resized.map.revision=2;resized.view.revision=2;resized.map.boundaries[1].frame=288000;
   resized.view.measures[0].end=288000;resized.view.measures[1].start=288000;for(const m of resized.map.measures)m.beats=[];
   document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(resized);mock.mapView.mockResolvedValue({...original.view,revision:3});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const waveform=screen.getByRole('region',{name:/Measure-map waveform/});
@@ -702,7 +703,7 @@ it('resizes a shared boundary as one undoable edit that restores both measures a
 it('clears a protected map, keeps practice settings, and restores the exact map through Undo',async()=>{
   const original=timingFixture(48000);original.map.measures[0].protected=true;
   document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   const empty={...original,map:{...original.map,revision:2,first_number:1,measures:[],boundaries:[]},view:{revision:2,measures:[]}};
   mock.previewMap.mockResolvedValue(empty);mock.mapView.mockResolvedValue({...original.view,revision:3});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Clear map'}));
@@ -715,7 +716,7 @@ it('clears a protected map, keeps practice settings, and restores the exact map 
 it('auditions the displayed draft, reverts on discard, and disables clicks when returning to practice',async()=>{
   const original=timingFixture(48000),draft=structuredClone(original);draft.map.boundaries[1].frame=3*48000;draft.map.revision=2;draft.view.revision=2;
   document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(draft);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   expect(screen.getByRole('button',{name:'Metronome on'}).getAttribute('aria-pressed')).toBe('true');
@@ -744,7 +745,7 @@ it('auditions the displayed draft, reverts on discard, and disables clicks when 
 
 it('keeps following through navigation and pages until explicitly toggled off',async()=>{
   const fixture=timingFixture(48000);document.measure_map=fixture.map;
-  mock.initialize.mockResolvedValue({...response(),map_view:fixture.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:fixture.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await fireEvent.click(screen.getByRole('button',{name:'Fit measure'}));
   const viewport=documentForViewport();
@@ -824,7 +825,7 @@ it.each(['left','right'] as const)('absorbs a consumed measure on a %s shift and
   changed.map.measures=[measure];changed.map.boundaries=[changed.map.boundaries[0],changed.map.boundaries[2]];changed.map.revision=2;
   changed.view={revision:2,measures:[{...changed.view.measures[surviving],label:'1',number:1,start_id:measure.start,end_id:measure.end,start:0,end:384000,meter:measure.meter,length:measure.length}]};
   document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(changed);mock.mapView.mockResolvedValue({...original.view,revision:3});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   await fireEvent.click(screen.getByRole('checkbox',{name:'Re-snap to detected beats'}));await fireEvent.input(screen.getByRole('spinbutton',{name:'Shift by pulses'}),{target:{value:'4'}});
@@ -840,7 +841,7 @@ it.each(['left','right'] as const)('absorbs a consumed measure on a %s shift and
 it('shares metronome enable/level across screens and listens to saved map on returning from a draft',async()=>{
   const original=timingFixture(48000),draft=structuredClone(original);draft.map.first_number=7;
   document.measure_map=original.map;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(draft);
   await ready();
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.5,original.map]));
@@ -860,7 +861,7 @@ it('shares metronome enable/level across screens and listens to saved map on ret
 
 it('defaults to measure loops and snaps A/B shortcuts, with exact inputs and a free selection option',async()=>{
   const original=timingFixture(48000);document.measure_map=original.map;transport.position=5;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();expect((screen.getByRole('checkbox',{name:'Snap to measures'}) as HTMLInputElement).checked).toBe(true);
   await fireEvent.click(screen.getByRole('button',{name:'Loop off'}));
   await waitFor(()=>expect(document.loop_selection).toEqual({start:4,end:8,fade_ms:5}));
@@ -877,7 +878,7 @@ it('defaults to measure loops and snaps A/B shortcuts, with exact inputs and a f
 
 it('sets an initial mapped loop to one measure near a barline, preserving free-time A/B behavior',async()=>{
   const original=timingFixture(48000);document.measure_map=original.map;transport.position=3.99;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.keyDown(window,{key:'a'});
   await waitFor(()=>expect(document.loop_selection).toEqual({start:0,end:4,fade_ms:5}));
   await fireEvent.keyDown(window,{key:'x'});await waitFor(()=>expect(document.loop_selection).toBeNull());
@@ -890,7 +891,7 @@ it('sets an initial mapped loop to one measure near a barline, preserving free-t
 it.each([false,true])('pages practice playback with mapped=%s, retaining zoom through boundaries, loop wraps and EOF',async(mapped)=>{
   if(mapped){
     const fixture=timingFixture(48000);document.measure_map=fixture.map;
-    mock.initialize.mockResolvedValue({...response(),map_view:fixture.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+    mock.initialize.mockResolvedValue({...response(),map_view:fixture.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   }
   await ready();
   expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
@@ -939,9 +940,9 @@ it('shares epsilon between measure creation and default shift refitting, with on
   const original=timingFixture(48000),changed=structuredClone(original);
   changed.map.revision=2;changed.view.revision=2;
   document.measure_map=structuredClone(original.map);
-  const result={version:1,song_key:'test',map_revision:1,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
-  mock.analysisStatus.mockResolvedValue({id:3,running:false,kind:'analysis',phase:'Complete',model_ready:true,model_path:'/models',progress:null,elapsed_seconds:3,song_key:'test',map_revision:1,error:null,result});
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  const result={version:2,reference_token:'test',map_revision:1,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
+  mock.analysisStatus.mockResolvedValue({id:3,running:false,kind:'analysis',phase:'Complete',model_ready:true,model_path:'/models',progress:null,elapsed_seconds:3,reference_token:'test',map_revision:1,error:null,result});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   mock.previewMap.mockResolvedValue(changed);mock.mapView.mockResolvedValue(original.view);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const epsilon=await screen.findByRole('spinbutton',{name:'Beat timing tolerance (ms)'});
@@ -968,7 +969,7 @@ it('shares epsilon between measure creation and default shift refitting, with on
 
 it('defaults re-snapping on without detection and allows toggling either way',async()=>{
   const original=timingFixture(48000);document.measure_map=structuredClone(original.map);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   const checkbox=screen.getByRole('checkbox',{name:'Re-snap to detected beats'}) as HTMLInputElement;
   expect(checkbox.disabled).toBe(false);expect(checkbox.checked).toBe(true);
@@ -989,9 +990,9 @@ it('defaults re-snapping on without detection and allows toggling either way',as
 it('reloads cached beats after restart and shifts with re-snapping enabled by default',async()=>{
   const original=timingFixture(48000),changed=structuredClone(original);changed.map.revision=2;changed.view.revision=2;
   document.measure_map=structuredClone(original.map);
-  const cached={version:1,song_key:'test',map_revision:0,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
+  const cached={version:2,reference_token:'test',map_revision:0,rate:48000,frames:576000,model:'test',preprocessing:'test',elapsed_seconds:2,beats:Array.from({length:9},(_,i)=>({frame:i*48000,score:.8,downbeat:i%4===0}))};
   mock.readCachedAnalysis.mockResolvedValue(cached);
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});mock.previewMap.mockResolvedValue(changed);
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});mock.previewMap.mockResolvedValue(changed);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await screen.findByText(/9 suggested beats/);
   await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
   const checkbox=screen.getByRole('checkbox',{name:'Re-snap to detected beats'}) as HTMLInputElement;expect(checkbox.disabled).toBe(false);expect(checkbox.checked).toBe(true);
@@ -1005,7 +1006,7 @@ it('opens the searchable library, pauses playback, sorts columns and edits metad
   const current=libraryEntry('test','Workshop take','Zed',1000,2000),other=libraryEntry('other','Riff 2','Alpha',2000,1000);
   mock.readLibrary.mockResolvedValue({version:1,songs:[current,other]});mock.updateLibrarySong.mockImplementation(async(key,metadata)=>({version:1,songs:[{...current,metadata},other]}));
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Play'}));await fireEvent.click(screen.getByRole('button',{name:'Library'}));
-  await screen.findByRole('button',{name:'Riff 2'});expect(mock.action).toHaveBeenLastCalledWith({type:'pause'});
+  await screen.findByRole('button',{name:'Riff 2'});expect(mock.action).toHaveBeenLastCalledWith({type:'pause'},'test');
   const list=screen.getByRole('table',{name:'Practice songs'});
   expect(within(list).getAllByRole('row').slice(1).map(row=>row.textContent)).toEqual([expect.stringContaining('Workshop take'),expect.stringContaining('Riff 2')]);
   await fireEvent.click(within(list).getByRole('button',{name:'Artist'}));expect(within(list).getAllByRole('row')[1].textContent).toContain('Riff 2');
@@ -1017,7 +1018,7 @@ it('opens the searchable library, pauses playback, sorts columns and edits metad
 it('reopens a song from the library and leaves existing practice intact on open failure',async()=>{
   const entry=libraryEntry('other','Another take','Player',1000,2000);mock.readLibrary.mockResolvedValue({version:1,songs:[entry]});mock.openLibrarySong.mockRejectedValueOnce(new Error('File missing; use Open song'));
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('button',{name:'Another take'});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByText(/File missing/);expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();expect(mock.openLibrarySong).toHaveBeenCalledWith('other');
-  mock.openLibrarySong.mockResolvedValue({...response(),song:{key:'other',title:'Another take',path:entry.file_location,duration:12,rate:48000,peaks:[[-.2,.2]]}});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByRole('heading',{name:'Another take'});expect(screen.getByRole('region',{name:'Practice workspace'})).toBeTruthy();
+  mock.openLibrarySong.mockResolvedValue({...response(),song:{key:'other', reference_token:'other',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Another take',path:entry.file_location,duration:12,rate:48000,peaks:[[-.2,.2]]}});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByRole('heading',{name:'Another take'});expect(screen.getByRole('region',{name:'Practice workspace'})).toBeTruthy();
 });
 it('shows library load failures with retry and preserves typed metadata after a failed save',async()=>{
   mock.readLibrary.mockRejectedValueOnce(new Error('Invalid library; original file left intact'));
@@ -1065,7 +1066,7 @@ it('flushes pending notes before a normal app exit and keeps the app open on sav
   await onExit();expect(document.notes).toBe('Saved on quit');expect(mock.finishExit).toHaveBeenCalledOnce();
 });
 it('loads stored notes and flushes them when navigating to the library',async()=>{
-  document.notes='Remember the bridge';mock.initialize.mockResolvedValue({...response(),song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  document.notes='Remember the bridge';mock.initialize.mockResolvedValue({...response(),song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Notes'}));const field=screen.getByRole('textbox',{name:'Notes for this song'}) as HTMLTextAreaElement;expect(field.value).toBe('Remember the bridge');await fireEvent.input(field,{target:{value:'Remember the bridge\nRepeat slowly'}});
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('main',{name:'Music library'});expect(document.notes).toBe('Remember the bridge\nRepeat slowly');
 });
@@ -1087,7 +1088,7 @@ it('requires an accepted measure map for count-in and highlights enabled metrono
 
 it('offers count-in and independent loop repetitions only in Practice, using the shared click level',async()=>{
   const original=timingFixture(48000);document.measure_map=original.map;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();
   await fireEvent.keyDown(window,{key:'c'});
   const count=screen.getByRole('button',{name:'Count-in on'});
@@ -1116,7 +1117,7 @@ it('offers count-in and independent loop repetitions only in Practice, using the
 
 it('waits for native count-in configuration before Play and reports counting without moving the playhead',async()=>{
   const original=timingFixture(48000);document.measure_map=original.map;
-  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',retained_recordings:[],title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await waitFor(()=>expect(mock.countIn).toHaveBeenCalled());
   let finish!:(value:object)=>void;mock.countIn.mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));
   await fireEvent.click(screen.getByRole('button',{name:'Count-in off'}));
@@ -1126,4 +1127,71 @@ it('waits for native count-in configuration before Play and reports counting wit
   expect(screen.getByRole('button',{name:'Pause'})).toBeTruthy();
   expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.transport-time strong')?.textContent).toBe('0:00.0');
   await fireEvent.click(screen.getByRole('button',{name:'Pause'}));await screen.findByText('Paused');
+});
+
+it('requires an explicit timing decision when replacing a recording and refreshes the same song session',async()=>{
+  await ready();
+  const original=await mock.initialize.mock.results[0].value;
+  mock.replaceRecording.mockResolvedValue({...response(),song:{...original.song,reference_token:'test:new-asset:session-2',asset_id:'new-asset',session_id:'session-2'},document:{...document,reference_token:'test:new-asset:session-2'},transport:{...transport,reference_token:'test:new-asset:session-2'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Replace recording…'}));
+  const chooser=screen.getByRole('dialog',{name:'Replace reference recording'});
+  expect(mock.replaceRecording).not.toHaveBeenCalled();
+  await fireEvent.click(within(chooser).getByRole('button',{name:'Choose timing-compatible recording'}));
+  await waitFor(()=>expect(mock.replaceRecording).toHaveBeenCalledExactlyOnceWith('test',true));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Play'}).hasAttribute('disabled')).toBe(false));
+  await fireEvent.click(screen.getByRole('button',{name:'Play'}));
+  await waitFor(()=>expect(mock.action).toHaveBeenCalledWith({type:'toggle_play'},'test:new-asset:session-2'));
+});
+
+it('ignores a late transport reply from the previous asset while preserving the song UUID',async()=>{
+  await ready();
+  const original=await mock.initialize.mock.results[0].value;
+  let finish!:(value:Transport)=>void;
+  mock.status.mockReturnValue(new Promise(resolve=>{finish=resolve;}));
+  await waitFor(()=>expect(mock.status).toHaveBeenCalled());
+  mock.replaceRecording.mockResolvedValue({...response(),song:{...original.song,reference_token:'new-asset-session'},document:{...document,reference_token:'new-asset-session'},transport:{...transport,reference_token:'new-asset-session',position:0}});
+  await fireEvent.click(screen.getByRole('button',{name:'Replace recording…'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Choose recording with new timeline'}));
+  await waitFor(()=>expect(mock.replaceRecording).toHaveBeenCalledWith('test',false));
+  finish({...transport,position:9,playing:true,reference_token:'test'});
+  await new Promise(resolve=>setTimeout(resolve,75));
+  expect(screen.getByRole('button',{name:'Play'})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'Pause'})).toBeNull();
+});
+
+it('offers independent import and deliberate retained recording selection',async()=>{
+  const original=await mock.initialize();
+  mock.initialize.mockResolvedValue({...original,song:{...original.song,retained_recordings:[{asset_id:'previous',timeline_id:'old-timeline',path:'/previous.wav',current:false}]}});
+  await ready();mock.importSeparate.mockResolvedValue(null);
+  await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Import separate song'}));
+  await waitFor(()=>expect(mock.importSeparate).toHaveBeenCalledOnce());
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Practice'}).hasAttribute('disabled')).toBe(false));
+  await fireEvent.click(screen.getByRole('button',{name:'Practice'}));
+  mock.selectRecording.mockResolvedValue({...response(),song:{...original.song,reference_token:'retained-session'},document:{...document,reference_token:'retained-session'},transport:{...transport,reference_token:'retained-session'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Replace recording…'}));
+  await fireEvent.change(screen.getByRole('combobox',{name:'Retained recording'}),{target:{value:'previous'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Use retained recording'}));
+  await waitFor(()=>expect(mock.selectRecording).toHaveBeenCalledExactlyOnceWith('test','previous'));
+});
+
+it('recovers an unavailable library recording without opening it or changing its song UUID',async()=>{
+  const entry=libraryEntry('unavailable-song','Missing recording','Player',1,2);
+  mock.initialize.mockResolvedValue({song:null,document:null,transport:{...transport,song_key:null,reference_token:null},startup_notice:'The previous recording is unavailable.'});
+  mock.readLibrary.mockResolvedValue({version:2,songs:[entry]});
+  mock.libraryReference.mockResolvedValue('persisted-reference-before-picker');
+  const token='replacement-reference-session';
+  mock.replaceLibraryReference.mockResolvedValue({song:{key:entry.song_key,reference_token:token,asset_id:'replacement',timeline_id:'new-timeline',reference_revision:2,session_id:'session',retained_recordings:[],title:entry.metadata.title,path:'/replacement.wav',duration:12,rate:48000,peaks:[[-.2,.2]]},document:{...document,song_key:entry.song_key,reference_token:token},transport:{...transport,song_key:entry.song_key,reference_token:token}});
+  render(App);
+  await screen.findByText('The previous recording is unavailable.');
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Library'}).hasAttribute('disabled')).toBe(false));
+  await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+  await screen.findByRole('button',{name:'Missing recording'});
+  await fireEvent.click(screen.getByRole('button',{name:'Replace recording for Missing recording'}));
+  await screen.findByRole('dialog',{name:'Replace reference recording'});
+  await waitFor(()=>expect(mock.libraryReference).toHaveBeenCalledExactlyOnceWith(entry.song_key));
+  await fireEvent.click(screen.getByRole('button',{name:'Choose recording with new timeline'}));
+  await waitFor(()=>expect(mock.replaceLibraryReference).toHaveBeenCalledExactlyOnceWith(entry.song_key,'persisted-reference-before-picker',false));
+  await screen.findByRole('heading',{name:'Missing recording'});
+  expect(mock.openLibrarySong).not.toHaveBeenCalled();
 });

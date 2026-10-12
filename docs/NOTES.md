@@ -1,7 +1,7 @@
 # Song notes
 
-Implemented: 2026-10-11. Plain-text notes belong to the song's practice document,
-not library metadata or the audio file.
+Implemented: 2026-10-11. Plain-text notes belong to the stable UUID song record,
+independently of its reference timeline or audio file.
 
 ## Workflow
 
@@ -26,20 +26,21 @@ persisted; this is not a recovery journal.
   disposal guards; App connects it to the existing document-save queue.
 - `ui/actions.ts` centralizes notes/close/retry identities, button bindings and
   descriptions. Notes has its own action scope and typing suppresses shortcuts.
-- `src/project.rs` validates and stores `notes` in version-4 song documents:
-  `<practice-directory>/<audio-content-key>.json`. Notes survive unchanged audio
-  being moved/renamed, like sections and maps. No audio tags are modified.
-- Valid version-2/3 documents migrate in memory with empty notes; existing sections,
-  controls and maps retain their meaning. The next successful save writes version
-  4. Malformed/unsupported files are preserved. Notes are bounded to 1 MiB of UTF-8
-  text at the native boundary; oversized saves preserve the previous file.
+- `src/project.rs` validates and stores song-level `notes` in the atomic version-1
+  `<practice-directory>/<song-uuid>.json` envelope. Replacement recording/timeline
+  selection keeps the notes, while intentional separate imports get their own notes.
+  No audio tags are modified.
+- The UI practice DTO is version 5. Recognized pre-UUID metadata is reset once on
+  launch rather than migrated; malformed/future UUID data remains preserved.
+  Notes are bounded to 1 MiB of UTF-8 text; oversized saves preserve the prior file.
+  See [UUID persistence/reset](UUID_IDENTITY.md).
 - `src-tauri/src/lifecycle.rs` intercepts normal close/quit, asks the UI to flush,
   and exits after acknowledgment. Existing native shutdown still saves position
   and stops audio/analysis. No file operations enter the audio callback.
 
-Tests cover whitespace round trips, old-document migration, invalid-save
+Tests cover whitespace round trips, recording replacement, invalid-save
 preservation, coalescing, edits during pending writes, retry, disposal, shortcut
-isolation, navigation and quit flushing. Native macOS review uses isolated
-app data and generated audio; Linux and Windows are not locally verified.
+isolation, navigation and quit flushing. Earlier native macOS review used isolated app data and generated audio. This UUID
+change has automated macOS checks; Linux and Windows are not locally verified.
 
 Markdown, rich text and notes export remain outside this pass.

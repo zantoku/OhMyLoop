@@ -16,6 +16,11 @@ to validate versioned documents, migrate supported versions and preserve unreada
 user data remain accepted. [ADR 0001](0001-source-recording-coordinates.md) still
 governs annotations; stable song identity does not establish audio alignment.
 
+For this pre-release transition, the user explicitly waived legacy-data
+preservation on 2026-10-12: reset incompatible content-keyed metadata on launch
+instead of migrating it. This is a scoped exception to ADR 0003, not a policy
+of deleting future unreadable data.
+
 ## Consequences
 
 - Audio assets have their own IDs and immutable content revisions. Replacing a
@@ -30,8 +35,10 @@ governs annotations; stable song identity does not establish audio alignment.
 - Reopening and late replies use song UUID plus session/job generation and asset
   or timeline revision as appropriate. UUID alone is insufficient to reject work
   from an older recording belonging to the same song.
-- Migrate each legacy content-keyed record once to a UUID with a durable mapping.
-  Preserve annotations and legacy files; never assign a fresh UUID on each open.
+- Reset the known legacy catalogue, practice documents, last-song state and
+  derived timing caches before loading them. Existing audio and prototype stem
+  outputs remain untouched; songs receive UUIDs when imported afresh. Make reset
+  restart-safe and schema-gated so it cannot erase newly created UUID records.
 
 Perceptual matching was rejected as the identity mechanism: it can help future
 discovery, but should not decide whether two practice items share user data.

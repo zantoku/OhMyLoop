@@ -25,9 +25,10 @@ ordinary JSON replacement makes multi-file imports transactional.
   authority for song ownership.
 - The import source path is provenance, never the playback dependency after a
   successful copy. The app does not move, edit or delete the external original.
-- Existing libraries migrate metadata/annotations first; existing external audio
-  is retained as an explicit legacy link until an import copy succeeds. Missing
-  files remain visible and relinkable. No surprise bulk copy on upgrade.
+- For this pre-release transition, reset incompatible app metadata on launch and
+  start with an empty catalogue, as authorized by the sole user. Import existing
+  audio afresh; do not copy it automatically, delete it or retain a legacy-link
+  compatibility layer. The reset scope is recorded in ADR 0005 and the plan.
 - Root changes select/open a library; moving an existing library is a separate
   verified copy-and-switch operation. Keep the old root until success and explicit
   removal. An unavailable root is an error, not permission to create an empty

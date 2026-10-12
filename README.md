@@ -66,8 +66,10 @@ validation rules, and [example configuration](config/keymap.example.json).
 
 Practice documents are saved in the app's per-user data directory, under
 `practice`. They contain stable section IDs, source coordinates, controls,
-loop selection, last position, and plain-text song notes. A SHA-256 identity lets settings survive
-moving or renaming an unchanged audio file. Playback is restored paused.
+loop selection, last position, and plain-text song notes. Songs have stable UUIDs independent of audio revisions. Notes/settings belong to
+the song; sections/maps/loops/positions belong to its retained reference timeline.
+Playback is restored paused. [UUID persistence and reset](docs/UUID_IDENTITY.md)
+describes the one-time legacy metadata reset; audio and preferences are retained.
 Corrupt or unsupported documents are reported and left intact. For development
 only, `OHMYLOOP_DATA_DIR` selects the practice-document directory itself; it does
 not redirect the model or keymap folders. The analysis cache is its sibling
@@ -143,10 +145,11 @@ playback. The top-right navigation button becomes **Practice** while browsing.
 library, keeping it visible if the file picker is cancelled.
 
 The catalogue is `practice/library.json`, separate from each song's practice
-JSON and the analysis cache. It uses the same content hashes, so reopening a moved
-unchanged file updates its location and keeps its annotations. Missing or replaced
-files produce an error; use Open song to locate a moved file. Previously used
-songs join the catalogue the next time they are opened or restored. No folder
+JSON and the analysis cache. It uses song UUIDs. Reopening a moved unchanged file updates its location;
+**Import separate song** creates independent notes/maps for identical audio.
+Missing/changed recordings can be recovered with the library row’s **Replace
+recording** action, preserving song identity. Explicit unchanged-timing confirmation
+requires matching decoded rate/frame count; a new timeline preserves the old map. No folder
 scan/import, artwork, removal or export workflow is implemented yet.
 See [docs/LIBRARY.md](docs/LIBRARY.md) for details.
 
@@ -235,7 +238,8 @@ corrections. **Clear map** removes all measures/anchors, including protected one
 sections, loops and playback settings. Mapping undo/redo retains up to 50 edits
 during the same song session and survives switching back to practice; it is not
 saved across restarts. The accepted map is
-persisted with the song in version-4 documents; valid version-2 and version-3 documents migrate.
+persisted in the song’s reference-timeline record. Pre-UUID metadata is reset once
+on launch instead of migrated; future/malformed UUID records remain preserved.
 Practice uses a single waveform ruler: measure numbers and vertical barlines in
 mapped audio, timecodes in free time. The separate section lane stays. Loops
 snap to whole measures by default; turn off **Snap to measures** or Shift-drag
@@ -418,9 +422,10 @@ backing tracks. Setup and commands are in the
 deployment evidence in [the research](docs/research/STEM_SEPARATION_RESEARCH.md).
 This experiment is separate from the desktop practice workflow.
 
-The planned desktop integration—UUID song identity, managed imports, reference
+The desktop integration—implemented UUID song identity and planned managed imports, reference
 timelines and a practice mixer—is in [docs/STEMS.md](docs/STEMS.md), with its ADRs
-and delivery slices. It is not yet implemented.
+and delivery slices. UUID identity/replacement/reset is implemented; managed
+storage, stem playback and integrated separation remain planned.
 
 ## Architecture and limits
 

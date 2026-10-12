@@ -21,8 +21,8 @@
       oncommit: (value: MapPreview, songKey:string) => Promise<void>; onseek: (seconds:number)=>void; run:(id:ButtonId)=>void; available:(id:ButtonId)=>boolean } = $props();
   let editState = $state<MappingState>({pending:false,error:'',preview:null,undo:0,redo:0});
   let analysis = $state<AnalysisState>({status:null,candidates:null,requesting:false,error:''});
-  const analyzer = new AnalysisSession(()=>({key:song.key,revision:map?.revision??0}),value=>{analysis=value;});
-  const candidates = $derived(analysis.candidates?.song_key===song.key?analysis.candidates:null);
+  const analyzer = new AnalysisSession(()=>({key:song.reference_token,revision:map?.revision??0}),value=>{analysis=value;});
+  const candidates = $derived(analysis.candidates?.reference_token===song.reference_token?analysis.candidates:null);
   let followingPlayhead=$state(true);
   let epsilonMs=$state(30),resnap=$state(true);
   const audibleMap=$derived(editState.preview?.map??map);
@@ -45,7 +45,7 @@
     return()=>clearInterval(timer);
   });
   onDestroy(()=>{analyzer.dispose();session.dispose();});
-  const session = new MappingSession(()=>({key:song.key,map:map?$state.snapshot(map):null}),value=>oncommit(value,song.key),next=>{editState=next;});
+  const session = new MappingSession(()=>({key:song.reference_token,map:map?$state.snapshot(map):null}),value=>oncommit(value,song.reference_token),next=>{editState=next;});
   let view = $state<View>(untrack(()=>({start:0,end:song.duration})));
   export function revealPlayhead(position:number){view=pageForPlayhead(view,song.duration,position);}
   $effect(()=>{if(active&&followingPlayhead&&transport.playing)view=pageForPlayhead(view,song.duration,transport.position);});

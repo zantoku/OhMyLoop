@@ -8,8 +8,13 @@ identity_superseded_by: ADR-0005
 The content-based **song identity** decision is superseded by
 [ADR 0005](0005-stable-song-identity-and-audio-assets.md) on 2026-10-12.
 Version validation, supported migration and preservation of unreadable user
-data remain accepted. The implementation below is the historical/current
-baseline until the UUID migration is delivered.
+data remain accepted. The implementation below is the historical baseline;
+the UUID transition is implemented in [UUID identity](../UUID_IDENTITY.md).
+
+Update, 2026-10-12: the user has authorized discarding incompatible metadata for
+the pre-release UUID transition instead of migrating it. This scoped exception
+is recorded in ADR 0005; it does not authorize deleting audio or treating future
+unreadable UUID-library documents as disposable.
 
 Retrospectively documented on 2026-10-12. These choices were implemented in
 desktop commit `b5bf140` (2026-10-08); their original decision date is not recorded.

@@ -24,7 +24,7 @@ pub struct Detection {
 #[serde(deny_unknown_fields)]
 pub struct Candidates {
     pub version: u32,
-    pub song_key: String,
+    pub reference_token: String,
     pub map_revision: u64,
     pub rate: u32,
     pub frames: u64,
@@ -48,9 +48,10 @@ pub fn read_result(path: &Path) -> Result<Candidates> {
     let cache: CachedAnalysis = serde_json::from_reader(file)?;
     let result = cache.candidates;
     ensure!(
-        result.version == 1 && result.model == MODEL_ID && result.preprocessing == PREPROCESSING,
+        result.version == 2 && result.model == MODEL_ID && result.preprocessing == PREPROCESSING,
         "Unsupported analysis cache"
     );
+    crate::project::Reference::parse(&result.reference_token)?;
     ensure!(
         result.beats.len() <= 80_000
             && result.beats.windows(2).all(|w| w[0].frame < w[1].frame)
@@ -69,6 +70,7 @@ pub fn worker(args: &[String]) -> Result<()> {
     let input = Path::new(&args[0]);
     let output = Path::new(&args[1]);
     let models = Path::new(&args[2]);
+    crate::project::Reference::parse(&args[3])?;
     let rate: u32 = args[4].parse()?;
     let frames: u64 = args[5].parse()?;
     let revision: u64 = args[6].parse()?;
@@ -149,8 +151,8 @@ pub fn worker(args: &[String]) -> Result<()> {
     }
     beats.dedup_by_key(|b| b.frame);
     let candidates = Candidates {
-        version: 1,
-        song_key: args[3].clone(),
+        version: 2,
+        reference_token: args[3].clone(),
         map_revision: revision,
         rate,
         frames,

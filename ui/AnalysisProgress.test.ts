@@ -2,7 +2,7 @@ import { describe,expect,it } from 'vitest';
 import { render,screen } from '@testing-library/svelte';
 import AnalysisProgress from './AnalysisProgress.svelte';
 import type { AnalysisStatus } from './timing';
-const base:AnalysisStatus={id:1,running:true,kind:'analysis',phase:'Finding beats and downbeats',model_path:'/models',model_ready:true,progress:null,elapsed_seconds:125,song_key:'song',map_revision:0,error:null,result:null};
+const base:AnalysisStatus={id:1,running:true,kind:'analysis',phase:'Finding beats and downbeats',model_path:'/models',model_ready:true,progress:null,elapsed_seconds:125,reference_token:'song',map_revision:0,error:null,result:null};
 describe('job progress presentation',()=>{
   it('shows completed analysis segments and live elapsed time',()=>{
     render(AnalysisProgress,{status:{...base,progress:{completed:2,total:8,unit:'segments'}}});

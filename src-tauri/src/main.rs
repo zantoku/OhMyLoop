@@ -11,14 +11,14 @@ struct KeymapPath(std::path::PathBuf);
 
 #[tauri::command]
 async fn preview_measure_map(
-    song_key: String,
+    reference_token: String,
     map: Option<ohmyloop::timing::MeasureMap>,
     edit: ohmyloop::timing::Edit,
     state: State<'_, Desktop>,
 ) -> Result<ohmyloop::timing::Preview, String> {
     let desktop = state.inner().clone();
     work(move || {
-        let audio = desktop.source(song_key)?;
+        let audio = desktop.source(reference_token)?;
         let map = map.unwrap_or_else(|| {
             ohmyloop::timing::MeasureMap::empty(audio.rate, audio.frames.len() as u64)
         });
@@ -90,6 +90,82 @@ async fn open_song(
     .await
 }
 
+fn pick_recording(app: &tauri::AppHandle) -> anyhow::Result<Option<String>> {
+    app.dialog()
+        .file()
+        .add_filter(
+            "Songs",
+            &["wav", "mp3", "flac", "ogg", "m4a", "aac", "aiff", "aif"],
+        )
+        .blocking_pick_file()
+        .map(|file| Ok(file.into_path()?.to_string_lossy().into_owned()))
+        .transpose()
+}
+
+#[tauri::command]
+async fn import_separate_song(
+    app: tauri::AppHandle,
+    state: State<'_, Desktop>,
+) -> Result<Option<Snapshot>, String> {
+    let desktop = state.inner().clone();
+    work(move || {
+        pick_recording(&app)?
+            .map(|path| desktop.load_separate(path))
+            .transpose()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn replace_recording(
+    app: tauri::AppHandle,
+    reference_token: String,
+    timing_unchanged: bool,
+    state: State<'_, Desktop>,
+) -> Result<Option<Snapshot>, String> {
+    let desktop = state.inner().clone();
+    work(move || {
+        pick_recording(&app)?
+            .map(|path| desktop.replace_reference(reference_token, path, timing_unchanged))
+            .transpose()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn library_reference(song_key: String, state: State<'_, Desktop>) -> Result<String, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.library_reference(song_key)).await
+}
+#[tauri::command]
+async fn replace_library_reference(
+    app: tauri::AppHandle,
+    song_key: String,
+    reference_token: String,
+    timing_unchanged: bool,
+    state: State<'_, Desktop>,
+) -> Result<Option<Snapshot>, String> {
+    let desktop = state.inner().clone();
+    work(move || {
+        pick_recording(&app)?
+            .map(|path| {
+                desktop.replace_library_reference(song_key, reference_token, path, timing_unchanged)
+            })
+            .transpose()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn select_recording(
+    reference_token: String,
+    asset_id: String,
+    state: State<'_, Desktop>,
+) -> Result<Snapshot, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.select_recording(reference_token, asset_id)).await
+}
+
 #[tauri::command]
 async fn read_library(state: State<'_, Desktop>) -> Result<ohmyloop::library::Catalogue, String> {
     let desktop = state.inner().clone();
@@ -122,33 +198,37 @@ async fn update_document(
 }
 
 #[tauri::command]
-async fn transport_action(action: Action, state: State<'_, Desktop>) -> Result<Snapshot, String> {
+async fn transport_action(
+    action: Action,
+    reference_token: String,
+    state: State<'_, Desktop>,
+) -> Result<Snapshot, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.act(action)).await
+    work(move || desktop.act(action, reference_token)).await
 }
 
 #[tauri::command]
 async fn set_map_metronome(
-    song_key: String,
+    reference_token: String,
     enabled: bool,
     volume: f32,
     map: Option<ohmyloop::timing::MeasureMap>,
     state: State<'_, Desktop>,
 ) -> Result<Transport, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.metronome(song_key, enabled, volume, map)).await
+    work(move || desktop.metronome(reference_token, enabled, volume, map)).await
 }
 
 #[tauri::command]
 async fn set_count_in(
-    song_key: String,
+    reference_token: String,
     enabled: bool,
     repeat: bool,
     volume: f32,
     state: State<'_, Desktop>,
 ) -> Result<Transport, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.count_in(song_key, enabled, repeat, volume)).await
+    work(move || desktop.count_in(reference_token, enabled, repeat, volume)).await
 }
 
 #[tauri::command]
@@ -165,15 +245,15 @@ async fn analysis_status(
 }
 #[tauri::command]
 async fn read_cached_analysis(
-    song_key: String,
+    reference_token: String,
     desktop: State<'_, Desktop>,
     state: State<'_, ohmyloop::analysis::AnalysisManager>,
 ) -> Result<Option<ohmyloop::analysis::Candidates>, String> {
     let desktop = desktop.inner().clone();
     let manager = state.inner().clone();
     work(move || {
-        let audio = desktop.source(song_key.clone())?;
-        manager.cached_result(&song_key, &audio)
+        let audio = desktop.source(reference_token.clone())?;
+        manager.cached_result(&reference_token, &audio)
     })
     .await
 }
@@ -192,7 +272,7 @@ async fn cancel_analysis(
 }
 #[tauri::command]
 async fn start_analysis(
-    song_key: String,
+    reference_token: String,
     revision: u64,
     desktop: State<'_, Desktop>,
     state: State<'_, ohmyloop::analysis::AnalysisManager>,
@@ -200,8 +280,8 @@ async fn start_analysis(
     let desktop = desktop.inner().clone();
     let manager = state.inner().clone();
     work(move || {
-        let audio = desktop.source(song_key.clone())?;
-        manager.analyze(std::env::current_exe()?, audio, song_key, revision)
+        let audio = desktop.source(reference_token.clone())?;
+        manager.analyze(std::env::current_exe()?, audio, reference_token, revision)
     })
     .await
 }
@@ -230,8 +310,8 @@ fn main() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?.join("models/beat-this-v1"));
             let cache = directory.parent().unwrap_or(&directory).join("analysis");
-            app.manage(ohmyloop::analysis::AnalysisManager::new(models, cache)?);
             let desktop = Desktop::start(directory)?;
+            app.manage(ohmyloop::analysis::AnalysisManager::new(models, cache)?);
             if std::env::args().any(|arg| arg == "--demo") {
                 desktop.load(None)?;
             }
@@ -251,6 +331,11 @@ fn main() {
             initialize,
             load_demo,
             open_song,
+            import_separate_song,
+            replace_recording,
+            select_recording,
+            library_reference,
+            replace_library_reference,
             read_library,
             open_library_song,
             update_library_song,

@@ -2,7 +2,7 @@ use ohmyloop::{
     audio::{Audio, write_wav},
     desktop::{Action, Desktop},
     dsp::Controls,
-    project::{Document, Section, Store, song_key, waveform},
+    project::{Document, Section, SessionId, SongRecord, Store, asset_digest, waveform},
 };
 use std::{
     fs,
@@ -33,7 +33,14 @@ impl Drop for Temp {
 fn nested_sections_keep_ids_and_temporary_loops_are_independent() {
     let temp = Temp::new("document");
     let store = Store::new(temp.0.clone()).unwrap();
-    let mut doc = Document::new("test-song".into());
+    let record = SongRecord::new(
+        "/fixture.wav".into(),
+        "a".repeat(64),
+        &Audio::tone(1000, 10.0, 220.0),
+    );
+    store.save_record(&record).unwrap();
+    let key = record.id.to_string();
+    let mut doc = record.document(SessionId::new()).unwrap();
     doc.sections = vec![
         Section {
             id: "verse".into(),
@@ -58,13 +65,16 @@ fn nested_sections_keep_ids_and_temporary_loops_are_independent() {
     doc.sections[1].name = "Bend and release".into();
     doc.sections[1].start = 2.1;
     store.save(&doc, 10.0).unwrap();
-    let loaded = store.load("test-song", 10.0).unwrap();
+    let mut loaded = store.load(&key, 10.0).unwrap();
+    loaded.reference_token = doc.reference_token.clone();
     assert_eq!(loaded, doc);
     assert_eq!(loaded.sections[1].id, "phrase");
     assert_eq!(loaded.loop_selection.unwrap().start, 3.0);
     doc.sections[1].id = "verse".into();
     assert!(store.save(&doc, 10.0).is_err());
-    assert_eq!(store.load("test-song", 10.0).unwrap(), loaded);
+    let mut reread = store.load(&key, 10.0).unwrap();
+    reread.reference_token = loaded.reference_token.clone();
+    assert_eq!(reread, loaded);
 }
 
 #[test]
@@ -81,14 +91,14 @@ fn corrupted_or_future_documents_are_preserved_instead_of_overwritten() {
 }
 
 #[test]
-fn content_identity_survives_file_moves_and_detects_replacement() {
+fn asset_digest_survives_file_moves_and_detects_replacement() {
     let temp = Temp::new("identity");
     let (a, b) = (temp.0.join("song.wav"), temp.0.join("renamed.wav"));
     write_wav(&a, 48_000, &Audio::tone(48_000, 0.25, 440.0).frames).unwrap();
     fs::copy(&a, &b).unwrap();
-    assert_eq!(song_key(&a).unwrap(), song_key(&b).unwrap());
+    assert_eq!(asset_digest(&a).unwrap(), asset_digest(&b).unwrap());
     write_wav(&a, 48_000, &Audio::tone(48_000, 0.25, 880.0).frames).unwrap();
-    assert_ne!(song_key(&a).unwrap(), song_key(&b).unwrap());
+    assert_ne!(asset_digest(&a).unwrap(), asset_digest(&b).unwrap());
 }
 
 #[test]
@@ -139,20 +149,31 @@ fn downsampling_suppresses_frequencies_above_the_new_nyquist_limit() {
 fn desktop_controller_restores_sections_controls_and_source_position() {
     let temp = Temp::new("controller");
     let desktop = Desktop::start(temp.0.clone()).unwrap();
-    let loaded = desktop.load(None).unwrap();
-    assert_eq!(loaded.song.unwrap().duration, 12.0);
+    let path = temp.0.join("fixture.wav");
+    write_wav(&path, 1000, &Audio::tone(1000, 12.0, 220.0).frames).unwrap();
+    let loaded = desktop
+        .load(Some(path.to_string_lossy().into_owned()))
+        .unwrap();
+    assert_eq!(loaded.song.as_ref().unwrap().duration, 12.0);
     let mut doc = loaded.document.unwrap();
     doc.controls = Controls {
         speed: 0.75,
         semitones: -3.0,
     };
-    doc.sections[0].name = "First riff".into();
+    doc.sections.push(Section {
+        id: "riff".into(),
+        name: "First riff".into(),
+        start: 0.0,
+        end: 2.0,
+    });
     let updated = desktop.update(doc.clone()).unwrap();
     assert!(
         updated.song.is_none(),
         "Mutations must not resend waveform data"
     );
-    desktop.act(Action::Seek { seconds: 2.125 }).unwrap();
+    desktop
+        .act(Action::Seek { seconds: 2.125 }, doc.reference_token.clone())
+        .unwrap();
     desktop.shutdown();
     let restored = Desktop::start(temp.0.clone()).unwrap();
     let snapshot = restored.restore().unwrap();
@@ -179,17 +200,23 @@ fn endpoint_seeks_keep_ranges_and_disable_looping_at_b_or_outside() {
     doc.loop_enabled = true;
     desktop.update(doc).unwrap();
     let at_a = desktop
-        .act(Action::Seek {
-            seconds: region.start,
-        })
+        .act(
+            Action::Seek {
+                seconds: region.start,
+            },
+            desktop.status().unwrap().reference_token.unwrap(),
+        )
         .unwrap();
     assert!(at_a.document.as_ref().unwrap().loop_enabled);
     assert!(!at_a.transport.playing);
     assert!((at_a.transport.position - region.start).abs() < 0.001);
     let at_b = desktop
-        .act(Action::Seek {
-            seconds: region.end,
-        })
+        .act(
+            Action::Seek {
+                seconds: region.end,
+            },
+            desktop.status().unwrap().reference_token.unwrap(),
+        )
         .unwrap();
     let mut doc = at_b.document.unwrap();
     assert!(!doc.loop_enabled);
@@ -197,7 +224,12 @@ fn endpoint_seeks_keep_ranges_and_disable_looping_at_b_or_outside() {
     assert!((at_b.transport.position - region.end).abs() < 0.001);
     doc.loop_enabled = true;
     desktop.update(doc).unwrap();
-    let at_start = desktop.act(Action::Seek { seconds: 0.0 }).unwrap();
+    let at_start = desktop
+        .act(
+            Action::Seek { seconds: 0.0 },
+            desktop.status().unwrap().reference_token.unwrap(),
+        )
+        .unwrap();
     assert!(!at_start.document.unwrap().loop_enabled);
     assert!(at_start.transport.position < 0.001);
     desktop.shutdown();
@@ -208,13 +240,32 @@ fn loading_a_map_with_the_wrong_decoded_rate_preserves_the_saved_file() {
     let temp = Temp::new("wrong-map-rate");
     let path = temp.0.join("source.wav");
     write_wav(&path, 44_100, &Audio::tone(44_100, 1.0, 440.0).frames).unwrap();
-    let key = song_key(&path).unwrap();
     let directory = temp.0.join("practice");
     let store = Store::new(directory.clone()).unwrap();
-    let mut document = Document::new(key.clone());
-    document.measure_map = Some(ohmyloop::timing::MeasureMap::empty(48_000, 48_000));
-    store.save(&document, 1.0).unwrap();
+    let record = SongRecord::new(
+        path.to_string_lossy().into_owned(),
+        asset_digest(&path).unwrap(),
+        &Audio::load(&path).unwrap(),
+    );
+    let key = record.id.to_string();
+    store.save_record(&record).unwrap();
+    let library = ohmyloop::library::Store::new(&directory);
+    library
+        .opened(
+            key.clone(),
+            path.to_string_lossy().into_owned(),
+            ohmyloop::library::Metadata {
+                title: "Source".into(),
+                ..Default::default()
+            },
+            1,
+        )
+        .unwrap();
     let file = directory.join(format!("{key}.json"));
+    let mut json: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+    json["timelines"][0]["measure_map"] =
+        serde_json::to_value(ohmyloop::timing::MeasureMap::empty(48000, 48000)).unwrap();
+    fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
     let before = fs::read(&file).unwrap();
     let desktop = Desktop::start(directory).unwrap();
     assert!(
@@ -248,19 +299,22 @@ fn review_maps_are_source_bound_and_ephemeral_even_when_clicks_are_off() {
     .map;
     doc.measure_map = Some(accepted.clone());
     desktop.update(doc).unwrap();
-    desktop.act(Action::Seek { seconds: 5.0 }).unwrap();
+    desktop
+        .act(Action::Seek { seconds: 5.0 }, song.reference_token.clone())
+        .unwrap();
     let draft = accepted
         .edit(Edit::SetOrigin { first_number: 17 })
         .unwrap()
         .map;
     let status = desktop
-        .metronome(song.key.clone(), false, 0.5, Some(draft))
+        .metronome(song.reference_token.clone(), false, 0.5, Some(draft))
         .unwrap();
     assert_eq!(status.musical_position.unwrap().label, "18");
     assert_eq!(
-        Store::new(temp.0.clone())
+        desktop
+            .act(Action::Pause, song.reference_token.clone())
             .unwrap()
-            .load(&song.key, song.duration)
+            .document
             .unwrap()
             .measure_map,
         Some(accepted.clone())
@@ -276,25 +330,35 @@ fn review_maps_are_source_bound_and_ephemeral_even_when_clicks_are_off() {
     );
     assert!(
         desktop
-            .metronome(song.key.clone(), false, f32::NAN, None)
+            .metronome(song.reference_token.clone(), false, f32::NAN, None)
             .is_err()
     );
     assert!(
         desktop
-            .metronome(song.key.clone(), false, 0.5, Some(MeasureMap::empty(1, 12)))
+            .metronome(
+                song.reference_token.clone(),
+                false,
+                0.5,
+                Some(MeasureMap::empty(1, 12))
+            )
             .is_err()
     );
-    let status = desktop.metronome(song.key, false, 0.5, None).unwrap();
+    let status = desktop
+        .metronome(song.reference_token, false, 0.5, None)
+        .unwrap();
     assert_eq!(status.musical_position.unwrap().label, "2");
     desktop.shutdown();
 }
 
 #[test]
-fn notes_round_trip_and_old_documents_migrate_without_losing_annotations() {
-    let temp = Temp::new("song-notes");
+fn notes_are_song_level_and_persist_across_reference_timelines() {
+    let temp = Temp::new("notes");
     let store = Store::new(temp.0.clone()).unwrap();
-    let mut doc = Document::new("song".into());
-    doc.notes = "  Drop D\n\nWork on the bridge. **Plain text**  ".into();
+    let audio = Audio::tone(1000, 10.0, 220.0);
+    let mut record = SongRecord::new("/a.wav".into(), "a".repeat(64), &audio);
+    store.save_record(&record).unwrap();
+    let mut doc = record.document(SessionId::new()).unwrap();
+    doc.notes = "  Drop D\n\nWork on bridge. **Plain text**  ".into();
     doc.sections.push(Section {
         id: "verse".into(),
         name: "Verse".into(),
@@ -302,22 +366,26 @@ fn notes_round_trip_and_old_documents_migrate_without_losing_annotations() {
         end: 2.0,
     });
     store.save(&doc, 10.0).unwrap();
-    assert_eq!(store.load("song", 10.0).unwrap(), doc);
-    let path = temp.0.join("song.json");
-    let valid = fs::read(&path).unwrap();
-    doc.notes = "é".repeat(600_000);
-    assert!(store.save(&doc, 10.0).is_err());
-    assert_eq!(fs::read(&path).unwrap(), valid);
-    for version in [2, 3] {
-        let mut old: serde_json::Value = serde_json::from_slice(&valid).unwrap();
-        old["version"] = version.into();
-        old.as_object_mut().unwrap().remove("notes");
-        let bytes = serde_json::to_vec(&old).unwrap();
-        fs::write(&path, &bytes).unwrap();
-        let migrated = store.load("song", 10.0).unwrap();
-        assert_eq!(migrated.version, 4);
-        assert!(migrated.notes.is_empty());
-        assert_eq!(migrated.sections.len(), 1);
-        assert_eq!(fs::read(&path).unwrap(), bytes);
-    }
+    record = store.record(&doc.song_key).unwrap();
+    record
+        .replace(
+            "/b.wav".into(),
+            "b".repeat(64),
+            &Audio::tone(1000, 5.0, 330.0),
+            false,
+        )
+        .unwrap();
+    store.save_record(&record).unwrap();
+    let current = store.load(&doc.song_key, 5.0).unwrap();
+    assert_eq!(current.notes, doc.notes);
+    assert!(current.sections.is_empty());
+    assert_eq!(record.timelines[0].sections, doc.sections);
+    let valid = fs::read(temp.0.join(format!("{}.json", doc.song_key))).unwrap();
+    let mut invalid = current;
+    invalid.notes = "é".repeat(600000);
+    assert!(store.save(&invalid, 5.0).is_err());
+    assert_eq!(
+        fs::read(temp.0.join(format!("{}.json", doc.song_key))).unwrap(),
+        valid
+    );
 }

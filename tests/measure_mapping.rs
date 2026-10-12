@@ -1,5 +1,5 @@
 use ohmyloop::{
-    project::{Document, Store},
+    project::Store,
     timing::{Edit, Fraction, MeasureKind, MeasureMap, Meter},
 };
 fn build(start: u64, end: u64, count: u32, meter: Meter) -> MeasureMap {
@@ -1110,26 +1110,25 @@ fn selected_range_rebuild_retains_other_ids_and_respace_keeps_edges() {
     assert_eq!(map.measures.last().unwrap(), &outside);
 }
 #[test]
-fn persistence_migrates_v2_and_retains_invalid_original_bytes() {
+fn timeline_persistence_retains_map_geometry_and_invalid_original_bytes() {
+    use ohmyloop::{
+        audio::Audio,
+        project::{SessionId, SongRecord},
+    };
     let directory = std::env::temp_dir().join(format!("ohmyloop-map-test-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let store = Store::new(directory.clone()).unwrap();
-    let mut old = serde_json::to_value(Document::new("fixture".into())).unwrap();
-    old["version"] = 2.into();
-    old.as_object_mut().unwrap().remove("measure_map");
-    old["controls"]["speed"] = 0.75.into();
-    old["last_position"] = 1.234567.into();
-    let bytes = serde_json::to_vec(&old).unwrap();
-    std::fs::write(directory.join("fixture.json"), &bytes).unwrap();
-    let mut migrated = store.load("fixture", 20.0).unwrap();
-    assert_eq!(migrated.version, 4);
-    assert_eq!(migrated.controls.speed, 0.75);
-    assert_eq!(migrated.last_position, 1.234567);
-    assert_eq!(
-        std::fs::read(directory.join("fixture.json")).unwrap(),
-        bytes
+    let record = SongRecord::new(
+        "/fixture.wav".into(),
+        "a".repeat(64),
+        &Audio::tone(1000, 20.0, 220.0),
     );
-    migrated.measure_map = Some(
+    store.save_record(&record).unwrap();
+    let key = record.id.to_string();
+    let mut document = record.document(SessionId::new()).unwrap();
+    document.controls.speed = 0.75;
+    document.last_position = 1.234567;
+    document.measure_map = Some(
         build(500, 8000, 3, Meter::common())
             .edit(Edit::SetGroupingForMeter {
                 numerator: 4,
@@ -1139,15 +1138,16 @@ fn persistence_migrates_v2_and_retains_invalid_original_bytes() {
             .unwrap()
             .map,
     );
-    store.save(&migrated, 20.0).unwrap();
-    assert_eq!(store.load("fixture", 20.0).unwrap(), migrated);
-    let invalid = br#"{"version":4,"song_key":"fixture"}"#;
-    std::fs::write(directory.join("fixture.json"), invalid).unwrap();
-    assert!(store.load("fixture", 20.0).is_err());
-    assert_eq!(
-        std::fs::read(directory.join("fixture.json")).unwrap(),
-        invalid
-    );
+    store.save(&document, 20.0).unwrap();
+    let loaded = store.load(&key, 20.0).unwrap();
+    assert_eq!(loaded.measure_map, document.measure_map);
+    assert_eq!(loaded.controls, document.controls);
+    assert_eq!(loaded.last_position, document.last_position);
+    let path = directory.join(format!("{key}.json"));
+    let invalid = b"{broken UUID record";
+    std::fs::write(&path, invalid).unwrap();
+    assert!(store.load(&key, 20.0).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), invalid);
     std::fs::remove_dir_all(directory).unwrap();
 }
 

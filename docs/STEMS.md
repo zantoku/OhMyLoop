@@ -1,9 +1,14 @@
 # Managed songs, stem separation and practice mixing
 
-Date: 2026-10-12. Status: integration plan; not implemented. UUID song identity
+Date: 2026-10-12. Status: UUID identity/reset/replacement slice implemented;
+managed storage and stem integration remain planned. UUID song identity
 is agreed; other ADRs are proposals for the first integration. The user has
 authorized planning beyond the previous deferred-stems scope. Final separation
 model selection remains open while the user compares full-song outputs.
+
+Planning update: the sole user has no valuable existing app data and explicitly
+authorized wiping incompatible metadata on launch. Legacy identity migration,
+annotation transfer and external-link compatibility are removed from scope.
 
 ## Outcome and first release
 
@@ -38,7 +43,7 @@ Decisions and language:
 hash and stores notes, sections and measure maps together. `src/library.rs`
 stores version-1 entries with one external canonical path. `src/desktop.rs`
 loads/hash-checks/decodes before replacing the active song, uses the key to guard
-commands and restores the last song by path. These interfaces must migrate
+commands and restores the last song by path. These interfaces must change
 together; changing catalogue IDs alone is insufficient.
 
 `src/analysis/worker.rs` version-1 candidates include `song_key`, geometry, model
@@ -104,7 +109,7 @@ prototype output; show real size costs before jobs. On-disk streaming PCM caches
 are rebuildable and never masquerade as authoritative assets.
 
 App data holds active-library location, last song UUID/library UUID, device/theme/
-keymap preferences, runtime/model caches and a one-time legacy migration ledger.
+keymap preferences, runtime/model caches and a schema/reset completion marker.
 Library roots contain everything needed for song-data backup; model caches are
 reinstallable. A copied library keeps IDs. Independent copies are not supported
 as concurrently synchronized branches. Selecting another root first flushes
@@ -149,34 +154,31 @@ Timing evidence is invalid for a changed input even when the accepted map remain
 usable. Previously generated stems are labelled **From previous recording** and
 playable only when their timeline mapping is compatible.
 
-## Migration without lost practice data
+## Launch reset instead of legacy migration
 
-1. Snapshot version-1 catalogue and version-2/3/4 practice documents without
-   modifying their originals. Preserve invalid/future-version data and report it.
-   Offer root selection before any audio copying.
-2. Create a durable legacy-hash-to-UUID mapping and journal each migration.
-   Catalogue entries and practice-only records with the same legacy key get the
-   same UUID. Preserve artist/title/album overrides, dates, notes, section IDs,
-   map/anchor IDs, controls, loop selection and last position. The demo stays
-   transient and has no managed audio import.
-3. Resolve existing audio from catalogue/last-song paths. Represent uncopied
-   files as explicit legacy external assets. For available decoded recordings,
-   establish the reference timeline without moving any coordinates. Missing
-   sources retain annotations and unresolved geometry; relink before playback
-   or new analysis. Never discard practice-only documents because no catalogue
-   entry exists.
-4. Copy legacy audio on next open or via explicit **Copy existing songs** with
-   disk preflight, progress and cancellation. Only switch the link after copy
-   validation/commit. Retrying reuses the assigned UUID. Partial migration can
-   resume after restart without duplicates.
-5. Migrate last-opened identity to library/song UUID. Handle legacy timing caches
-   conservatively: attach only if input identity and geometry can be established;
-   otherwise retain them as legacy data and reanalyze. Old evidence lacks some
-   new provenance; never invent certification.
-6. Keep legacy files and the migration ledger after success. An app-data practice
-   path override remains the legacy source/configuration location; the selected
-   managed-library path is separate and explicit. Document upgrade/backup and
-   older-app limitations before shipping.
+The UUID release starts with an empty catalogue. On launch, before last-song
+restoration or loading any practice/analysis state, detect the known pre-UUID
+storage layout and remove its incompatible catalogue, content-keyed practice
+documents (including notes, maps and sections), last-song state and derived
+analysis caches. No preservation, migration ledger or legacy external-asset
+adapter is required for these records. Show a brief reset notice after success;
+the user has already authorized this reset, so no confirmation flow is needed.
+
+Scope deletion to identified app-owned metadata/cache files in the configured
+legacy data location, including an explicit app-data path override. Do not
+recursively delete an arbitrary selected directory. Do not delete external or
+managed audio, prototype manifests/stems, models, runtimes, or compatible device,
+theme and keymap preferences. Resetting the catalogue does not authorize deleting
+the files it used to reference. Select/create the managed root and import songs
+afresh afterward. The demo remains transient.
+
+Make reset idempotent and keyed to the specific legacy schema: finish cleanup
+before writing the new schema marker or allowing new UUID data to be saved. An
+interrupted cleanup retries on launch; a permission failure reports an error
+instead of mixing old/new records. Subsequent launches retain UUID songs and
+practice data. Malformed or unsupported future UUID-library files continue to be
+reported and preserved; the pre-release waiver does not turn corruption or every
+future schema change into automatic deletion.
 
 ## Deep modules and their interfaces
 
@@ -185,7 +187,7 @@ subprocess details. Suggested interfaces express intent, not final Rust syntax:
 
 | Module | Interface and responsibility |
 | --- | --- |
-| Managed library | Open root; import/relink/replace recording; read/update song; attach/remove set. Returns committed records or explicit recoverable errors; owns IDs, storage validation and migration. |
+| Managed library | Open root; import/relink/replace recording; read/update song; attach/remove set. Returns committed records or explicit recoverable errors; owns IDs, storage validation and the scoped legacy reset. |
 | Model packages | List descriptors/status; install/cancel/remove package. Owns checksum/config/runtime verification and caches. |
 | Separation jobs | Start from a committed reference revision; observe/cancel job. Owns preparation, inference process, validation and publication through managed library. |
 | Practice source | Read bounded aligned PCM blocks and seek/prefetch. Original and stem adapters hide resampling, file caches and track gains. |
@@ -282,20 +284,35 @@ Each slice is reviewable and keeps the existing player/CLI working. Build and
 focused checks pass before moving on; checkboxes are acceptance goals, not claims
 of completed implementation.
 
-### 1. UUID domain and safe migration
+GitHub delivery tracking: [integration issue #1](https://github.com/zantoku/OhMyLoop/issues/1).
+Native sub-issues and blocking relationships follow the dependencies below.
 
-- [ ] Introduce typed song/asset/timeline IDs, versioned song/timeline records and
+| Slice | GitHub issue | Blocked by |
+| --- | --- | --- |
+| UUID identity and launch reset | [#2](https://github.com/zantoku/OhMyLoop/issues/2) | None |
+| Managed library and imports | [#3](https://github.com/zantoku/OhMyLoop/issues/3) | #2 |
+| Stem source and DSP proof | [#4](https://github.com/zantoku/OhMyLoop/issues/4) | #2 |
+| Stem attachment and Practice mixer | [#5](https://github.com/zantoku/OhMyLoop/issues/5) | #3, #4 |
+| Model setup and separation screen | [#6](https://github.com/zantoku/OhMyLoop/issues/6) | #3, #5 |
+| Packaging and release verification | [#7](https://github.com/zantoku/OhMyLoop/issues/7) | #2–#6 |
+
+### 1. UUID domain and launch reset
+
+Implemented storage/contracts and verification are documented in [UUID identity](UUID_IDENTITY.md).
+
+- [x] Introduce typed song/asset/timeline IDs, versioned song/timeline records and
   explicit recording-change handling; update native DTOs, UI guards and last-song
   restoration together. Preserve old source-coordinate units.
-- [ ] Migrate legacy identities idempotently, including practice-only/missing-file
-  cases; preserve unreadable documents and retained legacy originals.
-- [ ] Generated fixtures prove metadata/notes/map IDs/sections/loops survive,
-  same-song new-asset replies are rejected, and intentional duplicates stay separate.
+- [x] Reset incompatible legacy metadata before restoration, with schema gating,
+  idempotent interruption recovery and no legacy identity migration.
+- [x] Generated fixtures prove reset removes only its intended metadata, preserves
+  audio/prototype outputs/preferences, and leaves new UUID data intact on later
+  launches. Check same-song new-asset stale replies and intentional duplicates.
 
 ### 2. Managed storage and imports (depends on 1)
 
 - [ ] Root selection/locking, journal recovery, relative asset links, staged
-  verified copies, duplicate choices and lazy legacy audio migration.
+  verified copies and duplicate choices. Existing songs are imported afresh.
 - [ ] Show disk usage and missing/changed recordings; support explicit replacement
   and switching to retained timelines. Provide root relocation/open and backup docs.
 - [ ] Inject disk-full, permission, disconnect, corrupt schema, copy interruption
@@ -362,6 +379,7 @@ proof. Different-rate replacement confirmation awaits coordinate-mapping tests.
 Keep these explicit; avoid claiming that the short generated-audio inference
 smokes or normal-speed terminal mixer settle them.
 
-This document is the local delivery plan. No application code, stored user data
-or GitHub issues are changed by this planning pass. The existing prototype and
-research remain available for model evaluation.
+This document is the local delivery plan; its deliverables are now tracked in
+the linked GitHub issues. The first slice now implements UUID domain records and the scoped authorized
+legacy reset. No real user data was deleted during implementation verification. The existing prototype and research remain available for
+model evaluation.

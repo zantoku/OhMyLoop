@@ -7,7 +7,7 @@ controls, keyboard navigation, and restored practice settings.
 
 ## Boundaries
 
-- `src/project.rs`: versioned song documents, section validation, content
+- `src/project.rs`: versioned song/timeline records, section validation, UUID
   identity, waveform peaks, and durable writes through temporary files.
 - `src/desktop.rs`: controller actor that owns CPAL streams on one thread.
   UI commands are handled away from the device callback. It does not require
@@ -26,11 +26,13 @@ document fields. Mutations and status polling do not resend waveform data.
 Frontend control updates are serialized and coalesced, and older replies do
 not overwrite newer edits. The audio engine owns playback timing.
 
-Saved documents are keyed by the source file's SHA-256 digest, rather than
-its pathname. Atomic replacement preserves the last complete document when
-a write fails. Invalid or future-version documents are not silently replaced.
-The app reopens the last song paused, restoring position and controls. Demo
-sections are seeded only on first use, so removing them remains persistent.
+Saved song envelopes are keyed by stable UUIDs. Asset hashes check recording
+integrity; source annotations belong to retained reference timelines. Reference
+and session tokens reject stale commands/replies even within one song UUID.
+Atomic replacement preserves the last complete envelope on failed writes;
+unsupported/future records are preserved. Last-song UUID restoration is paused.
+The built-in demo is transient. [UUID identity](UUID_IDENTITY.md) documents the
+one-time legacy metadata reset and explicit recording replacement/recovery.
 
 ## Original practice-workflow verification
 

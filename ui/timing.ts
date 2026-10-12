@@ -48,9 +48,9 @@ export function parseFraction(text: string): Fraction {
   return { num, den };
 }
 export type Detection = { frame:number; score:number; downbeat:boolean };
-export type Candidates = { version:number; song_key:string; map_revision:number; rate:number; frames:number; model:string; preprocessing:string; elapsed_seconds:number; beats:Detection[] };
+export type Candidates = { version:number; reference_token:string; map_revision:number; rate:number; frames:number; model:string; preprocessing:string; elapsed_seconds:number; beats:Detection[] };
 export type WorkProgress = {completed:number;total:number|null;unit:'bytes'|'frames'|'segments'};
-export type AnalysisStatus = { id:number; running:boolean; kind:string; phase:string; model_ready:boolean; model_path:string; progress:WorkProgress|null; elapsed_seconds:number; song_key:string|null; map_revision:number; error:string|null; result:Candidates|null };
+export type AnalysisStatus = { id:number; running:boolean; kind:string; phase:string; model_ready:boolean; model_path:string; progress:WorkProgress|null; elapsed_seconds:number; reference_token:string|null; map_revision:number; error:string|null; result:Candidates|null };
 
 export function pulseName(pulse:Fraction):string {
   return ({'1':'quarter','1/2':'eighth','3/2':'dotted quarter','2':'half','1/4':'sixteenth'} as Record<string,string>)[fractionText(pulse)] ?? `${fractionText(pulse)} quarters`;

@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import ThemeControl from './ThemeControl.svelte';
   import NotesScreen from './NotesScreen.svelte';
+  import RecordingChooser from './RecordingChooser.svelte';
+  import {RecordingReplacement} from './recording-replacement';
   import {NotesSession,type NotesState} from './notes-session';
   import LibraryScreen from './LibraryScreen.svelte';
   import MetronomeControls from './MetronomeControls.svelte';
@@ -24,9 +26,10 @@
 
   let song = $state<Song | null>(null);
   let project = $state<PracticeDocument | null>(null);
-  let transport = $state<Transport>({ song_key: null, position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: null });
+  let transport = $state<Transport>({ song_key: null, reference_token: null, position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: null });
   let busy = $state('');
   let error = $state('');
+  let startupNotice=$state('');
   let saved = $state(true);
   const mac = navigator.platform.includes('Mac');
   let keymap = $state(new Keymap(mac));
@@ -38,7 +41,7 @@
   const navigationButton=$derived(screen==='library'?'library_close':'show_library');
   let notesState=$state<NotesState>({text:'',dirty:false,pending:false,error:''});
   const notesSession=new NotesSession(async(key,text)=>{
-    if(song?.key!==key)throw new Error('The song changed before notes could be saved.');
+    if(song?.reference_token!==key)throw new Error('The song changed before notes could be saved.');
     await update({notes:text},true);
   },value=>{notesState=value;});
   const shortcuts = $derived(keymap.shortcuts(screen));
@@ -50,15 +53,15 @@
   const hasMeasureMap = $derived(!!project?.measure_map?.measures.length);
   const countInActive = $derived(countInEnabled && hasMeasureMap);
   $effect(()=>{
-    if(native&&song)countInSession.set({key:song.key,enabled:screen!=='mapping'&&countInActive&&!transport.audio_error,repeat:repeatCountIn,volume:clickLevel/100});
+    if(native&&song)countInSession.set({key:song.reference_token,enabled:screen!=='mapping'&&countInActive&&!transport.audio_error,repeat:repeatCountIn,volume:clickLevel/100});
   });
   let clickEnabled = $state(true), clickLevel = $state(50);
   let clickState = $state<MetronomeState>({pending:false,error:''});
   let reviewMap = $state<{key:string;map:MeasureMap|null}|null>(null);
   const clickSession = new MetronomeSession(value=>{clickState=value;});
-  const audibleMap = $derived(screen==='mapping'&&reviewMap?.key===song?.key ? reviewMap!.map : project?.measure_map??null);
+  const audibleMap = $derived(screen==='mapping'&&reviewMap?.key===song?.reference_token ? reviewMap!.map : project?.measure_map??null);
   $effect(()=>{
-    if(native&&song)clickSession.set({key:song.key,enabled:clickEnabled&&!!audibleMap?.measures.length&&!transport.audio_error,volume:clickLevel/100,map:audibleMap?$state.snapshot(audibleMap):null});
+    if(native&&song)clickSession.set({key:song.reference_token,enabled:clickEnabled&&!!audibleMap?.measures.length&&!transport.audio_error,volume:clickLevel/100,map:audibleMap?$state.snapshot(audibleMap):null});
   });
   let mapView = $state<MapView | null>(null);
   let measureEditor = $state<MeasureEditor>();
@@ -70,6 +73,24 @@
   });
   let sectionDialog: HTMLDialogElement;
   let helpDialog: HTMLDialogElement;
+  let replacementDialog: RecordingChooser;
+  const replacement=new RecordingReplacement();
+  let replacingLibrary=$state(false);
+  async function replaceLibrary(songKey?:string){
+    if(!songKey||busy||!await notesSession.flush())return;
+    busy='Checking reference recording…';error='';
+    try{flushControls();await saves.catch(()=>{});await replacement.library(songKey);replacingLibrary=true;replacementDialog.showModal();}
+    catch(e){error=String(e);}finally{busy='';}
+  }
+  function showReplacement(){
+    if(!song||busy)return;replacement.active(song.reference_token);replacingLibrary=false;replacementDialog.showModal();
+  }
+  async function selectRetained(assetId?:string){
+    if(!song||busy||!assetId||!await notesSession.flush())return;
+    const token=song.reference_token;busy='Switching recording…';replacementDialog.close();
+    try{flushControls();await saves.catch(()=>{});const snapshot=await bridge.selectRecording(token,assetId!);revision++;apply(snapshot);saved=true;undo=[];screen='practice';}
+    catch(e){error=String(e);}finally{busy='';}
+  }
   let nameInput: HTMLInputElement;
   let sectionId = $state<string | null>(null);
   let sectionName = $state('');
@@ -87,10 +108,20 @@
   const pitch = $derived(project?.controls.semitones ?? 0);
 
   function apply(snapshot: Snapshot, documentRevision = revision) {
+    if(documentRevision!==revision)return;
+    if(!snapshot.song && song && snapshot.transport.reference_token!==song.reference_token)return;
+    if(snapshot.startup_notice)startupNotice=snapshot.startup_notice;
     if(snapshot.library_error)error=snapshot.library_error;
-    if (snapshot.song) { if(song?.key!==snapshot.song.key){practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.key,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
+    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
+  }
+  async function recordingChange(timingUnchanged?:boolean) {
+    if(busy||!await notesSession.flush())return;
+    replacementDialog?.close();busy='Opening recording…';error='';
+    try {flushControls();await saves.catch(()=>{});const snapshot=timingUnchanged===undefined?await bridge.importSeparate():await replacement.replace(timingUnchanged);
+      if(snapshot){revision++;apply(snapshot);saved=true;undo=[];screen='practice';}
+    }catch(e){error=String(e);}finally{busy='';}
   }
   function flushControls() {
     if (controlTimer && project) {
@@ -122,13 +153,14 @@
   }
   async function action(action: Action) {
     if (!song || busy) return;
+    const referenceToken=song.reference_token;
     try {
       flushControls(); await saves.catch(()=>{}); const actionRevision = revision;
       if(action.type==='toggle_play'&&!transport.playing)await countInSession.flush();
-      const snapshot=await bridge.action(action);apply(snapshot,actionRevision);
+      const snapshot=await bridge.action(action,referenceToken);apply(snapshot,actionRevision);
       // Explicit navigation reveals the resulting native position even when
       // paused or continuous following is off, preserving each screen's zoom.
-      if(action.type==='seek'&&snapshot.transport.song_key===song?.key){
+      if(action.type==='seek'&&snapshot.transport.reference_token===song?.reference_token){
         if(screen==='mapping')measureEditor?.revealPlayhead(snapshot.transport.position);
         else view=pageForPlayhead(view,song.duration,snapshot.transport.position);
       }
@@ -214,9 +246,9 @@
     } finally { keymapLoading = false; }
   }
   async function commitMap(value: MapPreview, songKey:string) {
-    if(busy||song?.key!==songKey)throw new Error('The song changed. Please reopen the measure map.');
+    if(busy||song?.reference_token!==songKey)throw new Error('The song changed. Please reopen the measure map.');
     flushControls(); await saves.catch(()=>{});
-    if(busy||song?.key!==songKey||!project)throw new Error('The song changed. Please try again.');
+    if(busy||song?.reference_token!==songKey||!project)throw new Error('The song changed. Please try again.');
     busy='Saving measure map…';const document={...$state.snapshot(project),measure_map:value.map};
     const thisRevision=++revision;
     try {
@@ -238,7 +270,9 @@
     screen='library';
   }
   const dispatcher = new ActionDispatcher({
+    import_separate:()=>recordingChange(),replace_recording:showReplacement,replacement_select:({assetId})=>selectRetained(assetId),replacement_same_timing:()=>recordingChange(true),replacement_new_timeline:()=>recordingChange(false),replacement_cancel:()=>{replacementDialog.close();},
     show_notes:()=>{screen='notes';},close_notes:closeNotes,retry_notes:async()=>{await notesSession.flush();},
+    library_replace:({songKey})=>replaceLibrary(songKey),
     show_library:showLibrary,library_close:()=>{screen='practice';},library_open:({songKey})=>open(false,songKey),
     library_edit:payload=>libraryScreen?.command('library_edit',payload),library_save:()=>libraryScreen?.command('library_save'),
     library_cancel:()=>libraryScreen?.command('library_cancel'),library_retry:()=>libraryScreen?.command('library_retry'),
@@ -284,7 +318,7 @@
     if(screen==='notes'&&!['close_notes','retry_notes','show_library','open_song','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
     if(id==='retry_notes')return notesState.dirty&&!notesState.pending;
     if(id.startsWith('library_')&&id!=='library_close')return libraryScreen?.canRun(id)??false;
-    if(screen==='library'&&!['show_library','library_close','open_song','load_demo','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
+    if(screen==='library'&&!['show_library','library_close','open_song','import_separate','replacement_same_timing','replacement_new_timeline','replacement_cancel','load_demo','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
     if(id==='practice_count_in')return hasMeasureMap&&native&&(!transport.audio_error||countInActive);
     if(id==='repeat_count_in')return hasMeasureMap&&native&&countInActive&&!transport.audio_error;
     if(id==='practice_metronome')return native&&(clickEnabled||(!transport.audio_error&&!!audibleMap?.measures.length));
@@ -296,7 +330,7 @@
   function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
   function keyboard(event: KeyboardEvent) {
     if (['Enter',' '].includes(event.key) && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
-    if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open) return;
+    if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open || replacementDialog?.isOpen()) return;
     const id = keymap.match(event,screen);
     if (!id || !actionAvailable(id)) return;
     event.preventDefault(); void runAction(id);
@@ -317,7 +351,7 @@
     const timer = setInterval(async () => {
       if (!song || busy || polling) return;
       polling = true;
-      try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.song_key === song?.key) transport = status; }
+      try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.reference_token === song?.reference_token) transport = status; }
       catch (e) { if (mounted) error = String(e); } finally { polling = false; }
     }, 50);
     return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
@@ -335,6 +369,7 @@
     <button class="button library-button" disabled={!buttonAvailable(navigationButton)} title={keymap.title(navigationButton)} onclick={()=>runButton(navigationButton)}>{keymap.buttonLabel(navigationButton,screen==='library'?'Practice':'Library')}</button>
   </header>
 
+  {#if startupNotice}<div class="notice" role="status">{startupNotice}</div>{/if}
   {#if error}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
   {#if countInState.error}<div class="notice error" role="alert"><span>{countInState.error}</span></div>{/if}
   {#if clickState.error}<div class="notice error" role="alert">{clickState.error}</div>{/if}
@@ -345,6 +380,7 @@
 
   <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
   {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
+  <RecordingChooser bind:this={replacementDialog} recordings={replacingLibrary?[]:song?.retained_recordings??[]} {keymap} run={(id,payload)=>{void runButton(id,payload);}}/>
   <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>
     <aside class="sections-panel">
       <div class="panel-title"><h2>Sections</h2><span>{sections.length || ''}</span></div>
@@ -367,7 +403,7 @@
 
     <section class="workbench" aria-label="Practice workspace">
       {#if song && project}
-        <div class="workspace-heading"><div class="workspace-tools"><button class="button map-screen-button" disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}>{keymap.buttonLabel('show_notes','Notes')}</button><button class="button map-screen-button" disabled={!buttonAvailable('show_measure_map')} title={keymap.title('show_measure_map')} onclick={()=>runButton('show_measure_map')}>{keymap.buttonLabel('show_measure_map','Measure map')}</button></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
+        <div class="workspace-heading"><div class="workspace-tools"><button class="text-button" disabled={!native||!buttonAvailable('replace_recording')} title={keymap.title('replace_recording')} onclick={()=>runButton('replace_recording')}>Replace recording…</button><button class="button map-screen-button" disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}>{keymap.buttonLabel('show_notes','Notes')}</button><button class="button map-screen-button" disabled={!buttonAvailable('show_measure_map')} title={keymap.title('show_measure_map')} onclick={()=>runButton('show_measure_map')}>{keymap.buttonLabel('show_measure_map','Measure map')}</button></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
         <Waveform {mapView} {snapToMeasures} rate={song.rate} peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
         <div class="practice-listening">
           {#if mapView?.measures.length}<label class="snap-control" title={keymap.title('loop_snap')}><input type="checkbox" checked={snapToMeasures} disabled={!buttonAvailable('loop_snap')} onchange={()=>runButton('loop_snap')}/>{keymap.buttonLabel('loop_snap','Snap to measures')}</label>{/if}
@@ -401,9 +437,9 @@
     </section>
   </main>
   {#if song}
-    {#key song.key}
+    {#key song.reference_token}
       {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls(value,pitch)} disabled={!!busy}/>{/snippet}
-      <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.key,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
+      <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.reference_token,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
     {/key}
     <div class="musical-navigation" hidden={screen==='library'||screen==='notes'||!mapView?.measures.length}>
       <span>{transport.musical_position?`Measure ${transport.musical_position.label}, beat ${transport.musical_position.beat.toFixed(2)}`:'Unmapped position'}</span>

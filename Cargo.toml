@@ -23,6 +23,7 @@ serde_json = "1.0"
 symphonia = { version = "0.5.5", features = ["all"] }
 rubato = "0.16"
 sha2 = "0.10"
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [features]
 beat-analysis = ["dep:beat-this", "dep:reqwest"]

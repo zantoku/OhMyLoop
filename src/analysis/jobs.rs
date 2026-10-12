@@ -19,9 +19,10 @@ use std::{
     time::{Duration, Instant},
 };
 fn valid_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= 128
-        && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+    crate::project::Reference::parse(key).is_ok()
+}
+fn cache_key(key: &str) -> Result<String> {
+    Ok(crate::project::Reference::parse(key)?.cache_key())
 }
 #[derive(Clone, Serialize)]
 pub struct JobStatus {
@@ -33,7 +34,7 @@ pub struct JobStatus {
     pub model_path: String,
     pub progress: Option<WorkProgress>,
     pub elapsed_seconds: f64,
-    pub song_key: Option<String>,
+    pub reference_token: Option<String>,
     pub map_revision: u64,
     pub error: Option<String>,
     pub result: Option<Candidates>,
@@ -65,7 +66,7 @@ impl AnalysisManager {
                 model_path,
                 progress: None,
                 elapsed_seconds: 0.0,
-                song_key: None,
+                reference_token: None,
                 map_revision: 0,
                 error: None,
                 result: None,
@@ -96,7 +97,7 @@ impl AnalysisManager {
         state.progress = None;
         state.elapsed_seconds = 0.0;
         *self.0.started.lock().unwrap() = Instant::now();
-        state.song_key = key;
+        state.reference_token = key;
         state.map_revision = revision;
         state.error = None;
         state.result = None;
@@ -164,7 +165,7 @@ impl AnalysisManager {
         ensure!(valid_key(key), "Invalid analysis song identity");
         let path = self.0.cache.join(format!(
             "{}-{}-{}.json",
-            key,
+            cache_key(key)?,
             models::MODEL_ID,
             crate::analysis_pcm::PREPROCESSING
         ));
@@ -173,13 +174,14 @@ impl AnalysisManager {
             Err(e) => return Err(e.into()),
             Ok(_) => {}
         }
-        let result = read_result(&path)?;
+        let mut result = read_result(&path)?;
         ensure!(
-            result.song_key == key
+            cache_key(&result.reference_token)? == cache_key(key)?
                 && result.rate == audio.rate
                 && result.frames == audio.frames.len() as u64,
             "Cached analysis belongs to another source"
         );
+        result.reference_token = key.to_owned();
         Ok(Some(result))
     }
     pub fn worker_pid(&self) -> Option<u32> {
@@ -324,7 +326,7 @@ impl AnalysisManager {
                     manager.phase("Reading detected beats");
                     let result = read_result(&output)?;
                     ensure!(
-                        result.song_key == key
+                        result.reference_token == key
                             && result.rate == audio.rate
                             && result.frames == audio.frames.len() as u64
                             && result.map_revision == revision,
@@ -345,7 +347,7 @@ impl AnalysisManager {
                 if result.is_ok() && !manager.0.cancel.load(Ordering::Acquire) {
                     let stable = manager.0.cache.join(format!(
                         "{}-{}-{}.json",
-                        key,
+                        cache_key(&key).expect("validated reference"),
                         models::MODEL_ID,
                         crate::analysis_pcm::PREPROCESSING
                     ));
@@ -400,40 +402,53 @@ mod tests {
         let cache = root.join("cache");
         let manager = AnalysisManager::new(root.join("missing-models"), cache.clone()).unwrap();
         let audio = Audio::tone(1000, 2.0, 220.0);
-        assert!(manager.cached_result("song", &audio).unwrap().is_none());
+        let record = crate::project::SongRecord::new("/fixture.wav".into(), "a".repeat(64), &audio);
+        let key = record.reference(crate::project::SessionId::new()).token();
+        assert!(manager.cached_result(&key, &audio).unwrap().is_none());
         assert!(manager.cached_result("../song", &audio).is_err());
         let path = cache.join(format!(
-            "song-{}-{}.json",
+            "{}-{}-{}.json",
+            cache_key(&key).unwrap(),
             models::MODEL_ID,
             crate::analysis_pcm::PREPROCESSING
         ));
         let valid = serde_json::json!({"candidates": {
-            "version":1,"song_key":"song","map_revision":8,"rate":audio.rate,"frames":audio.frames.len(),
+            "version":2,"reference_token":key,"map_revision":8,"rate":audio.rate,"frames":audio.frames.len(),
             "model":models::MODEL_ID,"preprocessing":crate::analysis_pcm::PREPROCESSING,"elapsed_seconds":1.0,
             "beats":[{"frame":0,"score":0.9,"downbeat":true},{"frame":1000,"score":0.8,"downbeat":false}]
         },"beat_logits":[],"downbeat_logits":[]});
         fs::write(&path, serde_json::to_vec(&valid).unwrap()).unwrap();
-        let result = manager.cached_result("song", &audio).unwrap().unwrap();
+        let result = manager.cached_result(&key, &audio).unwrap().unwrap();
         assert_eq!(result.map_revision, 8);
         assert_eq!(result.beats.len(), 2);
+        let refreshed = record.reference(crate::project::SessionId::new()).token();
+        let rebound = manager.cached_result(&refreshed, &audio).unwrap().unwrap();
+        assert_eq!(rebound.reference_token, refreshed);
+        let mut replaced = record.clone();
+        replaced
+            .replace("/replacement.wav".into(), "b".repeat(64), &audio, true)
+            .unwrap();
+        let new_input = replaced.reference(crate::project::SessionId::new()).token();
+        assert!(manager.cached_result(&new_input, &audio).unwrap().is_none());
+
         assert!(manager.status().result.is_none());
         assert!(!manager.status().running);
         for (field, value) in [
-            ("song_key", serde_json::json!("other")),
+            ("reference_token", serde_json::json!("other")),
             ("rate", serde_json::json!(2000)),
             ("frames", serde_json::json!(100)),
-            ("version", serde_json::json!(2)),
+            ("version", serde_json::json!(99)),
             ("model", serde_json::json!("other")),
         ] {
             let mut invalid = valid.clone();
             invalid["candidates"][field] = value;
             let bytes = serde_json::to_vec(&invalid).unwrap();
             fs::write(&path, &bytes).unwrap();
-            assert!(manager.cached_result("song", &audio).is_err());
+            assert!(manager.cached_result(&key, &audio).is_err());
             assert_eq!(fs::read(&path).unwrap(), bytes);
         }
         fs::write(&path, b"broken JSON").unwrap();
-        assert!(manager.cached_result("song", &audio).is_err());
+        assert!(manager.cached_result(&key, &audio).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"broken JSON");
         fs::remove_dir_all(root).unwrap();
     }

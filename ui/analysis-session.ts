@@ -12,26 +12,26 @@ export class AnalysisSession {
   private accept(status:AnalysisStatus){
     this.state.status=status;
     const key=this.read().key;
-    if(this.state.candidates?.song_key!==key)this.state.candidates=null;
-    if(status.result?.song_key===key)this.state.candidates=status.result;
+    if(this.state.candidates?.reference_token!==key)this.state.candidates=null;
+    if(status.result?.reference_token===key)this.state.candidates=status.result;
   }
   private emit(){if(!this.disposed)this.publish({...this.state});}
   async refresh(){
-    if(this.polling||this.disposed)return;this.polling=true;const operation=this.operation;
+    if(this.polling||this.disposed)return;this.polling=true;const operation=this.operation,keyBefore=this.read().key;
     try{
       const status=await bridge.analysisStatus();
-      if(this.disposed||operation!==this.operation||status.id<(this.state.status?.id??0))return;
+      if(this.disposed||operation!==this.operation||this.read().key!==keyBefore||status.id<(this.state.status?.id??0))return;
       this.accept(status);this.state.error='';this.emit();
       const key=this.read().key;
       if(!this.state.candidates&&!this.cacheRead.has(key)){
         this.cacheRead.add(key);
         const cached=await bridge.readCachedAnalysis(key);
         if(!this.disposed&&operation===this.operation&&this.read().key===key){
-          if(cached?.song_key===key)this.state.candidates=cached;
+          if(cached?.reference_token===key)this.state.candidates=cached;
           this.emit();
         }else this.cacheRead.delete(key);
       }
-    }catch(e){if(operation===this.operation){this.state.error=String(e);this.emit();}}finally{this.polling=false;}
+    }catch(e){if(operation===this.operation&&this.read().key===keyBefore){this.state.error=String(e);this.emit();}}finally{this.polling=false;}
   }
   async start(install=false){
     if(this.state.requesting||this.state.status?.running)return;

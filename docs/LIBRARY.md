@@ -1,12 +1,9 @@
 # Music library: first implementation pass
 
-Implemented 2026-10-11. A catalogue of local practice songs; audio stays at its
-original location, with existing content-keyed practice and analysis data.
-
-The next integration is planned in [Managed songs and stems](STEMS.md).
-[ADR 0005](adr/0005-stable-song-identity-and-audio-assets.md) replaces hash-based
-song identity with UUIDs; managed imports and migration are planned, not yet
-implemented. This document describes the currently shipped catalogue behavior.
+Implemented 2026-10-11, with UUID identity/replacement/reset added 2026-10-12.
+Audio remains at its external location until managed copying/root selection in
+issue #3. [UUID identity](UUID_IDENTITY.md) documents this slice's exact storage
+and reset boundaries; [Managed songs and stems](STEMS.md) describes later work.
 
 ## Workflow
 
@@ -16,8 +13,8 @@ implemented. This document describes the currently shipped catalogue behavior.
   the library before showing the file picker; cancellation leaves the library
   visible and keeps the current song.
 - Successfully opening a real song adds it automatically. The demo is excluded.
-  Existing songs with older practice documents join when next opened, including
-  automatic restoration of the last song. There is no historical directory scan.
+  New imports receive stable UUIDs; last-song restoration uses that UUID. The demo
+  remains transient. There is no historical directory scan or legacy migration.
 - Read initial artist, title and album using Symphonia's metadata probe. Untagged
   titles use the file stem; missing artist/album stay empty. WAV RIFF text
   terminators are stripped. Import is best-effort; unsupported tags use fallback
@@ -28,11 +25,17 @@ implemented. This document describes the currently shipped catalogue behavior.
   column buttons or the Sort by selector. Click the current column or the direction
   button to reverse. Default: Last opened, descending. Text uses locale-aware,
   case-insensitive numeric ordering; blank metadata stays last in both directions.
-  Ties use title and content identity for deterministic ordering.
+  Ties use title and song UUID for deterministic ordering.
 - Click a title to reopen its practice state, paused. Missing files and changed
   content at the stored location report an error while retaining the current song.
   Use **Open song** to locate a moved unchanged file; its existing entry and
-  annotations are reused and its canonical location is updated.
+  annotations are reused and its canonical location is updated. **Import separate
+  song** intentionally creates independent notes/maps for identical audio.
+- **Replace recording** is available for the loaded song and each library row,
+  including changed/missing files after restart. Choose unchanged timing explicitly
+  (same decoded rate/frame count required) or a new retained timeline. Notes and
+  controls stay with the song UUID; previous recordings/maps remain available.
+  [Reference handling](UUID_IDENTITY.md) describes retained selection and limits.
 - **Edit → Save details** edits title, artist and album in the library. Title is
   required. Fields are trimmed and bounded to 1024 UTF-8 bytes each. Opening the
   file again preserves these overrides. File location and dates are read-only.
@@ -45,20 +48,20 @@ practice flow and resets its single-song mapping session as before.
 
 ## Persistence and identity
 
-`library.json` sits **inside the practice directory**, alongside `<song-hash>.json`
+`library.json` sits **inside the practice directory**, alongside `<song-uuid>.json`
 and `last-song.json`. Normally this is the per-user app data directory's `practice`
 folder; `OHMYLOOP_DATA_DIR` redirects the entire practice directory, including the
 catalogue. Back up this file along with practice annotations, analysis and audio.
-The library index remains separate from the version-4 practice document (which
-adds song notes).
+The library index is separate from the version-1 song envelope, which embeds
+versioned song-level data and reference-timeline records. See [the schema](UUID_IDENTITY.md).
 
-Version-1 shape:
+Version-2 shape:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "songs": [{
-    "song_key": "<64 hexadecimal SHA-256 characters>",
+    "song_key": "<canonical song UUID>",
     "metadata": {"artist": "", "title": "Song title", "album": ""},
     "file_location": "/canonical/path/song.wav",
     "date_added": 1791700000000,
@@ -67,11 +70,12 @@ Version-1 shape:
 }
 ```
 
-One entry per complete-file SHA-256 identity, shared with practice documents and
-analysis. Opening another byte-identical copy updates the existing location;
-it does not create a second entry. Retagging/re-encoding changes file identity and
-is treated as a new song. There is no annotation transfer or relink-to-changed-audio
-workflow in this pass.
+One entry per song UUID. Exact content hashes identify audio revisions and suggest
+reopening existing recordings; **Import separate song** never merges them.
+Known-path integrity changes are reported and require explicit recording replacement.
+The authorized pre-release launch reset removes only recognized old metadata, before
+restoration, and leaves audio/preferences/models/prototype outputs intact. It does
+not migrate annotations; malformed/future UUID data is preserved.
 
 Dates are UTC milliseconds since Unix epoch, displayed in local time. Date added
 is the first successful library registration. Last opened updates on a successful
@@ -80,8 +84,8 @@ A backwards system clock cannot reduce recorded last opened timestamps.
 
 Rust validates version, unique identities, metadata, locations and dates, with
 10,000 songs/16 MiB bounds. Invalid, unreadable and future-version catalogues are
-reported and left intact. A corrupt catalogue does not prevent opening and editing
-practice songs; catalogue registration errors appear in the app. Writes use the
+reported and left intact. A corrupt catalogue is preserved and reported. Valid UUID last-song restoration
+and practice remain available; index lookup/edit operations still report the error. Writes use the
 same temporary-file, sync and rename helper as practice documents. There is no
 saved library history, automatic backup, or migration from future versions.
 
@@ -91,7 +95,7 @@ saved library history, automatic backup, or migration from future versions.
 - `src/library/tags.rs`: initial metadata probe, outside playback DSP/callbacks.
 - `src/storage.rs`: shared durable JSON file replacement.
 - `Desktop`: serializes registration, catalogue reads/edits and reopening on the
-  control thread; it verifies file identity before replacing the active song.
+  control thread; it verifies asset integrity and reference revisions before replacing the active song.
 - Tauri exposes read/open/update library commands using blocking-task orchestration.
 - `ui/library.ts`: DTOs, filtering, ordering and local date formatting.
 - `ui/library-session.ts`: persistence orchestration and disposed-reply handling.
