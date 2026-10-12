@@ -1,7 +1,7 @@
 # OhMyLoop product and implementation plan
 
 Recorded: 2026-10-08.
-Updated: 2026-10-11.
+Updated: 2026-10-12.
 Validated prototype baseline: `1ada9f4` — Build validated Rust audio practice prototype.
 Desktop/keymap baseline: `3f48398` — Add configurable actions and refine timeline navigation.
 
@@ -209,13 +209,26 @@ file formats, and whether count-ins and inter-repetition rests are included.
 - **Record a play-along performance.** Capture the guitarist's input while
   playing the backing audio; preserve alignment and account for input/output
   latency.
-- **Stem separation.** Generate separate, synchronized stems and make them
-  available for practice playback and mixing.
 - **Transcription and tablature.** Provide transcription features and a tab
   editor synchronized with the audio waveform.
 
 These are future goals, with no commitment to a particular implementation,
 model, service, or delivery order yet.
+
+## Planned integration: managed songs and stems
+
+The user has authorized architectural planning for a managed library, stable
+UUID song identity, local stem separation and synchronized practice mixing.
+See [docs/STEMS.md](docs/STEMS.md) for ADRs, migration, storage ownership,
+reference-timeline rules, UI and dependency-ordered delivery slices. Planning
+does not mark the feature implemented or select the final separation model.
+
+Song UUIDs replace content hashes as identity; hashes remain asset integrity and
+inference provenance. The proposed user-selected library copies imported audio
+and holds generated sets. Measure mapping and timing analysis stay on the
+reference recording regardless of the audible mix. Deliver UUID migration and
+managed imports before attaching stems; prove shared practice DSP before mixer
+UI and integrated model setup. Preserve all current annotations and CLI behavior.
 
 ## Architectural direction
 
@@ -273,8 +286,9 @@ The editable measure-mapping workflow in docs/MEASURE_MAPPING.md is implemented
 with automatic draft generation and measure navigation. Next, evaluate it on real
 guitar material and gather cross-platform and user-workflow feedback. Batch
 grouping of matching meters within a song is implemented. Count-ins, rests,
-ladders, section settings, sequences, export UI, recording, stems and transcription
-remain later work.
+ladders, section settings, sequences, export UI, recording and transcription
+remain later work. Stems and managed-library integration now have an authorized
+design plan; implementation is staged separately in docs/STEMS.md.
 
 Keep strengthening timing invariants with generated fixtures and evaluating
 automatic suggestions against independent evidence. Preserve both phrase practice

@@ -1,8 +1,15 @@
 ---
 status: accepted
+identity_superseded_by: ADR-0005
 ---
 
 # Key song documents by file content and preserve unreadable user data
+
+The content-based **song identity** decision is superseded by
+[ADR 0005](0005-stable-song-identity-and-audio-assets.md) on 2026-10-12.
+Version validation, supported migration and preservation of unreadable user
+data remain accepted. The implementation below is the historical/current
+baseline until the UUID migration is delivered.
 
 Retrospectively documented on 2026-10-12. These choices were implemented in
 desktop commit `b5bf140` (2026-10-08); their original decision date is not recorded.

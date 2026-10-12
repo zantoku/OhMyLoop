@@ -3,6 +3,11 @@
 Implemented 2026-10-11. A catalogue of local practice songs; audio stays at its
 original location, with existing content-keyed practice and analysis data.
 
+The next integration is planned in [Managed songs and stems](STEMS.md).
+[ADR 0005](adr/0005-stable-song-identity-and-audio-assets.md) replaces hash-based
+song identity with UUIDs; managed imports and migration are planned, not yet
+implemented. This document describes the currently shipped catalogue behavior.
+
 ## Workflow
 
 - Open **Library** from the app header. Entering it pauses current playback.

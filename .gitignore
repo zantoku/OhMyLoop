@@ -8,3 +8,5 @@ node_modules/
 /dist/
 /.npm-cache/
 /src-tauri/gen/
+
+/scripts/stem_prototype/__pycache__/

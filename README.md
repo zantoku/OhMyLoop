@@ -409,6 +409,19 @@ Create the output directory first if it does not exist. `render` writes stereo
 requires that limit. `--start` seeks in source seconds. `--fade` controls the
 loop seam fade. Normal rendering stops at the end of the source audio.
 
+## Stem separation experiment
+
+An isolated offline prototype compares six-stem models for guitar study and
+backing tracks. Setup and commands are in the
+[prototype README](scripts/stem_prototype/README.md). Its implementation scope is in
+[the prototype plan](docs/STEM_SEPARATION_PROTOTYPE_PLAN.md), with model and
+deployment evidence in [the research](docs/research/STEM_SEPARATION_RESEARCH.md).
+This experiment is separate from the desktop practice workflow.
+
+The planned desktop integration—UUID song identity, managed imports, reference
+timelines and a practice mixer—is in [docs/STEMS.md](docs/STEMS.md), with its ADRs
+and delivery slices. It is not yet implemented.
+
 ## Architecture and limits
 
 ```text

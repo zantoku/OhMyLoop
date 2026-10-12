@@ -30,6 +30,9 @@ beat-analysis = ["dep:beat-this", "dep:reqwest"]
 [build-dependencies]
 cc = "1.2"
 
+[dev-dependencies]
+crossterm = "0.29"
+
 [profile.release]
 debug = 1
 
