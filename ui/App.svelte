@@ -26,7 +26,7 @@
   import PlaybackSettings from './PlaybackSettings.svelte';
   import MeasureEditor from './MeasureEditor.svelte';
   import MapPlayback from './MapPlayback.svelte';
-  import { measureAtFrame, type MapView, type MapPreview, type MeasureMap } from './timing';
+  import { adjacentMeasure, measureAtFrame, type MapView, type MapPreview, type MeasureMap } from './timing';
   import { bridge, native } from './bridge';
   import { Keymap, loadKeymap } from './keymap';
   import { ActionDispatcher, type ActionPayload } from './action-dispatcher';
@@ -336,7 +336,7 @@
   function nextMeasure(direction:number) {
     if(!song||!mapView?.measures.length)return;
     const frame=Math.round(transport.position*song.rate), measures=mapView.measures;
-    const target=direction>0?measures.find(m=>m.start>frame):[...measures].reverse().find(m=>m.start<frame);
+    const target=adjacentMeasure(measures,frame,direction);
     if(target){if(screen==='mapping')measureEditor?.selectMeasure(target.id);return action({type:'seek',seconds:target.start/song.rate});}
   }
   const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
@@ -389,8 +389,9 @@
     set_loop_start: () => setBoundary('start'), set_loop_end: () => setBoundary('end'),
     jump_loop_start: () => action({ type: 'seek', seconds: selection!.start }),
     jump_loop_end: () => action({ type: 'seek', seconds: selection!.end }),
-    jump_song_start: () => action({ type: 'seek', seconds: 0 }), clear_loop: clearLoop,
-    seek_backward: () => seekBy(-5), seek_forward: () => seekBy(5),
+    jump_song_start: () => action({ type: 'seek', seconds: song && mapView?.measures.length ? mapView.measures[0].start / song.rate : 0 }), clear_loop: clearLoop,
+    seek_backward: () => mapView?.measures.length ? nextMeasure(-1) : seekBy(-5),
+    seek_forward: () => mapView?.measures.length ? nextMeasure(1) : seekBy(5),
     seek_backward_fine: () => seekBy(-.1), seek_forward_fine: () => seekBy(.1),
     previous_section: () => nextSection(-1), next_section: () => nextSection(1),
     add_section: () => startSection(), open_song: async () => { await showLibrary(); if(screen==='library')await open(); },

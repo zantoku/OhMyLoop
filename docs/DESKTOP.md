@@ -56,7 +56,10 @@ click navigation, continuous dragging at a fixed zoom, edge clamping, cancellati
 and avoiding seek/loop changes. X clears an active
 range during playback without changing saved sections, and is suspended while
 editing fields or dialogs. Comma seeks to the exact A start; period seeks to B
-and disables looping; Enter rewinds to the song start. Configuration tests cover
+and disables looping. Left/Right jump to the preceding/following mapped measure
+start; Enter jumps to the first mapped measure, including a pickup. With no mapped
+measures, Left/Right seek five seconds and Enter rewinds to the song start.
+Shift+arrows always seek 0.1 seconds. Configuration tests cover
 platform modifiers, conflict validation, file-error fallback, command availability,
 contextual payloads, remapped buttons, synchronized hover/help descriptions,
 and corrected-file reloads. A/B shortcuts do nothing without a range or while
