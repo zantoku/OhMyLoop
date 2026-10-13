@@ -85,3 +85,35 @@ npm run build
 # Optional physical-device smoke (audible generated tone):
 CARGO_HOME="$PWD/.cargo-home" cargo test --locked --offline --lib desktop_stems_hardware_smoke -- --ignored --nocapture
 ```
+
+## Attachment progress and live gain updates
+
+Attachment now shows an overall processing bar and a scrollable checklist of short
+steps. Hollow circular bullets fill as work progresses and become solid green when
+complete. The overall fraction counts completed tasks plus measured current-task
+work, not elapsed time or an ETA. It covers validation, copying, playback preparation
+and publication; it reaches 100% only after the song association is saved. The
+completed checklist stays visible. Diagnostic filenames remain outside the step list.
+
+Live knob changes use a 25 ms latest-value cadence and five-millisecond input ramps.
+Supported running stem/reference sources preserve Rubber Band history, avoiding the
+repeated reset/fade gaps reproduced during continuous dragging. Paused/count-in and
+seek/loop resets retain their explicit transport handling. Please audition continuous
+knob drags to confirm the generated-audio regression matches real-song listening.
+
+Follow-up verification: 160 native tests passed (two physical-device tests ignored
+in the automated suite), and 206 frontend tests passed. Strict workspace Clippy,
+formatting, Svelte check and production build passed. Independent Standards and
+Spec reviews both reported zero remaining findings. The actual-R3 reproduction
+improved from 37 near-silent windows during a sweep to zero; regressions cover
+nine speed/pitch combinations, Original/Stems transitions and count-in/loop timing.
+A paced software benchmark measured worst response of 151 ms at normal speed and
+359 ms across supported controls, before the bounded 25 ms UI cadence; no control
+or steady-playback underflows or clipping were reported. These are automated
+results, not new physical-device, Linux/Windows or subjective listening evidence.
+
+Cache-rebuild progress is throttled too. Attachment progress carries an operation
+identity so delayed events from an earlier attachment of the same song cannot mark
+a new attachment complete. Final successful replies confirm the checklist even
+when the corresponding final event arrives late. Disposed mixer sessions ignore
+later retry/flush calls rather than leaving pending work unable to finish.

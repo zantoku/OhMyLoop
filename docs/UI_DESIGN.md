@@ -236,3 +236,20 @@ The throwaway source is `ui/TrackMixer.prototype.svelte`, hosted in Practice via
 For #5, a Stems button beside Notes and Measure map opens attachment/replacement,
 current-set details and errors. Integrated model installation/separation extends
 that same screen in #6.
+
+## Stem processing transparency
+
+During attachment, show a prominent overall progress bar near the top of Stems,
+above the explanatory copy and set details. Below it, list the actual processing
+steps in a keyboard-scrollable region. Labels are short (at most eight words),
+use instrument names where useful, and do not include filenames or paths. Pending
+steps have hollow circular bullets, measured active progress fills a green pie,
+and completed steps have solid green bullets. Keep the completed checklist after
+attachment; an error leaves incomplete steps incomplete.
+
+Overall progress represents completed task units plus the measured fraction of the
+active task, not a time estimate. Keep the full attachment denominator stable
+through validation, copying, playback preparation and final song-association save;
+show 100% only after successful publication. Unknown work is indeterminate. Reused
+playback preparation can show a single completed reuse step. Throttle visual updates
+while preserving stage transitions and completion events.

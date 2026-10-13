@@ -2,8 +2,8 @@
 
 The terminal player uses the production `Player` worker and `Engine`, feeding
 one Rubber Band R3 processor. Existing desktop and CLI callers retain their
-whole-file `Audio` entry points through `MemorySource`; desktop adoption is a
-later work item. ADR 0009 was accepted after the maintainer's successful listening
+whole-file `Audio` entry points through `MemorySource`. Desktop integration is
+documented in [the desktop guide](STEM_DESKTOP_USAGE.md). ADR 0009 was accepted after the maintainer's successful listening
 trial on 2026-10-13.
 
 `stems::BlockSource` supplies stereo blocks at prepared output-device rate.
@@ -41,8 +41,11 @@ bound, not a guarantee of post-DSP safety. The existing output clamp remains;
 the actual `Consumer` records pre-clamp peaks and clipped-sample counts so both
 software tests and device playback expose clipping.
 
-Mix changes re-prime from the consumed nominal position and invalidate stale
-music. The callback applies existing five-millisecond paired fades. During a
+Supported live source mix changes ramp input weights over five milliseconds
+without rebuilding Rubber Band or invalidating its history. Bounded queued audio
+finishes normally; measured software latency remains within the agreed targets.
+Paused/count-in and unsupported source changes retain the re-prime path from the
+consumed nominal position, with existing callback paired fades. During a
 count-in, queued clicks retain their chronological order and remain valid across
 the music generation change; they are never drained and reinserted against the
 callback. Generic seeks/loop resets clear this exception. Paused changes stay

@@ -1,6 +1,8 @@
 pub mod library;
+mod progress;
 use super::{MixState, Pcm, PcmReader, Role, SourceFactory, StemSource, TemporaryDirectory};
 use anyhow::{Context, Result, ensure};
+pub use progress::{WorkflowProgress, WorkflowStep, WorkflowTracker, throttled_progress};
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
@@ -25,6 +27,9 @@ pub struct PreparationProgress {
     pub phase: String,
     pub completed: u64,
     pub total: Option<u64>,
+    /// Semantic operation identity, independent of diagnostic paths.
+    pub step: Option<String>,
+    pub workflow: Option<WorkflowProgress>,
 }
 
 pub struct PreparedComparison {
@@ -67,12 +72,16 @@ impl PreparedComparison {
             directory,
             next: 0,
             progress: &mut progress,
+            step: None,
         };
+        preparer.stage("validation.reference.hash");
         let reference_hash = preparer.digest(reference)?;
+        preparer.stage("validation.reference.decode");
         let decoded = preparer.decode(reference)?;
         let reference_rate = decoded.rate;
         let reference_frames = decoded.frames;
         let frames = coordinate_frames(reference_frames, output_rate, reference_rate)?;
+        preparer.stage("validation.reference.resample");
         let reference = preparer.resample(decoded, output_rate, frames)?;
         let mut banks = Vec::new();
         for set in sets {
@@ -127,10 +136,12 @@ impl PreparedComparison {
                 "Prepared length disagrees with declared coordinate mapping"
             );
             let prepared_path = safe_file(set, "prepared.wav")?;
+            preparer.stage("validation.prepared.hash");
             ensure!(
                 preparer.digest(&prepared_path)? == preparation.prepared_sha256,
                 "Prepared input hash mismatch"
             );
+            preparer.stage("validation.prepared.decode");
             let prepared_pcm = preparer.decode(&prepared_path)?;
             ensure!(
                 prepared_pcm.rate == preparation.prepared_rate
@@ -153,10 +164,12 @@ impl PreparedComparison {
                     "Declared geometry mismatch for {name}"
                 );
                 let path = safe_file(set, &track.file)?;
+                preparer.stage(format!("validation.{name}.hash"));
                 ensure!(
                     preparer.digest(&path)? == track.sha256,
                     "Stem hash mismatch: {name}"
                 );
+                preparer.stage(format!("validation.{name}.decode"));
                 let pcm = preparer.decode(&path)?;
                 ensure!(
                     pcm.rate == track.rate
@@ -164,11 +177,14 @@ impl PreparedComparison {
                         && pcm.channels == track.channels,
                     "Decoded geometry mismatch: {name}"
                 );
+                preparer.stage(format!("validation.{name}.resample"));
                 bank.push((role, preparer.resample(pcm, output_rate, frames)?));
             }
             banks.push(bank);
         }
+        preparer.stage("validation.headroom");
         let peak = preparer.peak(&reference, &banks)?;
+        preparer.notify("Validation complete", 1, Some(1));
         // 0.70 reserves 0.30 for fixed-pitch metronome/count-in and DSP
         // overshoot. This is a pre-DSP bound, not a guarantee of no overshoot.
         let shared_attenuation = if peak > 0.0 {
@@ -220,6 +236,7 @@ impl PreparedComparison {
             mix: MixState::default(),
             attenuation: self.shared_attenuation,
             scratch: vec![[0.0; 2]; 8192],
+            smoothing: super::GainRamp::default(),
             _temporary: Arc::clone(&self.temporary),
         })
     }
@@ -343,8 +360,13 @@ struct Preparer<'a, F: FnMut(PreparationProgress)> {
     directory: PathBuf,
     next: usize,
     progress: &'a mut F,
+    step: Option<String>,
 }
 impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
+    fn stage(&mut self, id: impl Into<String>) {
+        self.step = Some(id.into());
+        self.notify("Starting processing step", 0, None);
+    }
     fn path(&mut self) -> PathBuf {
         let path = self.directory.join(format!("{}.pcm", self.next));
         self.next += 1;
@@ -355,6 +377,8 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
             phase: phase.into(),
             completed,
             total,
+            step: self.step.clone(),
+            workflow: None,
         })
     }
     fn digest(&mut self, path: &Path) -> Result<String> {
@@ -552,9 +576,13 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
                 peak = peak.max(x.abs() as f64)
             }
             pos += n as u64;
-            self.notify("Scan reference headroom", pos, Some(reference.frames));
+            self.notify(
+                "Scan reference headroom",
+                pos,
+                Some(reference.frames * (sets.len() as u64 + 1)),
+            );
         }
-        for bank in sets {
+        for (bank_index, bank) in sets.iter().enumerate() {
             let mut readers = bank
                 .iter()
                 .map(|(_, pcm)| PcmReader::new(pcm.clone()))
@@ -580,8 +608,8 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
                 pos += n as u64;
                 self.notify(
                     "Scan stem absolute-sum headroom",
-                    pos,
-                    Some(reference.frames),
+                    reference.frames * (bank_index as u64 + 1) + pos,
+                    Some(reference.frames * (sets.len() as u64 + 1)),
                 );
             }
         }

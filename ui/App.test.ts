@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
+import type {StemProgress} from './stems';
 
 const mock = vi.hoisted(() => ({ stemsStatus:vi.fn(),setStemMix:vi.fn(),attachStems:vi.fn(),removeStems:vi.fn(),pickStemsDirectory:vi.fn(),onStemProgress:vi.fn(), libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
@@ -1301,10 +1302,27 @@ it('re-prepares attached stems during audio retry and refreshes availability wit
  let finish!:(value:Snapshot)=>void;mock.action.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));
  await fireEvent.click(screen.getByRole('button',{name:'Retry audio'}));await waitFor(()=>expect(mock.action).toHaveBeenCalledWith({type:'retry_audio'},'test'));
  expect(screen.getByRole('button',{name:'Library'}).hasAttribute('disabled')).toBe(true);expect(screen.getByRole('button',{name:'Retry audio'}).hasAttribute('disabled')).toBe(true);
- const report=mock.onStemProgress.mock.lastCall![0] as (value:{reference_token:string;phase:string;completed:number;total:number})=>void;
- report({reference_token:'test',phase:'Scanning headroom',completed:1,total:2});await screen.findByText(/Preparing stem playback…\s*Scanning headroom/);
+ const report=mock.onStemProgress.mock.lastCall![0] as (value:StemProgress)=>void;
+ report({reference_token:'test',phase:'Scanning headroom',completed:1,total:2,workflow:{completed:.5,total:1,steps:[{id:'levels',label:'Measure shared playback headroom',state:'active',completed:1,total:2}]}});await screen.findByText('Measure shared playback headroom…');
  const restored={...attachedStems(),attenuation:.4,tracks:[{role:'bass' as const,gain:.5,mute:true,solo:false}]};mock.stemsStatus.mockResolvedValue(restored);transport.audio_error=null;finish(response());
  await waitFor(()=>expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe('false'));expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-valuenow')).toBe('50');expect(screen.queryByText(/Vocals file missing/)).toBeNull();
  expect(practice.querySelector('.zoom-controls')?.textContent).toBe(zoomBefore);expect(document.sections).toHaveLength(2);expect(transport.position).toBe(4);
  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));expect(screen.getByText('-7.96 dB')).toBeTruthy();
+});
+
+it('shows attachment work without filenames and retains the completed checklist',async()=>{
+ await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+ mock.pickStemsDirectory.mockResolvedValue('/prototype');let finish!:(value:ReturnType<typeof attachedStems>)=>void;
+ mock.attachStems.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));
+ await fireEvent.click(screen.getByRole('button',{name:'Attach stems…'}));await waitFor(()=>expect(mock.attachStems).toHaveBeenCalledWith('test','/prototype',expect.any(String)));
+ const report=mock.onStemProgress.mock.lastCall![0] as (value:StemProgress)=>void;
+ const steps:NonNullable<StemProgress['workflow']>['steps']=[{id:'check',label:'Check bass audio',state:'active',completed:1,total:2},{id:'save',label:'Save attached stems',state:'pending',completed:0,total:null}];
+ report({reference_token:'test',operation_id:mock.attachStems.mock.lastCall![2],phase:'Hash /private/audio/bass.wav',completed:1,total:2,workflow:{completed:.5,total:2,steps}});
+ await screen.findByRole('progressbar',{name:'Overall stem processing'});
+ report({reference_token:'test',operation_id:'earlier-attachment',phase:'Processing complete',completed:1,total:1,workflow:{completed:2,total:2,steps:steps.map(step=>({...step,state:'complete',completed:1,total:1}))}});
+ await Promise.resolve();expect(screen.getByRole('progressbar',{name:'Overall stem processing'}).getAttribute('value')).toBe('0.25');
+ expect(screen.getByRole('list',{name:'Processing steps'}).textContent).toContain('Check bass audio');expect(screen.queryByText(/private\/audio/)).toBeNull();
+ // The attach reply can beat the final progress event; publication still completes the list.
+ finish(attachedStems());
+ await screen.findByText('Stems ready');expect(screen.getByRole('list',{name:'Processing steps'})).toBeTruthy();expect(screen.getByRole('progressbar',{name:'Overall stem processing'}).getAttribute('value')).toBe('1');
 });

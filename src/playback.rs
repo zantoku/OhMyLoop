@@ -577,7 +577,14 @@ fn run_source_worker(
                     selection = value;
                     mix = settings;
                     preserve_count_in = true;
-                    if count_in.is_some() || shared.count_in.load(Ordering::Acquire) {
+                    if shared.playing.load(Ordering::Acquire)
+                        && count_in.is_none()
+                        && !shared.count_in.load(Ordering::Acquire)
+                        && engine.update_mix(selection, mix)?
+                    {
+                        let _ = reply.send(());
+                        None
+                    } else if count_in.is_some() || shared.count_in.load(Ordering::Acquire) {
                         let position = count_in
                             .as_ref()
                             .map_or(shared.position(), |c| c.source_frame);

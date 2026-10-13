@@ -1,6 +1,6 @@
 //! Stem sessions: heavy attachment/preparation stays outside the audio controller.
 use super::*;
-use crate::stems::library::StoredStemSet;
+use crate::stems::library::{StoredStemSet, WorkflowTracker, throttled_progress};
 use crate::stems::{MixState, PreparationProgress, PreparedComparison, Role};
 
 #[derive(Clone)]
@@ -97,31 +97,37 @@ impl Desktop {
         let result = (|| {
             let reference = operation.library.asset_path(&operation.record.record)?;
             let rate = Player::output_rate().unwrap_or(operation.record.record.asset.rate);
-            let mut record = crate::stems::library::attach(
-                &reference,
-                Path::new(&directory),
-                &owned,
-                rate,
-                &mut progress,
-            )?;
-            record.id = id.clone();
-            if let Some(old) = &operation.record.stems {
-                for role in record.roles() {
-                    if old.roles().contains(&role) {
-                        record.mix.tracks[role.index()] = old.mix.tracks[role.index()].clone();
+            let mut workflow = WorkflowTracker::attachment(Path::new(&directory))?;
+            progress(workflow.begin("validation.reference.hash"));
+            let (record, prepared) = {
+                let mut publish = throttled_progress(&mut progress);
+                let mut report = |event: PreparationProgress| publish(workflow.update(event));
+                let mut record = crate::stems::library::attach(
+                    &reference,
+                    Path::new(&directory),
+                    &owned,
+                    rate,
+                    &mut report,
+                )?;
+                record.id = id.clone();
+                if let Some(old) = &operation.record.stems {
+                    for role in record.roles() {
+                        if old.roles().contains(&role) {
+                            record.mix.tracks[role.index()] = old.mix.tracks[role.index()].clone();
+                        }
                     }
                 }
-            }
-            // Keep old cache alive until publication succeeds. Each immutable set owns a cache.
-            let cache = owned.join("playback-cache");
-            let prepared = crate::stems::library::prepare(
-                &record,
-                &reference,
-                &owned,
-                &cache,
-                rate,
-                &mut progress,
-            )?;
+                // Keep the prior set alive until publication succeeds.
+                let prepared = crate::stems::library::prepare(
+                    &record,
+                    &reference,
+                    &owned,
+                    &owned.join("playback-cache"),
+                    rate,
+                    &mut report,
+                )?;
+                (record, prepared)
+            };
             let mix = record.mix.to_mix();
             let activation = Activation {
                 record,
@@ -129,8 +135,12 @@ impl Desktop {
                 mix,
                 warning: None,
             };
+            progress(workflow.begin("attachment.publish"));
             match self.request(Command::CommitStems(operation.clone(), activation))? {
-                Response::StemStatus(s) => Ok(s),
+                Response::StemStatus(s) => {
+                    progress(workflow.finish());
+                    Ok(s)
+                }
                 _ => unreachable!(),
             }
         })();

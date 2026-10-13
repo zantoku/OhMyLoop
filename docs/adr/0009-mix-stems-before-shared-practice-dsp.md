@@ -16,13 +16,16 @@ pitch and timing rules after music DSP. This preserves
 Independent time stretchers per stem were considered: they allow output-side
 gain changes but multiply DSP cost and introduce separate adaptive transient
 timing. Pre-mixing gives the initial practice feature one musical clock and one
-DSP history, at the cost of changes being subject to DSP lookahead and re-priming.
+DSP history, with live changes subject to bounded DSP lookahead. Transport
+resets and fallback sources still require re-priming.
 
 ## Consequences
 
 - Gain/mute/solo and Original/Stem-set A/B changes are serialized transport
-  commands. Invalidate stale queued audio, re-prime from the consumed source
-  position when needed, and use short paired fades. Preserve position, controls,
+  commands. Supported live block sources ramp input weights while retaining DSP
+  history and bounded queued audio. Seek/reset operations invalidate stale audio;
+  paused/count-in and unsupported source updates retain explicit re-prime/fade
+  handling. Preserve position, controls,
   loop, count-in intent and shared track controls across compatible sets. Measure
   resulting latency/artifacts; queue duration does not equal physical latency.
 - Use one documented common headroom policy for compatible A/B sources with
@@ -84,3 +87,16 @@ without promising detection when both are preserved. Keep only current-rate
 preparation; rebuilding on output-rate change trades occasional waiting for bounded
 cache accumulation. Missing caches rebuild, unavailable stems visibly fall back to
 reference, and runtime read failures stop playback.
+
+## Live gain-drag refinement
+
+Desktop listening exposed scratching during rotary gain drags. A generated actual-R3
+sweep reproduced repeated near-silent windows from resetting DSP history/fades on
+every mix command; steady playback had none and the sweep had no underflows. Preserve
+DSP history for supported live block sources and ramp input weights over 5 ms.
+Reference/stem transitions use the same bounded-weight ramp. Retaining queued output
+trades immediate queue invalidation for measured control latency within the existing
+250/500 ms targets. Desktop live updates use a latest-value 25 ms cadence, with
+immediate first/final flush and separate debounced persistence. Repeated persistence
+of unchanged controls does not restart DSP. Paused/count-in changes retain the
+established reset semantics; seek/loop resets still handle transport history explicitly.

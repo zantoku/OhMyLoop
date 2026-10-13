@@ -139,8 +139,9 @@ pub fn prepare(
     owned: &Path,
     cache: &Path,
     output_rate: u32,
-    mut progress: impl FnMut(PreparationProgress),
+    progress: impl FnMut(PreparationProgress),
 ) -> Result<PreparedComparison> {
+    let mut progress = throttled_progress(progress);
     record.validate()?;
     ensure!(
         (8_000..=192_000).contains(&output_rate),
@@ -223,26 +224,40 @@ pub fn prepare(
             phase: "Reuse prepared playback".into(),
             completed: 1,
             total: Some(1),
+            step: Some("cache.reuse".into()),
+            workflow: WorkflowTracker::reuse().finish().workflow,
         });
         return Ok(prepared);
     }
+    let roles = record
+        .tracks
+        .iter()
+        .map(|track| track.role.clone())
+        .collect::<Vec<_>>();
+    let mut workflow = WorkflowTracker::cache(&roles);
+    progress(workflow.begin("cache.reference.decode"));
     let directory = cache.join(uuid::Uuid::new_v4().to_string());
     fs::create_dir(&directory)?;
     let result = (|| {
+        let mut report = |p| progress(workflow.update(p));
         let mut preparer = Preparer {
             directory: directory.clone(),
             next: 0,
-            progress: &mut progress,
+            progress: &mut report,
+            step: None,
         };
         let reference_path = reference;
+        preparer.stage("cache.reference.decode");
         let decoded = preparer.decode(reference_path)?;
         ensure!(
             decoded.rate == record.reference_rate && decoded.frames == record.reference_frames,
             "Reference geometry changed"
         );
+        preparer.stage("cache.reference.resample");
         let reference = preparer.resample(decoded, output_rate, frames)?;
         let mut bank = Vec::new();
         for (track, path) in record.tracks.iter().zip(&paths) {
+            preparer.stage(format!("cache.{}.decode", track.role));
             let decoded = preparer.decode(path)?;
             ensure!(
                 decoded.rate == track.rate
@@ -251,12 +266,15 @@ pub fn prepare(
                 "Stem geometry changed: {}",
                 track.role
             );
+            preparer.stage(format!("cache.{}.resample", track.role));
             bank.push((
                 Role::parse(&track.role)?,
                 preparer.resample(decoded, output_rate, frames)?,
             ));
         }
+        preparer.stage("cache.headroom");
         let peak = preparer.peak(&reference, &[bank.clone()])?;
+        preparer.stage("cache.save");
         let attenuation = if peak > 0.0 {
             (0.70 / peak).min(1.0) as f32
         } else {
@@ -301,6 +319,9 @@ pub fn prepare(
             temporary: generation_owner(&directory)?,
         })
     })();
+    if result.is_ok() {
+        progress(workflow.finish());
+    }
     match result {
         Err(error) => match fs::remove_dir_all(&directory) {
             Ok(()) => Err(error),

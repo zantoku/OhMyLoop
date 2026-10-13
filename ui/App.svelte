@@ -6,7 +6,7 @@
   import StemsScreen from './StemsScreen.svelte';
   import TrackMixer from './TrackMixer.svelte';
   import {StemsSession,type StemsState} from './stems-session';
-  import {type StemRole,type StemProgress} from './stems';
+  import {completedProcessing,processingLabel,type StemRole,type StemProgress} from './stems';
   import ThemeControl from './ThemeControl.svelte';
   import NotesScreen from './NotesScreen.svelte';
   import RecordingChooser from './RecordingChooser.svelte';
@@ -47,8 +47,8 @@
   let keymapLoading = $state(false);
   let screen = $state<'practice' | 'mapping' | 'library' | 'notes' | 'stems'>('practice');
   let stemsState=$state<StemsState>({snapshot:null,pending:false,error:''});
-  let stemProgress=$state<StemProgress|null>(null),stemsLoading=$state(false);
-  let stemEpoch=0;
+  let stemProgress=$state<StemProgress|null>(null),stemProgressFailed=$state(false),stemsLoading=$state(false);
+  let stemEpoch=0,stemOperationId:string|null=null;
   const stemsSession=new StemsSession(bridge.setStemMix,state=>{stemsState=state;});
   async function reloadStems(reference:string){const epoch=++stemEpoch;stemsLoading=true;stemsSession.reset(null);try{const value=await bridge.stemsStatus(reference);if(mounted&&epoch===stemEpoch&&song?.reference_token===reference)stemsSession.reset(value);}catch(e){if(mounted&&epoch===stemEpoch)error=String(e);}finally{if(epoch===stemEpoch)stemsLoading=false;}}
   function soloRole(role:StemRole){const track=stemsState.snapshot?.tracks.find(track=>track.role===role);if(track)stemsSession.change(role,{solo:!track.solo});}
@@ -57,16 +57,16 @@
     await transportActions;
     if(!song||busy)return;
     const reference=song.reference_token,setId=stemsState.snapshot?.set_id;
-    busy=remove?'Removing stems…':'Choosing stems…';error='';stemProgress=null;
+    busy=remove?'Removing stems…':'Choosing stems…';error='';stemProgress=null;stemProgressFailed=false;stemOperationId=null;
     try{
       if(!await prepareChange())return;
       const path=remove?null:await bridge.pickStemsDirectory();if(!remove&&!path)return;
       if(song?.reference_token!==reference)return;
       if(transport.playing)apply(await bridge.action({type:'pause'},reference));
-      busy=remove?'Removing stems…':'Attaching stems…';stemProgress=null;
-      const value=remove?await bridge.removeStems(reference,setId!):await bridge.attachStems(reference,path!);
-      if(mounted&&song?.reference_token===reference){stemsSession.reset(value);const status=await bridge.status();if(status.reference_token===reference)transport=status;}
-    }catch(e){if(mounted)error=String(e);}finally{if(mounted){busy='';stemProgress=null;}}
+      busy=remove?'Removing stems…':'Attaching stems…';stemProgress=null;stemOperationId=remove?null:crypto.randomUUID();
+      const value=remove?await bridge.removeStems(reference,setId!):await bridge.attachStems(reference,path!,stemOperationId!);
+      if(mounted&&song?.reference_token===reference){if(!remove)stemProgress=completedProcessing(stemProgress);stemsSession.reset(value);const status=await bridge.status();if(status.reference_token===reference)transport=status;}
+    }catch(e){if(mounted){error=String(e);stemProgressFailed=!stemProgress?.workflow||stemProgress.workflow.completed<stemProgress.workflow.total;}}finally{if(mounted){busy='';stemOperationId=null;}}
   }
   let libraryScreen=$state<LibraryScreen>();
   let libraryEpoch=$state(0);
@@ -140,7 +140,7 @@
     if(snapshot.library_status)managed.accept(snapshot.library_status);
     if(snapshot.startup_notice)startupNotice=snapshot.startup_notice;
     if(snapshot.library_error)error=snapshot.library_error;
-    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){void reloadStems(snapshot.song.reference_token);practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
+    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){stemProgress=null;void reloadStems(snapshot.song.reference_token);practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
@@ -437,7 +437,7 @@
     const restore = (mixerPrototype ? Promise.resolve(mixerPrototypeSnapshot(transport)) : bridge.initialize()).then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
     Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
     let unlistenStems:(()=>void)|undefined;
-    void bridge.onStemProgress(progress=>{if(mounted&&!!busy&&(progress.reference_token===song?.reference_token||busy.startsWith('Opening')||busy.startsWith('Restoring')||busy.startsWith('Import'))){stemProgress=progress;}}).then(unlisten=>{if(mounted)unlistenStems=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
+    void bridge.onStemProgress(progress=>{const current=stemOperationId?progress.operation_id===stemOperationId:!progress.operation_id&&busy!=='Choosing stems…'&&busy!=='Removing stems…';if(current&&mounted&&!!busy&&(progress.reference_token===song?.reference_token||busy.startsWith('Opening')||busy.startsWith('Restoring')||busy.startsWith('Import'))){stemProgress=progress;}}).then(unlisten=>{if(mounted)unlistenStems=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
     let unlistenProgress:(()=>void)|undefined;
     void bridge.onImportProgress(progress=>{if(mounted&&busy.startsWith('Import'))busy=progress.total&&progress.copied>=progress.total?'Loading recording…':progress.total?`Importing song… ${Math.round(progress.copied/progress.total*100)}%`:'Importing song…';}).then(unlisten=>{if(mounted)unlistenProgress=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
     void managed.refresh().catch(e=>{if(mounted)error=String(e);});
@@ -474,7 +474,7 @@
 
   {#if startupNotice}<div class="notice" role="status">{startupNotice}</div>{/if}
   {#if error&&!managedState.dialog}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
-  {#if stemsLoading||!!busy&&stemProgress}<div class="notice" role="status">Preparing stem playback…{#if stemProgress} {stemProgress.phase}{/if}</div>{/if}
+  {#if screen!=='stems'&&(stemsLoading||!!busy&&stemProgress)}<div class="notice" role="status">{processingLabel(stemProgress)}…</div>{/if}
   {#if stemsState.error}<div class="notice error" role="alert"><span>{stemsState.error}</span><button class="text-button" disabled={!buttonAvailable('retry_stem_mix')} title={keymap.title('retry_stem_mix')} onclick={()=>runButton('retry_stem_mix')}>Retry save</button></div>{/if}
   {#if stemsState.snapshot?.warning&&screen!=='stems'}<div class="notice" role="status">{stemsState.snapshot.warning}{#if !stemsState.snapshot.available} Using Original playback.{/if}</div>{/if}
   {#if countInState.error}<div class="notice error" role="alert"><span>{countInState.error}</span></div>{/if}
@@ -487,7 +487,7 @@
   <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} status={managedState.status} epoch={libraryEpoch} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
   {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
   <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
-  <StemsScreen active={screen==='stems'} state={stemsState} progress={stemProgress} busy={!!busy||stemsLoading} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}/>
+  <StemsScreen active={screen==='stems'} state={stemsState} progress={stemProgress} busy={!!busy||stemsLoading} operation={busy||'Processing stems'} failed={stemProgressFailed} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}/>
   <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>
     <aside class="sections-panel">
       <div class="panel-title"><h2>Sections</h2><span>{sections.length || ''}</span></div>

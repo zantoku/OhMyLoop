@@ -2,6 +2,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 mod cache;
+pub use super::{WorkflowProgress, WorkflowStep, WorkflowTracker, throttled_progress};
 pub use cache::prepare;
 
 const VERSION: u32 = 1;
@@ -298,6 +299,7 @@ pub fn attach(
             )),
             next: 0,
             progress: &mut progress,
+            step: None,
         };
         fs::create_dir(&validation.directory)?;
         let _temporary = TemporaryDirectory(validation.directory.clone(), false.into());
@@ -314,6 +316,7 @@ pub fn attach(
             let extension = source.extension().and_then(|e| e.to_str()).unwrap_or("wav");
             let file = format!("{role}.{extension}");
             let destination = owned.join(&file);
+            validation.stage(format!("owned.{role}.copy"));
             let total = fs::metadata(&source)?.len();
             let mut input = File::open(&source)?;
             let mut output = File::create(&destination)?;
@@ -329,10 +332,12 @@ pub fn attach(
                 validation.notify(format!("Copy {role}"), copied, Some(total));
             }
             output.sync_all()?;
+            validation.stage(format!("owned.{role}.hash"));
             ensure!(
                 validation.digest(&destination)? == track.sha256,
                 "Owned stem digest mismatch"
             );
+            validation.stage(format!("owned.{role}.decode"));
             let pcm = validation.decode(&destination)?;
             ensure!(
                 pcm.rate == track.rate

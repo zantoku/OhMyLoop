@@ -752,3 +752,102 @@ fn overlapping_preparation_keeps_active_generations_readable_and_retires_when_re
     let mut surviving_reader = reused.open(1, MixState::default()).unwrap();
     assert_eq!(surviving_reader.read_frames(100, &mut samples).unwrap(), 32);
 }
+
+#[test]
+fn attachment_workflow_covers_actual_work_and_waits_for_publication() {
+    use ohmyloop::stems::library::{WorkflowTracker, attach, prepare};
+    let f = fixture(&[Role::Bass, Role::Drums], false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let mut tracker = WorkflowTracker::attachment(&f.sets[0]).unwrap();
+    let mut snapshots = Vec::new();
+    snapshots.push(tracker.begin("validation.reference.hash").workflow.unwrap());
+    let record = attach(&f.reference, &f.sets[0], &owned, 48_000, |p| {
+        snapshots.push(tracker.update(p).workflow.unwrap());
+    })
+    .unwrap();
+    let cache = owned.join("playback-cache");
+    let prepared = prepare(&record, &f.reference, &owned, &cache, 48_000, |p| {
+        snapshots.push(tracker.update(p).workflow.unwrap());
+    })
+    .unwrap();
+    snapshots.push(tracker.begin("attachment.publish").workflow.unwrap());
+    let total = snapshots[0].total;
+    let ids = snapshots[0]
+        .steps
+        .iter()
+        .map(|step| &step.id)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(ids.len(), total);
+    assert!(
+        snapshots[0]
+            .steps
+            .iter()
+            .all(|step| step.label.split_whitespace().count() <= 8)
+    );
+    assert!(
+        snapshots[0]
+            .steps
+            .iter()
+            .all(|step| !step.label.contains(".wav") && !step.label.contains("/"))
+    );
+    for snapshot in &snapshots {
+        assert_eq!(snapshot.total, total);
+        assert!(
+            snapshot.completed < total as f64,
+            "Attachment reached 100% before publication"
+        );
+    }
+    for pair in snapshots.windows(2) {
+        assert!(
+            pair[1].completed >= pair[0].completed,
+            "Overall progress moved backwards: {} -> {}",
+            pair[0].completed,
+            pair[1].completed
+        );
+    }
+    let final_progress = tracker.finish().workflow.unwrap();
+    assert_eq!(final_progress.completed, total as f64);
+    assert!(
+        final_progress
+            .steps
+            .iter()
+            .all(|step| step.state == "complete")
+    );
+    drop(prepared);
+    let mut reuse = Vec::new();
+    let _prepared = prepare(&record, &f.reference, &owned, &cache, 48_000, |p| {
+        reuse.push(p.workflow.unwrap())
+    })
+    .unwrap();
+    assert_eq!(reuse.len(), 1);
+    assert_eq!(reuse[0].steps.len(), 1);
+    assert_eq!(reuse[0].steps[0].label, "Reuse prepared playback");
+    assert_eq!(reuse[0].completed, 1.0);
+}
+
+#[test]
+fn failed_attachment_progress_never_completes_remaining_work() {
+    use ohmyloop::stems::library::{WorkflowTracker, attach};
+    let f = fixture(&[Role::Bass], false);
+    let path = f.sets[0].join("bass.wav");
+    let mut bytes = fs::read(&path).unwrap();
+    bytes[44] ^= 1;
+    fs::write(path, bytes).unwrap();
+    let mut workflow = WorkflowTracker::attachment(&f.sets[0]).unwrap();
+    let mut snapshots = Vec::new();
+    assert!(
+        attach(
+            &f.reference,
+            &f.sets[0],
+            &f.root.join("failed-owned"),
+            f.rate,
+            |p| {
+                snapshots.push(workflow.update(p).workflow.unwrap());
+            }
+        )
+        .is_err()
+    );
+    let final_snapshot = snapshots.last().unwrap();
+    assert!(final_snapshot.completed < final_snapshot.total as f64);
+    assert_eq!(final_snapshot.steps.last().unwrap().state, "pending");
+}

@@ -30,7 +30,7 @@ function demo(): Snapshot {
 export const bridge = {
   stemsStatus:(referenceToken:string)=>native?invoke<StemsSnapshot>('stems_status',{referenceToken}):Promise.resolve({reference_token:referenceToken,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null}),
   pickStemsDirectory:()=>native?invoke<string|null>('pick_stems_directory'):Promise.reject(new Error('Attach stems in the desktop app.')),
-  attachStems:(referenceToken:string,path:string)=>native?invoke<StemsSnapshot>('attach_stems',{referenceToken,path}):Promise.reject(new Error('Attach stems in the desktop app.')),
+  attachStems:(referenceToken:string,path:string,operationId:string)=>native?invoke<StemsSnapshot>('attach_stems',{referenceToken,path,operationId}):Promise.reject(new Error('Attach stems in the desktop app.')),
   removeStems:(referenceToken:string,setId:string)=>native?invoke<StemsSnapshot>('remove_stems',{referenceToken,setId}):Promise.reject(new Error('Remove stems in the desktop app.')),
   setStemMix:(referenceToken:string,setId:string,tracks:StemTrack[],persist:boolean)=>native?invoke<StemsSnapshot>('set_stem_mix',{referenceToken,setId,tracks,persist}):Promise.reject(new Error('Mix stems in the desktop app.')),
   onStemProgress:(handler:(progress:StemProgress)=>void)=>native?listen<StemProgress>('stem-progress',event=>handler(event.payload)):Promise.resolve(()=>{}),

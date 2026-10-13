@@ -318,9 +318,11 @@ async fn pick_stems_directory(app: tauri::AppHandle) -> Result<Option<String>, S
 #[derive(Clone, serde::Serialize)]
 struct StemProgress {
     reference_token: String,
+    operation_id: Option<String>,
     phase: String,
     completed: u64,
     total: Option<u64>,
+    workflow: Option<ohmyloop::stems::library::WorkflowProgress>,
 }
 fn emit_stem_progress(
     app: &tauri::AppHandle,
@@ -331,9 +333,11 @@ fn emit_stem_progress(
         "stem-progress",
         StemProgress {
             reference_token,
+            operation_id: None,
             phase: p.phase,
             completed: p.completed,
             total: p.total,
+            workflow: p.workflow,
         },
     );
 }
@@ -342,8 +346,12 @@ async fn attach_stems(
     app: tauri::AppHandle,
     reference_token: String,
     path: String,
+    operation_id: String,
     state: State<'_, Desktop>,
 ) -> Result<ohmyloop::desktop::stems::Status, String> {
+    if operation_id.is_empty() || operation_id.len() > 128 {
+        return Err("Invalid attachment operation identity".into());
+    }
     let desktop = state.inner().clone();
     work(move || {
         let token = reference_token.clone();
@@ -352,9 +360,11 @@ async fn attach_stems(
                 "stem-progress",
                 StemProgress {
                     reference_token: token.clone(),
+                    operation_id: Some(operation_id.clone()),
                     phase: progress.phase,
                     completed: progress.completed,
                     total: progress.total,
+                    workflow: progress.workflow,
                 },
             );
         })

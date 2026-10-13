@@ -130,6 +130,12 @@ impl Engine {
         Ok(())
     }
 
+    pub fn update_mix(&mut self, selection: usize, mix: crate::stems::MixState) -> Result<bool> {
+        // Already decoded/DSP-queued frames finish normally. Subsequent input is
+        // smoothly mixed at the same timeline position with no DSP re-prime.
+        self.source.update_mix(selection, mix)
+    }
+
     pub fn startup(&self) -> (usize, usize, i32) {
         (self.dsp.pad, self.dsp.delay, self.dsp.engine_version)
     }

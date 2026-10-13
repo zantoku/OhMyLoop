@@ -1,20 +1,21 @@
 <script lang="ts">
  import Icon from './Icon.svelte';
+ import StemProcessingProgress from './StemProcessingProgress.svelte';
  import {roleName,type StemProgress} from './stems';
  import type {StemsState} from './stems-session';
  import type {Keymap} from './keymap';
  import type {ButtonId} from './actions';
- let {active,state:stemState,progress,busy,keymap,available,run}:{active:boolean;state:StemsState;progress:StemProgress|null;busy:boolean;keymap:Keymap;available:(id:ButtonId)=>boolean;run:(id:ButtonId)=>void}=$props();
+ let {active,state:stemState,progress,busy,operation='Processing stems',failed=false,keymap,available,run}:{active:boolean;state:StemsState;progress:StemProgress|null;busy:boolean;operation?:string;failed?:boolean;keymap:Keymap;available:(id:ButtonId)=>boolean;run:(id:ButtonId)=>void}=$props();
  let confirmation=$state<'replace'|'remove'|null>(null);
  $effect(()=>{if(!active)confirmation=null;});
 </script>
 {#if active}
 <main class="stems-screen" aria-label="Stems" aria-busy={busy}>
  <div class="screen-title"><button class="icon-button screen-close" disabled={!available('close_stems')} aria-label="Close stems" title={keymap.title('close_stems')} onclick={()=>run('close_stems')}><Icon name="close"/></button><h2>Stems</h2></div>
+ {#if busy||progress}<StemProcessingProgress {progress} {busy} {operation} {failed}/>{/if}
  <p>Attach completed separation outputs to isolate instruments during practice. The reference recording remains the source for waveforms and measure mapping.</p>
  {#if stemState.error}<div class="notice error" role="alert">{stemState.error}</div>{/if}
  {#if stemState.snapshot?.warning}<div class="notice" role="status">{stemState.snapshot.warning}{#if !stemState.snapshot.available} Original playback is available; track controls are disabled.{/if}</div>{/if}
- {#if busy}<div role="status">{progress?.phase??'Preparing stems…'}{#if progress?.total} · {Math.round(progress.completed/progress.total*100)}%{/if}</div>{/if}
  {#if stemState.snapshot?.set_id}
  <dl><dt>Model</dt><dd>{stemState.snapshot.model??'Imported stem set'}</dd><dt>Tracks</dt><dd>{stemState.snapshot.tracks.map(track=>roleName(track.role)).join(', ')}</dd><dt>Shared headroom</dt><dd>{stemState.snapshot.attenuation===null?'Unavailable':`${(20*Math.log10(stemState.snapshot.attenuation)).toFixed(2)} dB`}</dd><dt>Playback</dt><dd>{stemState.snapshot.available?'Ready':'Original fallback'}</dd></dl>
  <div class="actions"><button class="button" disabled={!available('attach_stems')} title={keymap.title('attach_stems')} onclick={()=>confirmation='replace'}>Replace stems…</button><button class="button" disabled={!available('remove_stems')} title={keymap.title('remove_stems')} onclick={()=>confirmation='remove'}>Remove stems…</button></div>

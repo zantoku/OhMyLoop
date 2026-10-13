@@ -16,6 +16,10 @@ pub trait BlockSource: Send {
     fn rate(&self) -> u32;
     fn len_frames(&self) -> u64;
     fn read_frames(&mut self, position: u64, output: &mut [[f32; 2]]) -> Result<usize>;
+    /// Update aligned input mixing without discarding DSP history when supported.
+    fn update_mix(&mut self, _selection: usize, _mix: MixState) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 pub trait SourceFactory: Send + Sync {
@@ -165,6 +169,44 @@ impl PcmReader {
     }
 }
 
+// One reference plus the two six-role banks supported by the listening harness.
+const MIX_COMPONENTS: usize = 13;
+pub(crate) struct GainRamp {
+    current: [f32; MIX_COMPONENTS],
+    target: [f32; MIX_COMPONENTS],
+    remaining: usize,
+}
+impl Default for GainRamp {
+    fn default() -> Self {
+        let mut weights = [0.; MIX_COMPONENTS];
+        weights[0] = 1.;
+        Self {
+            current: weights,
+            target: weights,
+            remaining: 0,
+        }
+    }
+}
+impl GainRamp {
+    fn gain(&self, component: usize, offset: usize) -> f32 {
+        if self.remaining == 0 {
+            return self.target[component];
+        }
+        let fraction = (offset + 1).min(self.remaining) as f32 / self.remaining as f32;
+        self.current[component] + (self.target[component] - self.current[component]) * fraction
+    }
+    fn advance(&mut self, frames: usize) {
+        if self.remaining == 0 {
+            return;
+        }
+        let fraction = frames.min(self.remaining) as f32 / self.remaining as f32;
+        for (value, target) in self.current.iter_mut().zip(self.target) {
+            *value += (target - *value) * fraction;
+        }
+        self.remaining = self.remaining.saturating_sub(frames);
+    }
+}
+
 pub struct StemSource {
     reference: PcmReader,
     sets: Vec<Vec<(Role, PcmReader)>>,
@@ -172,18 +214,40 @@ pub struct StemSource {
     mix: MixState,
     attenuation: f32,
     scratch: Vec<[f32; 2]>,
+    smoothing: GainRamp,
     _temporary: Arc<TemporaryDirectory>,
 }
 impl StemSource {
     pub fn select_source(&mut self, index: usize) -> Result<()> {
         ensure!(index <= self.sets.len(), "Source index out of range");
         self.selection = index;
+        self.instant_mix();
         Ok(())
     }
     pub fn set_mix(&mut self, mix: MixState) -> Result<()> {
         mix.validate()?;
         self.mix = mix;
+        self.instant_mix();
         Ok(())
+    }
+    fn weights(&self) -> [f32; MIX_COMPONENTS] {
+        let mut weights = [0.; MIX_COMPONENTS];
+        if self.selection == 0 {
+            weights[0] = 1.;
+        } else {
+            for (role, _) in &self.sets[self.selection - 1] {
+                weights[1 + (self.selection - 1) * 6 + role.index()] = self.mix.gain(*role);
+            }
+        }
+        weights
+    }
+    fn instant_mix(&mut self) {
+        let weights = self.weights();
+        self.smoothing = GainRamp {
+            current: weights,
+            target: weights,
+            remaining: 0,
+        };
     }
     pub fn source_count(&self) -> usize {
         self.sets.len() + 1
@@ -204,12 +268,21 @@ impl BlockSource for StemSource {
     fn len_frames(&self) -> u64 {
         self.reference.pcm.frames
     }
+    fn update_mix(&mut self, selection: usize, mix: MixState) -> Result<bool> {
+        ensure!(selection <= self.sets.len(), "Source index out of range");
+        mix.validate()?;
+        self.selection = selection;
+        self.mix = mix;
+        self.smoothing.target = self.weights();
+        self.smoothing.remaining = (self.rate() as usize / 200).max(1);
+        Ok(true)
+    }
     fn read_frames(&mut self, position: u64, output: &mut [[f32; 2]]) -> Result<usize> {
         let count = self
             .len_frames()
             .saturating_sub(position)
             .min(output.len() as u64) as usize;
-        if self.selection == 0 {
+        if self.selection == 0 && self.smoothing.remaining == 0 {
             self.reference.read(position, &mut output[..count])?;
             for frame in &mut output[..count] {
                 for x in frame {
@@ -221,19 +294,41 @@ impl BlockSource for StemSource {
         for (block_index, block) in output[..count].chunks_mut(8192).enumerate() {
             block.fill([0.0; 2]);
             let pos = position + block_index as u64 * 8192;
-            for (role, reader) in &mut self.sets[self.selection - 1] {
-                // Read even muted tracks: corrupt active-bank files are fatal,
-                // rather than silently disappearing when controls change.
+            if self.smoothing.current[0] != 0. || self.smoothing.target[0] != 0. {
                 ensure!(
-                    reader.read(pos, &mut self.scratch[..block.len()])? == block.len(),
-                    "Unexpected stem EOF"
+                    self.reference.read(pos, &mut self.scratch[..block.len()])? == block.len(),
+                    "Unexpected reference EOF"
                 );
-                let gain = self.mix.gain(*role) * self.attenuation;
-                for (out, input) in block.iter_mut().zip(&self.scratch) {
+                for (offset, (out, input)) in block.iter_mut().zip(&self.scratch).enumerate() {
+                    let gain = self.smoothing.gain(0, offset) * self.attenuation;
                     out[0] += input[0] * gain;
                     out[1] += input[1] * gain;
                 }
             }
+            for (bank_index, bank) in self.sets.iter_mut().enumerate() {
+                let base = 1 + bank_index * 6;
+                let audible = bank.iter().any(|(role, _)| {
+                    self.smoothing.current[base + role.index()] != 0.
+                        || self.smoothing.target[base + role.index()] != 0.
+                });
+                if self.selection != bank_index + 1 && !audible {
+                    continue;
+                }
+                for (role, reader) in bank {
+                    // Check every selected-bank file, including muted tracks.
+                    ensure!(
+                        reader.read(pos, &mut self.scratch[..block.len()])? == block.len(),
+                        "Unexpected stem EOF"
+                    );
+                    for (offset, (out, input)) in block.iter_mut().zip(&self.scratch).enumerate() {
+                        let gain =
+                            self.smoothing.gain(base + role.index(), offset) * self.attenuation;
+                        out[0] += input[0] * gain;
+                        out[1] += input[1] * gain;
+                    }
+                }
+            }
+            self.smoothing.advance(block.len());
         }
         Ok(count)
     }
