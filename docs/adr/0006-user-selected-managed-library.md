@@ -1,42 +1,43 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Store imported recordings and stems in a user-selected managed library
 
-Proposed: 2026-10-12, following the user's preferred direction. Copy imports into
-a selected library root and keep song documents, audio assets and completed stem
-sets there. This replaces the current external-file catalogue for new imports.
-It costs disk space, but gives the app ownership of generated files and makes a
-song's recordings and practice data relocatable together.
+Decision updated: 2026-10-13 after the product-owner scope discussion for #3.
+Copy imports into a user-selected library so recordings and practice data can
+move together, independently of external originals. Persist library-relative
+paths and stable library/song/asset/timeline UUIDs; app preferences and replaceable
+model/runtime caches remain in app data.
 
-Store library-relative paths and a library UUID. Keep app preferences, device
-settings and replaceable model/runtime caches in app data. A relocated library
-is selected again by its manifest; relocation must not change song or asset IDs.
-The initial implementation supports one active library and one writing app
-instance, with locking and recoverable staged operations. Do not imply that
-ordinary JSON replacement makes multi-file imports transactional.
+The first import prompts for library setup; the demo does not require it. Creation
+makes an OhMyLoop Library subfolder. Library settings provide creation/opening;
+manual moves happen with the app closed. Missing roots report an error rather
+than silently creating a replacement. Any accessible folder may be selected.
 
-## Consequences
+## Deliberate scope limits
 
-- Validate and copy to staging, verify the copied bytes, then publish immutable
-  assets and commit their references. A recovery journal distinguishes incomplete
-  operations from completed data; rebuildable catalogue views are not the sole
-  authority for song ownership.
-- The import source path is provenance, never the playback dependency after a
-  successful copy. The app does not move, edit or delete the external original.
-- For this pre-release transition, reset incompatible app metadata on launch and
-  start with an empty catalogue, as authorized by the sole user. Import existing
-  audio afresh; do not copy it automatically, delete it or retain a legacy-link
-  compatibility layer. The reset scope is recorded in ADR 0005 and the plan.
-- Root changes select/open a library; moving an existing library is a separate
-  verified copy-and-switch operation. Keep the old root until success and explicit
-  removal. An unavailable root is an error, not permission to create an empty
-  replacement library or silently use another folder.
-- Removal and disk usage are explicit workflows. Delete only app-owned paths
-  inside this library after checking references and active jobs. Keep user data
-  recoverable through a library trash area before final deletion.
+The user chose a small direct-copy implementation over the earlier staged,
+journaled proposal. Selecting a file commits to the import, subject to the agreed
+exact-duplicate choice. Copy to the final asset location with progress and no
+cancellation or separate verification phase. Decode for ordinary playback;
+failed imports report errors and attempt immediate output cleanup. Atomic JSON
+saves remain in scope. No journal or restart recovery is implemented, so unexpected
+termination can leave incomplete/unreferenced files or partial deletion.
 
-External references for all new imports were considered: cheaper in space, but
-they retain missing/moved-file problems and split ownership between source files
-and generated stems. Cloud sync and concurrent writers are separate future work.
+Assume one instance accesses a library at a time; do not implement locking or
+second-instance detection. Network/sync paths are not actively detected or blocked.
+No in-app relocation, storage-size displays or disk-space preflight in #3.
+
+Delete songs permanently after confirmation from the Library edit panel. There
+is no Trash/Restore. One song has one recording/map; replacement removes the old
+recording after successfully saving its new reference, with no retained history.
+External originals are never edited, moved or deleted. Check managed recording
+content digests on song open and require explicit replacement for changed audio;
+no background watcher. Guard owned paths and preserve malformed/future user data.
+
+This revises the earlier proposal for locking, staged verification, recovery,
+trash and verified in-app relocation. See the
+[agreed implementation plan](../MANAGED_LIBRARY_IMPLEMENTATION_PLAN.md) for UI,
+error handling and acceptance criteria. The earlier reset waiver remains limited
+to recognized pre-UUID metadata; #3 does not delete existing UUID app-data records.

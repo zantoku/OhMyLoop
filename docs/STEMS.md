@@ -2,13 +2,21 @@
 
 Date: 2026-10-12. Status: UUID identity/reset/replacement slice implemented;
 managed storage and stem integration remain planned. UUID song identity
-is agreed; other ADRs are proposals for the first integration. The user has
+and managed-library ownership are agreed; separation and DSP ADRs remain proposals. The user has
 authorized planning beyond the previous deferred-stems scope. Final separation
 model selection remains open while the user compares full-song outputs.
 
 Planning update: the sole user has no valuable existing app data and explicitly
 authorized wiping incompatible metadata on launch. Legacy identity migration,
 annotation transfer and external-link compatibility are removed from scope.
+
+Scope update 2026-10-13: #3 uses direct-copy imports and confirmed permanent
+song deletion. Journaling, restart recovery, staging/verification phases,
+locking, trash/restore, storage-size displays, import cancellation and an in-app
+library move are excluded. The [managed-library plan](MANAGED_LIBRARY_IMPLEMENTATION_PLAN.md)
+and accepted ADR 0006 supersede the earlier storage proposal. Later separation
+job publication/recovery proposals are not requirements of #3 and need their own
+scope review before implementation.
 
 ## Outcome and first release
 
@@ -39,12 +47,12 @@ Decisions and language:
 
 ## Current code and changes required
 
-`src/project.rs` hashes the whole file, keys version-4 practice documents by that
-hash and stores notes, sections and measure maps together. `src/library.rs`
-stores version-1 entries with one external canonical path. `src/desktop.rs`
-loads/hash-checks/decodes before replacing the active song, uses the key to guard
-commands and restores the last song by path. These interfaces must change
-together; changing catalogue IDs alone is insufficient.
+`src/project.rs` now stores version-2 UUID song envelopes with one asset and an
+embedded reference timeline; hashes describe audio contents. `src/library.rs`
+stores version-2 entries with external canonical paths. `src/desktop.rs`
+verifies and decodes recordings before activation, restores by song UUID and
+guards replies with asset/timeline/revision/session references. Managed storage
+must preserve these contracts while replacing external playback dependencies.
 
 `src/analysis/worker.rs` version-1 candidates include `song_key`, geometry, model
 and preprocessing. Analysis input currently comes from the desktop's loaded
@@ -88,17 +96,14 @@ Suggested initial layout (versioned JSON, consistent with existing persistence):
 
 ```text
 <selected-library>/
-  library.json                 # library UUID/schema; catalogue projection
+  library.json                 # authoritative library UUID/schema
+  catalogue.json               # rebuildable list projection
   songs/<song-uuid>/
-    song.json                  # authoritative song record, revision
-    timeline.json              # only the current reference timeline
+    song.json                  # authoritative record with embedded current timeline
     assets/<asset-uuid>/<safe-import-name>
     stems/<set-uuid>/manifest.json
     stems/<set-uuid>/<role>.wav
     analysis/<input-and-model-cache-key>/...
-  .staging/<operation-uuid>/...
-  .operations/<operation-uuid>.json
-  .trash/<removal-uuid>/...
 ```
 
 Stem asset references point into their set directory; do not duplicate their
@@ -113,32 +118,33 @@ keymap preferences, runtime/model caches and a schema/reset completion marker.
 Library roots contain everything needed for song-data backup; model caches are
 reinstallable. A copied library keeps IDs. Independent copies are not supported
 as concurrently synchronized branches. Selecting another root first flushes
-notes and practice data, cancels or finishes root-owned operations, releases the
-old writer lock and opens/validates the new manifest.
+notes and practice data, waits for root-owned imports to finish, pauses/unloads
+the current song and validates the new manifest. A failed switch keeps the old
+library selected. No writer lock is implemented; assume one accessing instance.
 
-The storage module owns journaled publication. Stage files on the target
-filesystem, validate, record intent, publish immutable files, atomically replace
-the authoritative song record and update the rebuildable catalogue. Startup
-recovers interrupted intents idempotently. Readers expose only committed sets;
-unreferenced published files are recoverable orphans, never guessed as new songs.
-Fault-injection tests must cover every publication step. Filesystem durability,
-network/removable-volume behavior and locks need platform checks; do not claim
-multi-file atomicity from individual JSON renames.
+For #3, copy imports directly into final asset locations and atomically replace
+individual JSON documents. Report ordinary errors and attempt immediate failed
+import cleanup. There is no journal, multi-file atomicity or restart recovery.
+Future stem validation/publication protocols are separate proposed work.
 
 ## Import, duplicate and replacement behavior
 
-First launch after this feature asks the user to select/create a library. Import
-copies and hashes in one bounded worker operation, checks the source did not
-change, decodes/verifies the copied file and publishes only on success. Failure
-keeps the external source and current song intact. Disk-full, read-only and
-disconnected-root errors retain an explicit recoverable operation status.
+The first import asks the user to select/create a library; the demo works without
+setup. Import song copies directly to the intended asset location with progress,
+without post-selection cancellation or a separate verification phase. Decode for
+playback; copy/decode failures are reported, excluded from the catalogue and
+cleaned up immediately where possible. No restart cleanup is promised.
 
-An exact existing digest offers **Open existing** or **Import as separate song**.
-New imports get new UUIDs; hashes provide suggestions, never automatic merges.
-Metadata edits only affect song data. Renaming or moving a managed asset through
-the app updates its stored link without re-identifying the song. Unsupported
-external edits to a managed asset produce **Recording changed** with recovery/
-replacement choices; they must not silently overwrite provenance.
+An exact existing digest offers **Open existing song** or **Import separate song**.
+Independent imports get distinct UUIDs and physical recording copies; hashes
+suggest matches, never automatic merges. Metadata edits only affect song data.
+Hash-check managed audio on song open; changed content requires explicit
+replacement before playback. No background watcher.
+
+Song deletion is permanent after confirmation and appears only in the Library
+edit panel. It stops/unloads an active song and leaves the Library screen open.
+External originals remain untouched; no Trash/Restore. Move/backup the entire
+library with the app closed and reopen it at its new location.
 
 **Replace reference recording** is explicit and imports a new asset. A gain-only
 edit keeps the song UUID and can reuse its timeline after compatible geometry
@@ -312,15 +318,20 @@ Implemented storage/contracts and verification are documented in [UUID identity]
 
 ### 2. Managed storage and imports (depends on 1)
 
-- [ ] Root selection/locking, journal recovery, relative asset links, staged
-  verified copies and duplicate choices. Existing songs are imported afresh.
-- [ ] Show disk usage and missing/changed recordings; support explicit replacement
-  with compatible-map preservation or explicit reset for changed timing. Provide
-  root relocation/open and backup docs.
-- [ ] Inject disk-full, permission, disconnect, corrupt schema, copy interruption
-  and every commit-step failure; verify retry and original-data preservation.
-- [ ] Guard owned paths/symlinks and reference-aware removal/trash; never delete
-  external originals. Verify library reopen after relocation.
+The next implementation package is detailed in
+[Managed library implementation plan](MANAGED_LIBRARY_IMPLEMENTATION_PLAN.md).
+It keeps the timeline embedded in the authoritative song record; the layout
+above is illustrative, not a requirement for a separate timeline file.
+
+- [ ] First-import setup, Library settings, validated relative links and atomic
+  document saves. Existing external recordings are imported afresh.
+- [ ] Direct-copy imports with progress, duplicate choices and immediate failure
+  cleanup; no import cancellation or separate verification phase.
+- [ ] Missing/changed recording status and explicit replacement with compatible-map
+  preservation or annotation reset for changed timing.
+- [ ] Safe confirmed permanent deletion from the edit panel only; manual move/open
+  and backup documentation. Never delete external originals.
+- [ ] Focused error/path/schema/native/frontend tests; report actual platform evidence.
 
 ### 3. Source seam and DSP mixer proof (can start alongside 2 after ID contracts)
 

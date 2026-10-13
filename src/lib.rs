@@ -7,6 +7,7 @@ pub mod dsp;
 pub mod engine;
 pub mod keymap;
 pub mod library;
+pub mod managed;
 pub mod playback;
 pub mod project;
 pub mod session;

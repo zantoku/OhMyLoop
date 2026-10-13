@@ -1,114 +1,103 @@
-# Music library: first implementation pass
+# Managed music library
 
-Implemented 2026-10-11, with UUID identity/replacement/reset added 2026-10-12.
-Audio remains at its external location until managed copying/root selection in
-issue #3. [UUID identity](UUID_IDENTITY.md) documents this slice's exact storage
-and reset boundaries; [Managed songs and stems](STEMS.md) describes later work.
+Implemented issue #3 on 2026-10-13. The demo works without setup. **Import song**
+asks for a library on the first import, then remembers it. Create library chooses
+a parent and creates an **OhMyLoop Library** subfolder; it never overwrites an
+existing folder. **Open existing library** selects an existing library root.
+Both actions are also in Library settings.
 
-## Workflow
+## Import and practice
 
-- Open **Library** from the app header. Entering it pauses current playback.
-  The same header button becomes **Practice** to return. **Open song** lives in the
-  library panel heading, including when the catalogue is empty. Cmd/Ctrl+O opens
-  the library before showing the file picker; cancellation leaves the library
-  visible and keeps the current song.
-- Successfully opening a real song adds it automatically. The demo is excluded.
-  New imports receive stable UUIDs; last-song restoration uses that UUID. The demo
-  remains transient. There is no historical directory scan or legacy migration.
-- Read initial artist, title and album using Symphonia's metadata probe. Untagged
-  titles use the file stem; missing artist/album stay empty. WAV RIFF text
-  terminators are stripped. Import is best-effort; unsupported tags use fallback
-  metadata. No embedded tags are written.
-- Search title, artist, album and file location. All query words must match across
-  these fields, without case sensitivity. Dates are sorting criteria, not search.
-- Sort by Title, Artist, Album, File location, Date added or Last opened, using
-  column buttons or the Sort by selector. Click the current column or the direction
-  button to reverse. Default: Last opened, descending. Text uses locale-aware,
-  case-insensitive numeric ordering; blank metadata stays last in both directions.
-  Ties use title and song UUID for deterministic ordering.
-- Click a title to reopen its practice state, paused. Missing files and changed
-  content at the stored location report an error while retaining the current song.
-  Use **Open song** to locate a moved unchanged file; its existing entry and
-  annotations are reused and its canonical location is updated. **Import separate
-  song** intentionally creates independent notes/maps for identical audio.
-- **Replace recording…** is in the song edit panel below **File location**.
-  Open it with the library row’s **Edit** button, including for changed/missing
-  files after restart. Choose unchanged timing explicitly
-  (same decoded rate/frame count required) or changed timing, which clears the
-  map, sections, loop and position. Notes and controls stay with the song UUID.
-  Each song has one recording/map, with no history.
-  [Reference handling](UUID_IDENTITY.md) describes compatibility and limits.
-- **Edit → Save details** edits title, artist and album in the library. Title is
-  required. Fields are trimmed and bounded to 1024 UTF-8 bytes each. Opening the
-  file again preserves these overrides. File location and dates are read-only.
-  Failed saves retain typed edits and the previous catalogue. Cancel discards
-  form edits; successful title changes also update the active song header.
+Imports copy recordings directly to their final managed location and leave
+external originals untouched. The UI explains this once. File-picker dismissal
+cancels before selection; after selection there is copy progress and ordinary
+loading, with no cancellation or separate verification step. Copying accumulates
+the stored SHA-256 digest from the bytes actually written. Decoding must succeed
+before publication. Observed failures report an error and attempt immediate
+cleanup; cleanup failures are included in the error.
 
-Search, sort direction and the editor are UI-session state. Switching back to
-practice retains the loaded song; opening a different song uses the existing
-practice flow and resets its single-song mapping session as before.
+Exact-copy detection offers **Open existing song** or **Import separate song**.
+Each separate import owns a physical copy and independent UUID, notes and map.
+Successful imports and library opens enter Practice paused. Search and sorting
+retain title, artist, album, file location, date added and last opened. Initial
+metadata comes from tags with filename fallback; **Edit → Save details** persists
+user overrides in the song document. File paths and dates are read-only.
 
-## Persistence and identity
+A song has one reference recording/map. **Replace recording…** appears only below
+File location in the Library edit panel. The leading X closes its dialog.
+Explicit unchanged-timing replacement requires identical decoded rate/frame count
+and preserves positional annotations. Changed timing clears sections, map, loop
+and saved position; UUID, notes, metadata and controls survive. After the new
+reference saves, the previous managed recording is removed. Cleanup failures are
+reported. There is no retained recording history.
 
-`library.json` sits **inside the practice directory**, alongside `<song-uuid>.json`
-and `last-song.json`. Normally this is the per-user app data directory's `practice`
-folder; `OHMYLOOP_DATA_DIR` redirects the entire practice directory, including the
-catalogue. Back up this file along with practice annotations, analysis and audio.
-The library index is separate from the version-2 song envelope, which embeds
-versioned song-level data and reference-timeline records. See [the schema](UUID_IDENTITY.md).
+Opening a song hashes its managed recording outside the audio callback. Missing
+recordings and unexpected content changes are reported; changed audio requires
+explicit replacement before playback. There is no background watcher.
 
-Version-2 shape:
+**Delete song** appears only in the Library edit panel. Its confirmation explains
+permanent deletion of the song's recording, notes, map and any future stem assets.
+External originals remain untouched. Active deletion stops and unloads the song
+and stays on Library. There is no Trash or Restore.
 
-```json
-{
-  "version": 2,
-  "songs": [{
-    "song_key": "<canonical song UUID>",
-    "metadata": {"artist": "", "title": "Song title", "album": ""},
-    "file_location": "/canonical/path/song.wav",
-    "date_added": 1791700000000,
-    "last_opened": 1791700000000
-  }]
-}
+## Library selection and portability
+
+Switching libraries saves pending practice, notes and metadata edits, then stops
+playback and unloads the song. The new library opens without selecting a song.
+A failed switch leaves the previous selection; a failed pending save blocks it.
+Normal restart restores the last song using both the selected library UUID and
+song UUID. A missing selected root offers Retry, Locate library and Open another
+library, while the demo remains available. Locate requires the same library UUID.
+No empty library is silently substituted.
+
+To move or back up a library, close the app and copy/move the **whole folder**.
+Then open it using Open existing library (or Locate library for the selected
+missing library). Relative asset links preserve IDs and annotations. There is no
+in-app move command. Any accessible folder can be selected; network/sync storage
+is not classified or blocked. Concurrent access and sync conflicts are not handled:
+assume one app instance accesses a library at a time.
+
+## Persistence and failure boundaries
+
+```text
+<library>/library.json                   # manifest v1, library UUID
+<library>/catalogue.json                 # rebuildable catalogue projection
+<library>/songs/<song-uuid>/song.json     # authoritative managed envelope v1
+<library>/songs/<song-uuid>/assets/<asset-uuid>/<safe-name>
 ```
 
-One entry per song UUID. Exact content hashes identify audio revisions and suggest
-reopening existing recordings; **Import separate song** never merges them.
-Known-path integrity changes are reported and require explicit recording replacement.
-The authorized pre-release launch reset removes only recognized old metadata, before
-restoration, and leaves audio/preferences/models/prototype outputs intact. It does
-not migrate annotations; malformed/future UUID data is preserved.
+The managed envelope owns metadata, dates and a version-2 song record with its
+current asset/timeline, notes and controls. App data retains `managed-library.json`
+(version 1: selected root/UUID, last song and import explanation preference),
+preferences and model caches. Existing external-link UUID records are neither
+migrated nor deleted; import recordings afresh. The old pre-UUID reset remains
+narrowly scoped as documented in [UUID identity](UUID_IDENTITY.md).
 
-Dates are UTC milliseconds since Unix epoch, displayed in local time. Date added
-is the first successful library registration. Last opened updates on a successful
-open, including last-song restoration; metadata edits alone do not change it.
-A backwards system clock cannot reduce recorded last opened timestamps.
+The list is reconstructed from authoritative song documents. Catalogue writes
+are projections; failures after a song saves are reported accurately. JSON saves
+use individual atomic replacements. Invalid/future documents and preferences are
+preserved, and relative owned paths reject traversal and symlinks.
 
-Rust validates version, unique identities, metadata, locations and dates, with
-10,000 songs/16 MiB bounds. Invalid, unreadable and future-version catalogues are
-reported and left intact. A corrupt catalogue is preserved and reported. Valid UUID last-song restoration
-and practice remain available; index lookup/edit operations still report the error. Writes use the
-same temporary-file, sync and rename helper as practice documents. There is no
-saved library history, automatic backup, or migration from future versions.
+There is **no journal, restart recovery, locking, staging, trash or storage-size UI**.
+Unexpected termination can leave partial imports, unreferenced files or partial
+deletion. There is no automatic startup cleanup. Atomic JSON files do not imply
+multi-file transactions or guaranteed durability on every filesystem.
 
 ## Architecture and verification
 
-- `src/library.rs`: versioned DTOs, validation and catalogue store.
-- `src/library/tags.rs`: initial metadata probe, outside playback DSP/callbacks.
-- `src/storage.rs`: shared durable JSON file replacement.
-- `Desktop`: serializes registration, catalogue reads/edits and reopening on the
-  control thread; it verifies asset integrity and reference revisions before replacing the active song.
-- Tauri exposes read/open/update library commands using blocking-task orchestration.
-- `ui/library.ts`: DTOs, filtering, ordering and local date formatting.
-- `ui/library-session.ts`: persistence orchestration and disposed-reply handling.
-- `ui/LibraryScreen.svelte`: presentation and metadata form. Central actions,
-  payloads, button bindings and descriptions remain in the keymap/action model.
+- `src/managed.rs` and `src/managed/`: schemas, preferences, path policy and direct transfers.
+- `src/desktop/managed.rs`: worker preparation and controller commit orchestration.
+- `src/library.rs`: shared metadata/catalogue DTOs and tag probing.
+- `ui/managed-library-session.ts`: setup, settings, import and duplicate dialog state.
+- `ui/LibraryScreen.svelte`: catalogue, metadata edit and sole deletion entry point.
+- Tauri blocking tasks run copy/hash/decode outside the desktop control thread.
 
-Generated-data native tests cover tag import/file immutability, durable edits and
-dates, moved/missing/replaced files, retained practice annotations and malformed
-catalogues. Frontend tests cover all sort fields and directions, search, scoped
-bindings, load/save errors, reopening and asynchronous lifecycle handling.
-Native UI/platform evidence is recorded in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md).
+Generated native fixtures cover copies, independent duplicates, failure cleanup,
+relative moves, metadata, replacements, hash changes, schema/path/symlink rejection,
+stale commits, restart and deletion. Frontend checks cover setup/settings,
+duplicate choices, progress, pending-save failures, deletion confirmation and
+disposed replies. Automated checks run on macOS; this change has no new hardware,
+subjective listening, Windows or Linux evidence.
 
-Deferred: batch/folder imports, removal, artwork, playlists, alternate locations
-for identical copies, library export/sync and portable project packages.
+Deferred: bulk/folder imports, artwork, playlists, live sync, recovery and managed
+stems/inference (later issues). See [the agreed plan](MANAGED_LIBRARY_IMPLEMENTATION_PLAN.md).

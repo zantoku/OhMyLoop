@@ -10,6 +10,7 @@ ohmyloop = { path = "..", features = ["beat-analysis"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 anyhow = "1.0"
+serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

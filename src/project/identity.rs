@@ -41,6 +41,7 @@ macro_rules! id {
     };
 }
 id!(SongId);
+id!(LibraryId);
 id!(AudioAssetId);
 id!(TimelineId);
 id!(SessionId);

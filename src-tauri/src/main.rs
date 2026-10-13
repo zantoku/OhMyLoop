@@ -4,7 +4,7 @@ use ohmyloop::{
     desktop::{Action, Desktop, Snapshot, Transport},
     project::Document,
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 struct KeymapPath(std::path::PathBuf);
@@ -60,34 +60,13 @@ async fn read_keymap(state: State<'_, KeymapPath>) -> Result<ohmyloop::keymap::K
 #[tauri::command]
 async fn initialize(state: State<'_, Desktop>) -> Result<Snapshot, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.restore()).await
+    work(move || desktop.restore_managed()).await
 }
 
 #[tauri::command]
 async fn load_demo(state: State<'_, Desktop>) -> Result<Snapshot, String> {
     let desktop = state.inner().clone();
     work(move || desktop.load(None)).await
-}
-
-#[tauri::command]
-async fn open_song(
-    app: tauri::AppHandle,
-    state: State<'_, Desktop>,
-) -> Result<Option<Snapshot>, String> {
-    let desktop = state.inner().clone();
-    work(move || {
-        let file = app
-            .dialog()
-            .file()
-            .add_filter(
-                "Songs",
-                &["wav", "mp3", "flac", "ogg", "m4a", "aac", "aiff", "aif"],
-            )
-            .blocking_pick_file();
-        file.map(|file| desktop.load(Some(file.into_path()?.to_string_lossy().into_owned())))
-            .transpose()
-    })
-    .await
 }
 
 fn pick_recording(app: &tauri::AppHandle) -> anyhow::Result<Option<String>> {
@@ -103,17 +82,92 @@ fn pick_recording(app: &tauri::AppHandle) -> anyhow::Result<Option<String>> {
 }
 
 #[tauri::command]
-async fn import_separate_song(
+async fn library_status(
+    state: State<'_, Desktop>,
+) -> Result<ohmyloop::desktop::LibraryStatus, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.managed_status()).await
+}
+#[tauri::command]
+async fn acknowledge_import_notice(state: State<'_, Desktop>) -> Result<(), String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.acknowledge_import_notice()).await
+}
+#[tauri::command]
+async fn choose_library(
     app: tauri::AppHandle,
+    create: bool,
+    locate: bool,
     state: State<'_, Desktop>,
 ) -> Result<Option<Snapshot>, String> {
     let desktop = state.inner().clone();
     work(move || {
-        pick_recording(&app)?
-            .map(|path| desktop.load_separate(path))
+        app.dialog()
+            .file()
+            .blocking_pick_folder()
+            .map(|folder| {
+                desktop.select_library(
+                    folder.into_path()?.to_string_lossy().into_owned(),
+                    create,
+                    locate,
+                )
+            })
             .transpose()
     })
     .await
+}
+#[tauri::command]
+async fn retry_library(state: State<'_, Desktop>) -> Result<Snapshot, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.retry_library()).await
+}
+#[derive(serde::Serialize)]
+struct ImportSelection {
+    path: String,
+    candidates: Vec<ohmyloop::library::Entry>,
+}
+#[tauri::command]
+async fn pick_import_song(
+    app: tauri::AppHandle,
+    state: State<'_, Desktop>,
+) -> Result<Option<ImportSelection>, String> {
+    let desktop = state.inner().clone();
+    work(move || {
+        pick_recording(&app)?
+            .map(|path| {
+                let candidates = desktop.import_candidates(path.clone())?;
+                Ok(ImportSelection { path, candidates })
+            })
+            .transpose()
+    })
+    .await
+}
+#[derive(Clone, serde::Serialize)]
+struct ImportProgress {
+    copied: u64,
+    total: u64,
+}
+#[tauri::command]
+async fn import_song(
+    app: tauri::AppHandle,
+    path: String,
+    state: State<'_, Desktop>,
+) -> Result<Snapshot, String> {
+    let desktop = state.inner().clone();
+    work(move || {
+        desktop.import_managed(path, |copied, total| {
+            let _ = app.emit("import-progress", ImportProgress { copied, total });
+        })
+    })
+    .await
+}
+#[tauri::command]
+async fn delete_library_song(
+    song_key: String,
+    state: State<'_, Desktop>,
+) -> Result<Snapshot, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.delete_library_song(song_key)).await
 }
 
 #[tauri::command]
@@ -159,7 +213,14 @@ async fn replace_library_reference(
 #[tauri::command]
 async fn read_library(state: State<'_, Desktop>) -> Result<ohmyloop::library::Catalogue, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.library()).await
+    work(move || {
+        if desktop.managed_status()?.selected.is_none() {
+            Ok(ohmyloop::library::Catalogue::default())
+        } else {
+            desktop.library()
+        }
+    })
+    .await
 }
 #[tauri::command]
 async fn open_library_song(
@@ -320,8 +381,13 @@ fn main() {
             measure_map_view,
             initialize,
             load_demo,
-            open_song,
-            import_separate_song,
+            library_status,
+            acknowledge_import_notice,
+            choose_library,
+            retry_library,
+            pick_import_song,
+            import_song,
+            delete_library_song,
             replace_recording,
             library_reference,
             replace_library_reference,

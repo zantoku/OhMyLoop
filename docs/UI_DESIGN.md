@@ -175,7 +175,7 @@ remains mounted, so WebKit accessibility follows panel changes reliably.
 ## Music library
 
 The top-right Library button opens a full-width catalogue screen and pauses playback;
-it becomes Practice while browsing. Open song is in the library panel heading.
+it becomes Practice while browsing. Import song is in the library panel heading. Library settings owns Create library and Open existing library. Delete song appears only in the song edit panel and requires permanent-deletion confirmation.
 Measure map is above the practice waveform, replacing the former workspace title.
 The waveform interaction hints sit below the minimap in place of Whole song.
 Mapping and notes use an X beside their white-panel titles to return to practice, retaining Library at the

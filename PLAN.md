@@ -113,6 +113,18 @@ Leave directory scans, batch imports, artwork, playlists, removal and portable
 project export outside this pass. Detailed behavior and persistence are in
 [docs/LIBRARY.md](docs/LIBRARY.md).
 
+## Next implementation: managed library (#3)
+
+Scope agreed 2026-10-13. See
+[the implementation plan](docs/MANAGED_LIBRARY_IMPLEMENTATION_PLAN.md) for the
+complete product decisions and acceptance criteria. Copy imports directly into a
+user-selected library, preserve relative links and UUIDs, check hashes on song
+open, and provide confirmed permanent deletion only in the Library edit panel.
+Setup occurs on first import; library creation/opening lives in Library settings.
+No journal/recovery, locks, staging/verification phase, trash/restore, storage-size
+UI, import cancellation or in-app relocation. Move the folder with the app closed
+and reopen it. Stems remain later work.
+
 ## Current implementation: song notes
 
 A Notes button left of Measure map opens a plain-text song editor. Autosave,

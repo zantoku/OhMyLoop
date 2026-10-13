@@ -18,7 +18,7 @@ pub struct Metadata {
     pub album: String,
 }
 impl Metadata {
-    fn normalized(mut self) -> Result<Self> {
+    pub(crate) fn normalized(mut self) -> Result<Self> {
         self.artist = self.artist.trim().to_owned();
         self.title = self.title.trim().to_owned();
         self.album = self.album.trim().to_owned();
@@ -58,7 +58,7 @@ impl Default for Catalogue {
     }
 }
 impl Catalogue {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
             self.version == 2,
             "Unsupported library version; the original file was left intact"

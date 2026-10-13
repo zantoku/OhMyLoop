@@ -356,3 +356,17 @@ work. Whole-measure loop selection/snapping and per-gap numbering resets are not
 implemented. Count-ins, inter-loop rests, speed
 ladders, section automation, sequences, export UI, recording, stems and synchronized
 tabs remain later milestones in [PLAN.md](../PLAN.md).
+
+## Managed library (2026-10-13)
+
+Issue #3 adds selected library roots, direct-copy imports/progress, independent
+duplicates, relative assets, authoritative metadata, hash checks, settings, unavailable
+root actions and permanent confirmed edit-panel deletion. No journaling, locks,
+recovery, staging, trash or storage-size UI. Automated macOS checks: 124 native tests passed (one existing hardware test
+ignored), 187 frontend tests passed, strict workspace/all-target Clippy including
+Tauri passed, formatting/Svelte checks/production build passed. Independent
+Standards and Spec review found no remaining code findings after corrections to
+failed-save activation, post-deletion warning coherence and stale catalogue
+replies; outdated README storage guidance was corrected. Parent independently
+reran all 12 managed native tests and 13 library-session frontend tests. No new
+hardware, screenshot, subjective listening or Linux/Windows results are claimed. See [Library](LIBRARY.md).

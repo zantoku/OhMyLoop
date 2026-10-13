@@ -1,7 +1,7 @@
 # UUID song identity (issue #2)
 
 Implemented identity slice of [the stem integration plan](STEMS.md). Managed
-library root selection and copying remain issue #3. Imported audio is still an
+library root selection and copying are implemented in issue #3; see [Library](LIBRARY.md). Imported audio is still an
 external file link in this slice; neither reset nor replacement deletes it.
 
 A song gets a canonical nonzero UUID. Audio assets and reference timelines have
@@ -55,8 +55,7 @@ Replacing a reference removes old metadata links, never the external audio file.
 The song envelope keeps publication to one atomic file in this slice. Catalogue
 and last-song projections are separate files; projection failures are visible
 warnings and preserve their previous bytes while the committed song/reference
-activates coherently. An import can leave a valid unlisted song envelope; storage
-journal/reconciliation work remains issue #3.
+activates coherently. An import can leave a valid unlisted song envelope; journaling and reconciliation remain deliberately out of scope for issue #3.
 No multi-file crash atomicity or platform durability guarantee is asserted here.
 
 ## Verification

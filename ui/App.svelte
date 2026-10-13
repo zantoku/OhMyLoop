@@ -6,6 +6,8 @@
   import {RecordingReplacement} from './recording-replacement';
   import {NotesSession,type NotesState} from './notes-session';
   import LibraryScreen from './LibraryScreen.svelte';
+  import ManagedLibraryDialog from './ManagedLibraryDialog.svelte';
+  import {ManagedLibrarySession,type ManagedState} from './managed-library-session';
   import MetronomeControls from './MetronomeControls.svelte';
   import { CountInSession, type CountInState } from './count-in-session';
   import { MetronomeSession, type MetronomeState } from './metronome-session';
@@ -38,6 +40,9 @@
   let keymapLoading = $state(false);
   let screen = $state<'practice' | 'mapping' | 'library' | 'notes'>('practice');
   let libraryScreen=$state<LibraryScreen>();
+  let libraryEpoch=$state(0);
+  let managedState=$state<ManagedState>({status:{selected:null,available:false,error:null,import_notice_seen:false},dialog:null,selection:null,pendingImport:false,deleteKey:null,deleteTitle:''});
+  const managed=new ManagedLibrarySession(value=>{managedState=value;});
   const navigationButton=$derived(screen==='library'?'library_close':'show_library');
   let notesState=$state<NotesState>({text:'',dirty:false,pending:false,error:''});
   const notesSession=new NotesSession(async(key,text)=>{
@@ -103,16 +108,17 @@
   function apply(snapshot: Snapshot, documentRevision = revision) {
     if(documentRevision!==revision)return;
     if(!snapshot.song && song && snapshot.transport.reference_token!==song.reference_token)return;
+    if(snapshot.library_status)managed.accept(snapshot.library_status);
     if(snapshot.startup_notice)startupNotice=snapshot.startup_notice;
     if(snapshot.library_error)error=snapshot.library_error;
     if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
-  async function recordingChange(timingUnchanged?:boolean) {
+  async function recordingChange(timingUnchanged:boolean) {
     if(busy||!await notesSession.flush())return;
     replacementDialog?.close();busy='Opening recording…';error='';
-    try {flushControls();await saves.catch(()=>{});const snapshot=timingUnchanged===undefined?await bridge.importSeparate():await replacement.replace(timingUnchanged);
+    try {if(!await prepareChange())return;const snapshot=await replacement.replace(timingUnchanged);
       if(snapshot){revision++;apply(snapshot);saved=true;undo=[];screen='practice';}
     }catch(e){error=String(e);}finally{busy='';}
   }
@@ -122,15 +128,34 @@
       void update({ controls: project.controls });
     }
   }
+  function loaded(snapshot:Snapshot|null){if(!mounted||!snapshot)return;revision++;apply(snapshot);saved=true;undo=[];screen='practice';}
+  function unloaded(snapshot:Snapshot){
+    revision++;song=null;project=null;mapView=null;notesSession.reset('', '');reviewMap=null;undo=[];apply(snapshot);saved=true;screen='library';libraryEpoch++;
+  }
+  async function prepareChange(){
+    if(!await notesSession.flush())throw new Error('Song notes could not be saved. Close this dialog to review and retry.');
+    if(libraryScreen&&!await libraryScreen.flush())throw new Error('Song details could not be saved. Close this dialog to review and retry.');
+    flushControls();await saves;
+    if(!saved){await update({},true);if(!saved)return false;}return true;
+  }
+  async function managedWork(label:string,job:()=>Promise<void>){
+    if(busy)return;busy=label;error='';try{await job();}catch(e){if(mounted)error=String(e);}finally{if(mounted)busy='';}
+  }
+  async function chooseLibrary(create:boolean,locate=false){
+    await managedWork('Opening library…',async()=>{
+      if(!await prepareChange())return;
+      const continueImport=managed.needsImport;
+      const snapshot=await managed.choose(create,locate);if(!mounted||!snapshot)return;
+      unloaded(snapshot);
+      if(continueImport)loaded(await managed.continueImport());
+    });
+  }
+  async function importSong(){await managedWork('Importing song…',async()=>{if(await prepareChange())loaded(await managed.beginImport());});}
   async function open(demo = false, libraryKey?:string) {
-    if (busy||!await notesSession.flush()) return;
-    busy = demo ? 'Loading demo…' : 'Opening song…'; error = '';
-    try {
-      flushControls(); await saves.catch(()=>{});
-      const snapshot = libraryKey?await bridge.openLibrarySong(libraryKey):demo ? await bridge.loadDemo() : await bridge.openSong();
-      if (snapshot) { revision++; apply(snapshot); saved = true; undo = []; screen = 'practice'; }
-    } catch (e) { error = String(e); }
-    finally { busy = ''; }
+    if(!demo&&!libraryKey){await importSong();return;}
+    await managedWork(demo?'Loading demo…':'Opening song…',async()=>{
+      if(await prepareChange())loaded(libraryKey?await bridge.openLibrarySong(libraryKey!):await bridge.loadDemo());
+    });
   }
   function update(change: Partial<PracticeDocument>,throwOnError=false): Promise<void> {
     if (!project) return Promise.resolve();
@@ -263,7 +288,15 @@
     screen='library';
   }
   const dispatcher = new ActionDispatcher({
-    import_separate:()=>recordingChange(),replace_recording:showReplacement,replacement_same_timing:()=>recordingChange(true),replacement_new_timeline:()=>recordingChange(false),replacement_cancel:()=>{replacementDialog.close();},
+    import_separate:()=>importSong(),replace_recording:showReplacement,replacement_same_timing:()=>recordingChange(true),replacement_new_timeline:()=>recordingChange(false),replacement_cancel:()=>{replacementDialog.close();},
+    managed_settings:()=>{error='';managed.settings();},managed_close:()=>{managed.close();},
+    managed_create:()=>chooseLibrary(true),managed_open:()=>chooseLibrary(false),managed_locate:()=>chooseLibrary(false,true),
+    managed_retry:()=>managedWork('Retrying library…',async()=>{if(!await prepareChange())return;const snapshot=await bridge.retryLibrary();if(mounted)unloaded(snapshot);}),
+    managed_continue:()=>managedWork('Importing song…',async()=>{loaded(await managed.continueImport());}),
+    managed_duplicate_import:()=>managedWork('Importing song…',async()=>{loaded(await managed.importSelected());}),
+    managed_duplicate_open:({songKey})=>managedWork('Opening song…',async()=>{if(songKey)loaded(await managed.openDuplicate(songKey));}),
+    managed_delete:({songKey})=>{if(songKey)managed.delete(songKey,libraryScreen?.titleFor(songKey)??'this song');},
+    managed_confirm_delete:()=>managedWork('Deleting song…',async()=>{if(!await prepareChange())return;const snapshot=await managed.confirmDelete();if(snapshot&&mounted){if(!snapshot.transport.song_key)unloaded(snapshot);else{apply(snapshot);libraryEpoch++;screen='library';}}}),
     show_notes:()=>{screen='notes';},close_notes:closeNotes,retry_notes:async()=>{await notesSession.flush();},
     library_replace:({songKey})=>replaceLibrary(songKey),
     show_library:showLibrary,library_close:()=>{screen='practice';},library_open:({songKey})=>open(false,songKey),
@@ -310,6 +343,17 @@
     if(!dispatcher.available(id))return false;
     if(screen==='notes'&&!['close_notes','retry_notes','show_library','open_song','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
     if(id==='retry_notes')return notesState.dirty&&!notesState.pending;
+    if(id.startsWith('managed_')){
+      if(id==='managed_close')return !!managedState.dialog;
+      if(id==='managed_confirm_delete')return managedState.dialog==='delete';
+      if(id==='managed_continue')return managedState.dialog==='notice';
+      if(id==='managed_duplicate_import'||id==='managed_duplicate_open')return managedState.dialog==='duplicates';
+      if(id==='managed_delete')return screen==='library'&&(libraryScreen?.canRun(id)??false);
+      if(id==='managed_settings')return screen==='library';
+      if(id==='managed_create')return managedState.dialog==='setup'||managedState.dialog==='settings';
+      if(id==='managed_open')return managedState.dialog==='setup'||managedState.dialog==='settings'||(screen==='library'&&!managedState.status.available);
+      return screen==='library'&&!!managedState.status.selected&&!managedState.status.available;
+    }
     if(id.startsWith('library_')&&id!=='library_close')return libraryScreen?.canRun(id)??false;
     if(screen==='library'&&!['show_library','library_close','open_song','import_separate','replacement_same_timing','replacement_new_timeline','replacement_cancel','load_demo','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
     if(id==='practice_count_in')return hasMeasureMap&&native&&(!transport.audio_error||countInActive);
@@ -323,7 +367,7 @@
   function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
   function keyboard(event: KeyboardEvent) {
     if (['Enter',' '].includes(event.key) && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
-    if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open || replacementDialog?.isOpen()) return;
+    if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open || replacementDialog?.isOpen() || managedState.dialog) return;
     const id = keymap.match(event,screen);
     if (!id || !actionAvailable(id)) return;
     event.preventDefault(); void runAction(id);
@@ -332,6 +376,9 @@
     mounted = true; busy = 'Restoring practice…';
     const restore = bridge.initialize().then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
     Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
+    let unlistenProgress:(()=>void)|undefined;
+    void bridge.onImportProgress(progress=>{if(mounted&&busy.startsWith('Import'))busy=progress.total&&progress.copied>=progress.total?'Loading recording…':progress.total?`Importing song… ${Math.round(progress.copied/progress.total*100)}%`:'Importing song…';}).then(unlisten=>{if(mounted)unlistenProgress=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
+    void managed.refresh().catch(e=>{if(mounted)error=String(e);});
     let unlistenExit:(()=>void)|undefined,exiting=false;
     void bridge.onExitRequested(async()=>{
       if(exiting)return;exiting=true;
@@ -347,10 +394,11 @@
       try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.reference_token === song?.reference_token) transport = status; }
       catch (e) { if (mounted) error = String(e); } finally { polling = false; }
     }, 50);
-    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
+    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();unlistenProgress?.();managed.dispose();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
   });
 </script>
 
+<ManagedLibraryDialog {error} busy={!!busy} kind={managedState.dialog} {keymap} candidates={managedState.selection?.candidates??[]} songTitle={managedState.deleteTitle} run={(id,songKey)=>{void runButton(id,{songKey});}}/>
 <svelte:window onkeydown={keyboard}/>
 <div class="app-shell">
   <header class="app-header">
@@ -363,7 +411,7 @@
   </header>
 
   {#if startupNotice}<div class="notice" role="status">{startupNotice}</div>{/if}
-  {#if error}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
+  {#if error&&!managedState.dialog}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
   {#if countInState.error}<div class="notice error" role="alert"><span>{countInState.error}</span></div>{/if}
   {#if clickState.error}<div class="notice error" role="alert">{clickState.error}</div>{/if}
   {#if keymapWarning}<div class="notice" role="alert"><span>{keymapWarning}</span><button class="text-button" title={keymap.title('reload_keymap')} disabled={keymapLoading} onclick={() => runButton('reload_keymap')}>Reload configuration</button></div>{/if}
@@ -371,7 +419,7 @@
   {#if transport.save_error}<div class="notice error" role="alert"><span>{transport.save_error}</span><button class="text-button" title={keymap.title('retry_save')} onclick={() => runButton('retry_save')}>Retry save</button></div>{/if}
   {#if !native}<div class="preview-note">Interface preview · Audio playback and file opening are available in the desktop app.</div>{/if}
 
-  <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
+  <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} status={managedState.status} epoch={libraryEpoch} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
   {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
   <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
   <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>

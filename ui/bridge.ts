@@ -1,7 +1,7 @@
 import type {Catalogue,SongMetadata} from './library';
 import {listen} from '@tauri-apps/api/event';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import type { Action, PracticeDocument, Snapshot, Song, Transport } from './types';
+import type { Action, PracticeDocument, Snapshot, Song, Transport, LibraryStatus, ImportSelection, ImportProgress } from './types';
 import type { KeymapFile } from './keymap';
 import type { MapEdit, MeasureMap, MapPreview, MapView, AnalysisStatus, Candidates } from './timing';
 
@@ -27,6 +27,14 @@ function demo(): Snapshot {
 }
 
 export const bridge = {
+  libraryStatus:()=>native?invoke<LibraryStatus>('library_status'):Promise.resolve({selected:null,available:false,error:null,import_notice_seen:false}),
+  chooseLibrary:(create:boolean,locate=false)=>native?invoke<Snapshot|null>('choose_library',{create,locate}):Promise.reject(new Error('Select libraries in the desktop app.')),
+  retryLibrary:()=>native?invoke<Snapshot>('retry_library'):Promise.reject(new Error('Retry libraries in the desktop app.')),
+  acknowledgeImportNotice:()=>native?invoke<void>('acknowledge_import_notice'):Promise.resolve(),
+  pickImportSong:()=>native?invoke<ImportSelection|null>('pick_import_song'):Promise.reject(new Error('Import songs in the desktop app.')),
+  importSong:(path:string)=>native?invoke<Snapshot>('import_song',{path}):Promise.reject(new Error('Import songs in the desktop app.')),
+  deleteLibrarySong:(songKey:string)=>native?invoke<Snapshot>('delete_library_song',{songKey}):Promise.reject(new Error('Delete songs in the desktop app.')),
+  onImportProgress:(handler:(progress:ImportProgress)=>void)=>native?listen<ImportProgress>('import-progress',event=>handler(event.payload)):Promise.resolve(()=>{}),
   onExitRequested:(handler:()=>void)=>native?listen('prepare-exit',handler):Promise.resolve(()=>{}),
   finishExit:()=>native?invoke<void>('finish_exit'):Promise.resolve(),
   readLibrary:()=>native?invoke<Catalogue>('read_library'):Promise.resolve({version:1,songs:[]}),
@@ -44,8 +52,6 @@ export const bridge = {
   readKeymap: () => native ? invoke<KeymapFile>('read_keymap') : Promise.resolve({ path: null, configuration: null, warning: null }),
   initialize: () => native ? invoke<Snapshot>('initialize') : Promise.resolve(snapshot()),
   loadDemo: () => native ? invoke<Snapshot>('load_demo') : Promise.resolve(demo()),
-  openSong: () => native ? invoke<Snapshot | null>('open_song') : Promise.reject(new Error('Open songs in the desktop app. This browser preview has no audio device.')),
-  importSeparate:()=>native?invoke<Snapshot|null>('import_separate_song'):Promise.reject(new Error('Import songs in the desktop app.')),
   libraryReference:(songKey:string)=>native?invoke<string>('library_reference',{songKey}):Promise.reject(new Error('Replace recordings in the desktop app.')),
   replaceLibraryReference:(songKey:string,referenceToken:string,timingUnchanged:boolean)=>native?invoke<Snapshot|null>('replace_library_reference',{songKey,referenceToken,timingUnchanged}):Promise.reject(new Error('Replace recordings in the desktop app.')),
   replaceRecording:(referenceToken:string,timingUnchanged:boolean)=>native?invoke<Snapshot|null>('replace_recording',{referenceToken,timingUnchanged}):Promise.reject(new Error('Replace recordings in the desktop app.')),

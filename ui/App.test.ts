@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -12,6 +12,7 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.libraryStatus.mockResolvedValue({selected:{id:'library',root:'/library'},available:true,error:null,import_notice_seen:true});mock.onImportProgress.mockResolvedValue(()=>{});mock.pickImportSong.mockResolvedValue({path:'/song.wav',candidates:[]});mock.importSong.mockImplementation(()=>mock.openSong());
   mock.metronome.mockResolvedValue({});
   mock.countIn.mockResolvedValue({});
   mock.onExitRequested.mockResolvedValue(()=>{});mock.finishExit.mockResolvedValue(undefined);
@@ -1035,7 +1036,7 @@ it.each(['practice','mapping','library'] as const)('routes opening a song throug
   await waitFor(()=>expect(mock.openSong).toHaveBeenCalledOnce());
   await screen.findByRole('main',{name:'Music library'});
   expect(screen.getByRole('button',{name:'Practice'})).toBeTruthy();
-  expect(screen.getAllByRole('button',{name:'Open song'})).toHaveLength(1);
+  expect(screen.getAllByRole('button',{name:'Import song'})).toHaveLength(1);
   expect(transport.playing).toBe(false);expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();
   await fireEvent.click(screen.getByRole('button',{name:'Practice'}));
   expect(screen.getByRole('region',{name:'Practice workspace'})).toBeTruthy();
@@ -1172,10 +1173,11 @@ it('ignores a late transport reply from the previous asset while preserving the 
 });
 
 it('offers independent import and closes replacement from its leading icon',async()=>{
-  await ready();mock.importSeparate.mockResolvedValue(null);
+  await ready();mock.pickImportSong.mockResolvedValue({path:'/duplicate.wav',candidates:[libraryEntry('test','Workshop take','Player',1,2)]});mock.importSong.mockResolvedValue(null);
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));
-  await fireEvent.click(screen.getByRole('button',{name:'Import separate song'}));
-  await waitFor(()=>expect(mock.importSeparate).toHaveBeenCalledOnce());
+  await fireEvent.click(screen.getByRole('button',{name:'Import song'}));
+  const separate=await screen.findByRole('button',{name:'Import separate song'});await waitFor(()=>expect(separate.hasAttribute('disabled')).toBe(false));await fireEvent.click(separate);
+  await waitFor(()=>expect(mock.importSong).toHaveBeenCalledWith('/duplicate.wav'));
   await waitFor(()=>expect(screen.getByRole('button',{name:'Practice'}).hasAttribute('disabled')).toBe(false));
   await fireEvent.click(screen.getByRole('button',{name:'Practice'}));
   await openRecordingDetails();
@@ -1211,4 +1213,44 @@ it('recovers an unavailable library recording without opening it or changing its
   await waitFor(()=>expect(mock.replaceLibraryReference).toHaveBeenCalledExactlyOnceWith(entry.song_key,'persisted-reference-before-picker',false));
   await screen.findByRole('heading',{name:'Missing recording'});
   expect(mock.openLibrarySong).not.toHaveBeenCalled();
+});
+
+it('sets up the library on first import and explains copied originals before choosing audio',async()=>{
+  mock.libraryStatus.mockResolvedValue({selected:null,available:false,error:null,import_notice_seen:false});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(screen.getByRole('button',{name:'Import song'}));
+  const setup=await screen.findByRole('dialog',{name:'Set up your library'});
+  expect(within(setup).getByText(/original files remain untouched/)).toBeTruthy();
+  expect(mock.pickImportSong).not.toHaveBeenCalled();
+  const close=within(setup).getByRole('button',{name:'Close library dialog'});expect(close.parentElement?.firstElementChild).toBe(close);
+  await fireEvent.click(close);expect(mock.chooseLibrary).not.toHaveBeenCalled();
+});
+it('keeps the selected song when switching cannot save pending settings',async()=>{
+  await ready();mock.update.mockRejectedValue(new Error('Cannot save'));
+  await fireEvent.input(screen.getByRole('slider',{name:'Playback speed'}),{target:{value:'80'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(screen.getByRole('button',{name:'Library settings'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Open existing library'}));
+  await within(screen.getByRole('dialog',{name:'Library settings'})).findByText(/Cannot save/);expect(mock.chooseLibrary).not.toHaveBeenCalled();expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();
+});
+it('offers unavailable-root actions without silently creating a library',async()=>{
+  mock.libraryStatus.mockResolvedValue({selected:{id:'lib',root:'/missing'},available:false,error:'Drive disconnected',import_notice_seen:true});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByText('Drive disconnected');
+  expect(screen.getByRole('button',{name:'Locate library'})).toBeTruthy();expect(screen.getByRole('button',{name:'Open another library'})).toBeTruthy();expect(mock.chooseLibrary).not.toHaveBeenCalled();
+});
+it('deletes only through Library edit confirmation and unloads the active song',async()=>{
+  const entry=libraryEntry('test','Workshop take','Player',1,2);mock.readLibrary.mockResolvedValue({version:1,songs:[entry]});
+  await ready();expect(screen.queryByRole('button',{name:'Delete song'})).toBeNull();
+  await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('button',{name:'Edit details for Workshop take'});
+  expect(screen.queryByRole('button',{name:'Delete song'})).toBeNull();await fireEvent.click(screen.getByRole('button',{name:'Edit details for Workshop take'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Delete song'}));expect(mock.deleteLibrarySong).not.toHaveBeenCalled();
+  const deletion=screen.getByRole('dialog',{name:'Delete song?'});expect(within(deletion).getByText(/This cannot be undone/)).toBeTruthy();
+  mock.deleteLibrarySong.mockResolvedValue({song:null,document:null,transport:{...transport,song_key:null,reference_token:null}});mock.readLibrary.mockResolvedValue({version:1,songs:[]});
+  await fireEvent.click(within(deletion).getByRole('button',{name:'Delete song permanently'}));await waitFor(()=>expect(mock.deleteLibrarySong).toHaveBeenCalledWith('test'));
+  await waitFor(()=>expect(screen.queryByRole('heading',{name:'Workshop take'})).toBeNull());expect(screen.getByRole('main',{name:'Music library'})).toBeTruthy();
+});
+it('shows copy progress without cancellation or a verification phase',async()=>{
+  let progress!:(value:{copied:number,total:number})=>void;mock.onImportProgress.mockImplementation(async handler=>{progress=handler;return()=>{};});
+  let finish!:(value:null)=>void;mock.importSong.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(screen.getByRole('button',{name:'Import song'}));
+  await waitFor(()=>expect(mock.importSong).toHaveBeenCalled());progress({copied:50,total:100});await screen.findByText('Importing song… 50%');
+  expect(screen.queryByRole('button',{name:'Cancel'})).toBeNull();expect(screen.queryByText(/Verifying recording/)).toBeNull();finish(null);
 });

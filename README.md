@@ -37,7 +37,7 @@ Windows and Linux use their platform's Tauri bundle formats. Linux also needs
 the WebKitGTK and desktop integration packages listed in
 [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Use **Library → Open song**, or try the built-in demo. Click the waveform to seek; drag to
+Use **Library → Import song**, or try the built-in demo. Click the waveform to seek; drag to
 choose a temporary loop. The A/B handles and numeric fields adjust the bounds.
 Scroll over the waveform to zoom at the pointer; hold the middle mouse button
 and drag to pan. Click or drag the whole-song minimap to move the detailed
@@ -130,28 +130,36 @@ CARGO_HOME="$PWD/.cargo-home" cargo test --locked --release -p ohmyloop --test c
 
 ## Music library
 
-Open **Library** from the header to find previously opened songs. Real songs are
-added automatically on successful open; the built-in demo is excluded. Artist,
-title and album come from embedded tags when available, with the filename as a
-fallback title. **Edit → Save details** changes the library record without writing
-to your audio file. Later opens retain your edits.
+Open **Library** from the header to browse your songs. **Import song** copies a
+recording into your selected library and leaves the external original untouched.
+The first import asks you to create an **OhMyLoop Library** subfolder or open an
+existing library; the demo needs no setup. Imports show copy progress and open
+Practice paused. Exact duplicates offer **Open existing song** or **Import separate
+song**; separate imports own independent copies, notes and maps.
 
-Search title, artist, album or file location. Click a column heading or use Sort by
-to choose any of the six fields, including Date added and Last opened; reverse the
-order with the adjacent button. The default is Last opened, descending. Click a
-song title to reopen its existing practice state. Opening the library pauses
-playback. The top-right navigation button becomes **Practice** while browsing.
-**Open song** lives in the library heading; Cmd/Ctrl+O also opens through the
-library, keeping it visible if the file picker is cancelled.
+Artist, title and album come from embedded tags with filename fallback. **Edit →
+Save details** changes stored metadata without modifying audio. Search title,
+artist, album or file location; sort by those fields, Date added or Last opened.
+Opening Library pauses playback. Click a song title to reopen its practice state.
+**Library settings** provides Create library and Open existing library. Switching
+saves pending edits and unloads the song without selecting another.
 
-The catalogue is `practice/library.json`, separate from each song's practice
-JSON and the analysis cache. It uses song UUIDs. Reopening a moved unchanged file updates its location;
-**Import separate song** creates independent notes/maps for identical audio.
-Missing/changed recordings can be recovered from **Library → Edit → Replace
-recording…**, below **File location**, preserving song identity. Explicit unchanged-timing confirmation
-requires matching decoded rate/frame count; a new timeline preserves the old map. No folder
-scan/import, artwork, removal or export workflow is implemented yet.
-See [docs/LIBRARY.md](docs/LIBRARY.md) for details.
+The selected folder owns recordings and authoritative song documents under
+`songs/<song-uuid>/`; `catalogue.json` is a rebuildable projection. App data holds
+the selected library and last-song pointer. To move or back up a library, close
+the app and move/copy the whole folder, then open it at its new location.
+
+Opening a song checks its recording's content hash. Missing/changed audio uses
+**Library → Edit → Replace recording…**, below **File location**. Explicit
+unchanged-timing confirmation requires matching decoded rate/frame count and
+preserves annotations; changed timing clears the map, sections, loop and saved
+position. Notes, controls and song UUID survive. No recording/map history.
+
+**Delete song** appears only in the Library edit panel and permanently deletes
+managed song files after confirmation. External originals remain untouched.
+No trash/restore, journaling/restart recovery, locking, import cancellation,
+storage-size UI or in-app move command. Assume one instance accesses a library.
+See [docs/LIBRARY.md](docs/LIBRARY.md) for behavior and failure limits.
 
 ## Song notes
 
@@ -422,10 +430,10 @@ backing tracks. Setup and commands are in the
 deployment evidence in [the research](docs/research/STEM_SEPARATION_RESEARCH.md).
 This experiment is separate from the desktop practice workflow.
 
-The desktop integration—implemented UUID song identity and planned managed imports, reference
-timelines and a practice mixer—is in [docs/STEMS.md](docs/STEMS.md), with its ADRs
-and delivery slices. UUID identity/replacement/reset is implemented; managed
-storage, stem playback and integrated separation remain planned.
+The desktop integration—implemented UUID song identity and managed imports, with
+planned stem playback and a practice mixer—is in [docs/STEMS.md](docs/STEMS.md), with its ADRs
+and delivery slices. UUID identity/replacement/reset and managed
+storage are implemented; stem playback and integrated separation remain planned.
 
 ## Architecture and limits
 

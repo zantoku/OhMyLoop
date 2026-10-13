@@ -1,3 +1,4 @@
+mod managed;
 use crate::{
     audio::Audio,
     count_in::Settings as CountInSettings,
@@ -35,6 +36,7 @@ pub struct Transport {
 
 #[derive(Serialize)]
 pub struct Snapshot {
+    pub library_status: LibraryStatus,
     pub song: Option<Song>,
     pub document: Option<Document>,
     pub transport: Transport,
@@ -52,7 +54,26 @@ pub enum Action {
     RetryAudio,
 }
 
+#[derive(Clone, Serialize)]
+pub struct LibraryStatus {
+    pub selected: Option<crate::managed::LibraryPointer>,
+    pub available: bool,
+    pub error: Option<String>,
+    pub import_notice_seen: bool,
+}
+
 enum Command {
+    ManagedStatus,
+    ManagedSnapshot,
+    ManagedLastSong,
+    ManagedContext,
+    SelectManaged(crate::managed::ManagedLibrary, bool),
+    CommitManaged(u64, crate::managed::Prepared),
+    ActivateManaged(u64, crate::managed::Prepared),
+    CommitReplacement(u64, crate::managed::PreparedReplacement, Option<String>),
+    ReplacementContext(String),
+    DeleteManaged(String),
+    ExplainImport,
     Restore,
     Load(String),
     Separate(String),
@@ -71,6 +92,10 @@ enum Command {
     CountIn(String, CountInSettings),
 }
 enum Response {
+    ManagedStatus(LibraryStatus),
+    ManagedLastSong(Option<String>),
+    ReplacementContext(bool),
+    ManagedContext(crate::managed::ManagedLibrary, u64),
     Snapshot(Box<Snapshot>),
     Status(Transport),
     Source(Arc<Audio>),
@@ -99,12 +124,31 @@ impl Desktop {
     }
     pub fn start(directory: PathBuf) -> Result<Self> {
         let library = crate::library::Store::new(&directory);
+        let preferences = crate::managed::Preferences::new(&directory);
+        let preference_data = preferences.read()?;
+        let (managed, root_error) = if let Some(pointer) = &preference_data.active {
+            match crate::managed::ManagedLibrary::open(Path::new(&pointer.root)) {
+                Ok(library) if library.id() == pointer.id => (Some(library), None),
+                Ok(_) => (
+                    None,
+                    Some("Selected folder belongs to another library".into()),
+                ),
+                Err(error) => (None, Some(format!("{error:#}"))),
+            }
+        } else {
+            (None, None)
+        };
         let store = Store::new(directory)?;
         let (requests, receiver) = mpsc::sync_channel::<Request>(8);
         thread::Builder::new()
             .name("ohmyloop-control".into())
             .spawn(move || {
                 let mut controller = Controller {
+                    preferences,
+                    preference_data,
+                    managed,
+                    root_error,
+                    managed_generation: 0,
                     store,
                     library,
                     library_error: None,
@@ -158,6 +202,11 @@ impl Desktop {
         }
     }
     pub fn open_library(&self, key: String) -> Result<Snapshot> {
+        if self.managed_status()?.selected.is_some() {
+            let (library, generation) = self.managed_context()?;
+            let prepared = library.open_song(&key)?;
+            return self.snapshot(Command::ActivateManaged(generation, prepared));
+        }
         self.snapshot(Command::OpenLibrary(key))
     }
     pub fn update_library(
@@ -170,8 +219,23 @@ impl Desktop {
             _ => unreachable!(),
         }
     }
+    pub fn restore_managed(&self) -> Result<Snapshot> {
+        let status = self.managed_status()?;
+        if status.selected.is_none() {
+            return self.snapshot(Command::ManagedSnapshot);
+        }
+        self.restore()
+    }
     pub fn restore(&self) -> Result<Snapshot> {
-        self.snapshot(Command::Restore)
+        let initial = self.snapshot(Command::Restore)?;
+        if initial.library_status.available {
+            let (library, generation) = self.managed_context()?;
+            if let Some(key) = self.managed_last_song()? {
+                let prepared = library.open_song(&key)?;
+                return self.snapshot(Command::ActivateManaged(generation, prepared));
+            }
+        }
+        Ok(initial)
     }
     pub fn load(&self, path: Option<String>) -> Result<Snapshot> {
         self.snapshot(Command::Load(path.unwrap_or_else(|| DEMO.into())))
@@ -191,6 +255,16 @@ impl Desktop {
         path: String,
         timing_unchanged: bool,
     ) -> Result<Snapshot> {
+        if self.managed_status()?.selected.is_some() {
+            self.source(token.clone())?;
+            let expected = Reference::parse(&token)?;
+            return self.replace_library_reference(
+                expected.song.to_string(),
+                token,
+                path,
+                timing_unchanged,
+            );
+        }
         self.snapshot(Command::Replace(token, path, timing_unchanged))
     }
     pub fn library_reference(&self, key: String) -> Result<String> {
@@ -206,6 +280,34 @@ impl Desktop {
         path: String,
         timing_unchanged: bool,
     ) -> Result<Snapshot> {
+        if self.managed_status()?.selected.is_some() {
+            let (library, generation) = self.managed_context()?;
+            let expected = Reference::parse(&token)?;
+            let record = library.record(&key)?.record;
+            ensure!(
+                expected.song == record.id
+                    && expected.asset == record.asset.id
+                    && expected.timeline == record.timeline.id
+                    && expected.revision == record.reference_revision,
+                "Recording changed; reopen replacement choices"
+            );
+            let active = match self.request(Command::ReplacementContext(token.clone()))? {
+                Response::ReplacementContext(active) => active,
+                _ => unreachable!(),
+            };
+            let prepared =
+                library.prepare_replace(&key, Path::new(&path), timing_unchanged, |_, _| {})?;
+            let cleanup = prepared.prepared.clone();
+            let result = self.snapshot(Command::CommitReplacement(
+                generation,
+                prepared,
+                active.then_some(token),
+            ));
+            if result.is_err() {
+                let _ = library.discard_prepared(&cleanup);
+            }
+            return result;
+        }
         self.snapshot(Command::ReplaceLibrary(key, token, path, timing_unchanged))
     }
 
@@ -252,6 +354,11 @@ impl Desktop {
 }
 
 struct Controller {
+    preferences: crate::managed::Preferences,
+    preference_data: crate::managed::PreferenceData,
+    managed: Option<crate::managed::ManagedLibrary>,
+    root_error: Option<String>,
+    managed_generation: u64,
     store: Store,
     library: crate::library::Store,
     library_error: Option<String>,
@@ -273,6 +380,11 @@ impl Controller {
         let include_song = matches!(
             command,
             Command::Restore
+                | Command::SelectManaged(..)
+                | Command::CommitManaged(..)
+                | Command::ActivateManaged(..)
+                | Command::CommitReplacement(..)
+                | Command::DeleteManaged(..)
                 | Command::Load(_)
                 | Command::OpenLibrary(_)
                 | Command::Separate(_)
@@ -280,7 +392,139 @@ impl Controller {
                 | Command::ReplaceLibrary(..)
         );
         match command {
+            Command::ManagedSnapshot => {
+                return Ok(Response::Snapshot(Box::new(self.snapshot(true))));
+            }
+            Command::ManagedLastSong => {
+                return Ok(Response::ManagedLastSong(
+                    self.preference_data.last_song.clone(),
+                ));
+            }
+            Command::ManagedStatus => return Ok(Response::ManagedStatus(self.managed_status())),
+            Command::ManagedContext => {
+                ensure!(
+                    self.managed_status().available,
+                    "Selected library is unavailable; Retry or Locate library"
+                );
+                self.persist_position();
+                if let Some(error) = &self.save_error {
+                    anyhow::bail!("{error}");
+                }
+                return Ok(Response::ManagedContext(
+                    self.managed.clone().context("Select a library first")?,
+                    self.managed_generation,
+                ));
+            }
+            Command::ExplainImport => {
+                let mut prefs = self.preference_data.clone();
+                prefs.import_explained = true;
+                self.preferences.save(&prefs)?;
+                self.preference_data = prefs;
+            }
+            Command::SelectManaged(library, locate) => {
+                if locate {
+                    ensure!(
+                        self.preference_data
+                            .active
+                            .as_ref()
+                            .is_some_and(|p| p.id == library.id()),
+                        "This is a different library; use Open existing library"
+                    );
+                }
+                self.persist_position();
+                if let Some(error) = &self.save_error {
+                    anyhow::bail!("{error}");
+                }
+                let mut prefs = self.preference_data.clone();
+                prefs.active = Some(crate::managed::LibraryPointer {
+                    id: library.id().to_owned(),
+                    root: library.root().to_string_lossy().into_owned(),
+                });
+                prefs.last_song = None;
+                self.preferences.save(&prefs)?;
+                self.preference_data = prefs;
+                self.managed = Some(library);
+                self.managed_generation = self.managed_generation.wrapping_add(1);
+                self.root_error = None;
+                self.unload();
+            }
+            Command::CommitManaged(id, prepared) => {
+                let library = self.managed.clone().context("Library is unavailable")?;
+                ensure!(
+                    self.managed_generation == id && self.managed_status().available,
+                    "Library changed; discard stale import"
+                );
+                self.persist_position();
+                if let Some(error) = &self.save_error {
+                    anyhow::bail!("{error}");
+                }
+                let prepared = library.commit_import(prepared)?;
+                self.activate_managed(&library, prepared)?;
+            }
+            Command::ActivateManaged(id, prepared) => {
+                let library = self.managed.clone().context("Library is unavailable")?;
+                ensure!(
+                    self.managed_generation == id && self.managed_status().available,
+                    "Library changed; discard stale open"
+                );
+                self.persist_position();
+                if let Some(error) = &self.save_error {
+                    anyhow::bail!("{error}");
+                }
+                self.activate_managed(&library, prepared)?;
+            }
+            Command::ReplacementContext(token) => {
+                let expected = Reference::parse(&token)?;
+                let active = self
+                    .song
+                    .as_ref()
+                    .is_some_and(|s| s.key == expected.song.to_string());
+                if active {
+                    self.check_reference(&token)?;
+                }
+                return Ok(Response::ReplacementContext(active));
+            }
+            Command::CommitReplacement(id, replacement, active_token) => {
+                if let Some(token) = &active_token {
+                    self.check_reference(token)?;
+                }
+                let library = self.managed.clone().context("Library is unavailable")?;
+                ensure!(
+                    self.managed_generation == id && self.managed_status().available,
+                    "Library changed; discard stale replacement"
+                );
+                self.persist_position();
+                if let Some(error) = &self.save_error {
+                    anyhow::bail!("{error}");
+                }
+                let prepared = library.commit_replace(replacement)?;
+                self.activate_managed(&library, prepared)?;
+            }
+            Command::DeleteManaged(key) => {
+                let library = self.managed.as_ref().context("Library is unavailable")?;
+                let warnings = library.delete(&key)?;
+                self.library_error = (!warnings.is_empty()).then(|| warnings.join("\n"));
+                if self.song.as_ref().is_some_and(|song| song.key == key) {
+                    self.unload();
+                }
+                if self.preference_data.last_song.as_deref() == Some(&key) {
+                    self.preference_data.last_song = None;
+                    if let Err(error) = self.preferences.save(&self.preference_data) {
+                        let warning = format!(
+                            "Song deleted, but last-song pointer could not be saved: {error:#}"
+                        );
+                        self.library_error = Some(
+                            self.library_error
+                                .take()
+                                .map_or(warning.clone(), |old| format!("{old}\n{warning}")),
+                        );
+                    }
+                }
+            }
             Command::Restore => {
+                if self.preference_data.active.is_some() {
+                    return Ok(Response::Snapshot(Box::new(self.snapshot(true))));
+                }
                 if let Some(source) = self.store.last_song()? {
                     let location = self.store.record(&source)?.asset.path.clone();
                     self.load(&location, Some(&source), false)?;
@@ -353,9 +597,19 @@ impl Controller {
                 result?;
                 return Ok(Response::Status(self.transport()));
             }
-            Command::Library => return Ok(Response::Library(self.library.read()?)),
+            Command::Library => {
+                return Ok(Response::Library(if let Some(library) = &self.managed {
+                    library.catalogue()?
+                } else {
+                    self.library.read()?
+                }));
+            }
             Command::UpdateLibrary(key, metadata) => {
-                let catalogue = self.library.update(&key, metadata)?;
+                let catalogue = if let Some(library) = &self.managed {
+                    library.update_metadata(&key, metadata)?
+                } else {
+                    self.library.update(&key, metadata)?
+                };
                 if let Some(song) = &mut self.song
                     && song.key == key
                 {
@@ -373,8 +627,21 @@ impl Controller {
             Command::Load(source) => self.load(&source, None, false)?,
             Command::Separate(source) => self.load(&source, None, true)?,
             Command::LibraryReference(key) => {
-                self.library.read()?.entry(&key)?;
-                let record = self.store.record(&key)?;
+                if let Some(song) = &self.song
+                    && song.key == key
+                {
+                    return Ok(Response::Reference(song.reference_token.clone()));
+                }
+                if let Some(library) = &self.managed {
+                    library.catalogue()?.entry(&key)?;
+                } else {
+                    self.library.read()?.entry(&key)?;
+                }
+                let record = if let Some(library) = &self.managed {
+                    library.record(&key)?.record
+                } else {
+                    self.store.record(&key)?
+                };
                 return Ok(Response::Reference(
                     record.reference(SessionId::new()).token(),
                 ));
@@ -406,7 +673,14 @@ impl Controller {
                 let persistent = song.path.is_some();
                 document.last_position = self.transport().position;
                 if persistent {
-                    self.store.save(&document, duration)?;
+                    if let Some(library) = &self.managed {
+                        let warnings = library.save_document(&document)?;
+                        if !warnings.is_empty() {
+                            self.library_error = Some(warnings.join("\n"));
+                        }
+                    } else {
+                        self.store.save(&document, duration)?;
+                    }
                 }
                 self.save_error = None;
                 if let Some(player) = self.player.as_ref() {
@@ -839,7 +1113,12 @@ impl Controller {
                 self.last_save = Instant::now();
                 return;
             }
-            if let Err(error) = self.store.save(document, song.duration) {
+            let saved = if let Some(library) = &self.managed {
+                library.save_document(document).map(|_| ())
+            } else {
+                self.store.save(document, song.duration)
+            };
+            if let Err(error) = saved {
                 self.save_error = Some(format!(
                     "Your latest practice settings could not be saved: {error:#}"
                 ));
@@ -851,6 +1130,7 @@ impl Controller {
     }
     fn snapshot(&mut self, include_song: bool) -> Snapshot {
         Snapshot {
+            library_status: self.managed_status(),
             song: self.song.clone().filter(|_| include_song),
             document: self.document.clone(),
             transport: self.transport(),
