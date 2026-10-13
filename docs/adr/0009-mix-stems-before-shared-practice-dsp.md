@@ -39,3 +39,21 @@ DSP history, at the cost of changes being subject to DSP lookahead and re-primin
 This is an initial architectural proposal. Prototype A/B playback at normal
 speed does not establish that pre-mix updates under Rubber Band meet practice
 latency and quality requirements; the plan includes a focused proof before UI work.
+
+## Agreed proof scope
+
+On 2026-10-13 the maintainer agreed to prove the reusable native source path in a
+terminal harness, preserving existing desktop playback until integration. Prepare
+the reference and up to two compatible full-song stem sets into temporary,
+file-backed PCM before auditioning. A bounded scan establishes common attenuation;
+role gains are attenuation-only. This trades preparation time and temporary disk
+space for predictable seeking, switching and bounded RAM. Prepared files are
+disposable per run, with no persistent cache or crash-recovery mechanism.
+
+Targets are 256 MiB incremental preparation/playback memory independent of song
+duration and software mix-change latency of 250 ms at normal speed, 500 ms across
+supported controls. Keep the existing final clamp rather than introducing another
+limiter; report clipping instead of hiding it. Read failures stop playback with an
+error. Automated results establish correctness/performance; acceptance still
+requires the maintainer's listening review, particularly at slow playback.
+See [the implementation contract](../STEM_DSP_IMPLEMENTATION_PLAN.md).

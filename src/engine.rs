@@ -1,6 +1,7 @@
 use crate::{
     audio::Audio,
     dsp::{BLOCK, Controls, Dsp},
+    stems::BlockSource,
 };
 use anyhow::{Result, ensure};
 use std::sync::Arc;
@@ -39,7 +40,9 @@ pub struct RenderedFrame {
 }
 
 pub struct Engine {
-    audio: Arc<Audio>,
+    source: Box<dyn BlockSource>,
+    rate: u32,
+    frames: usize,
     dsp: Dsp,
     controls: Controls,
     region: Option<LoopRegion>,
@@ -51,6 +54,9 @@ pub struct Engine {
     pub loop_wraps: u64,
     left: [f32; BLOCK],
     right: [f32; BLOCK],
+    cache: [[f32; 2]; BLOCK],
+    cache_start: usize,
+    cache_count: usize,
 }
 
 impl Engine {
@@ -61,24 +67,46 @@ impl Engine {
         region: Option<LoopRegion>,
         finer: bool,
     ) -> Result<Self> {
+        Self::new_source(
+            Box::new(MemorySource(audio)),
+            controls,
+            position,
+            region,
+            finer,
+        )
+    }
+
+    pub fn new_source(
+        source: Box<dyn BlockSource>,
+        controls: Controls,
+        position: f64,
+        region: Option<LoopRegion>,
+        finer: bool,
+    ) -> Result<Self> {
+        let rate = source.rate();
+        let frames = usize::try_from(source.len_frames())?;
+        ensure!(rate > 0 && frames > 0, "Invalid source geometry");
         controls.validate()?;
         ensure!(
-            position.is_finite() && (0.0..=audio.duration()).contains(&position),
+            position.is_finite()
+                && (0.0..=(source.len_frames() as f64 / source.rate() as f64)).contains(&position),
             "Seek must be inside song"
         );
         if let Some(region) = region {
-            region.validate(audio.duration())?;
+            region.validate(source.len_frames() as f64 / source.rate() as f64)?;
         }
         let position = match region {
             Some(r) if position < r.start || position >= r.end => r.start,
             _ => position,
         };
-        let input_cursor = (position * audio.rate as f64).round() as usize;
-        let dsp = Dsp::new(audio.rate, controls, finer)?;
+        let input_cursor = (position * rate as f64).round() as usize;
+        let dsp = Dsp::new(rate, controls, finer)?;
         let pad_remaining = dsp.pad;
         let discard_remaining = dsp.delay;
         Ok(Self {
-            audio,
+            source,
+            rate,
+            frames,
             dsp,
             controls,
             region,
@@ -90,6 +118,9 @@ impl Engine {
             loop_wraps: 0,
             left: [0.0; BLOCK],
             right: [0.0; BLOCK],
+            cache: [[0.0; 2]; BLOCK],
+            cache_start: 0,
+            cache_count: 0,
         })
     }
 
@@ -104,24 +135,24 @@ impl Engine {
     }
 
     pub fn input_position(&self) -> f64 {
-        self.input_cursor as f64 / self.audio.rate as f64
+        self.input_cursor as f64 / self.rate as f64
     }
 
     pub fn output_position(&self) -> f64 {
-        self.source_position / self.audio.rate as f64
+        self.source_position / self.rate as f64
     }
 
     fn loop_frames(&self) -> Option<(usize, usize, usize)> {
         self.region.map(|r| {
-            let start = (r.start * self.audio.rate as f64).round() as usize;
-            let end = (r.end * self.audio.rate as f64).round() as usize;
-            let fade = ((r.fade_ms * self.audio.rate as f64 / 1000.0).round() as usize)
-                .min((end - start) / 4);
+            let start = (r.start * self.rate as f64).round() as usize;
+            let end = (r.end * self.rate as f64).round() as usize;
+            let fade =
+                ((r.fade_ms * self.rate as f64 / 1000.0).round() as usize).min((end - start) / 4);
             (start, end, fade)
         })
     }
 
-    fn feed(&mut self) {
+    fn feed(&mut self) -> Result<()> {
         if self.pad_remaining > 0 {
             let count = self.pad_remaining.min(BLOCK);
             self.left[..count].fill(0.0);
@@ -129,7 +160,7 @@ impl Engine {
             self.dsp
                 .process(&self.left[..count], &self.right[..count], false);
             self.pad_remaining -= count;
-            return;
+            return Ok(());
         }
         let mut count = 0;
         let region = self.loop_frames();
@@ -139,7 +170,7 @@ impl Engine {
                     self.input_cursor = start;
                     self.loop_wraps += 1;
                 }
-            } else if self.input_cursor >= self.audio.frames.len() {
+            } else if self.input_cursor >= self.frames {
                 break;
             }
             let mut gain = 1.0;
@@ -152,20 +183,36 @@ impl Engine {
                     / fade as f32)
                     .min(1.0);
             }
-            let frame = self.audio.frames[self.input_cursor];
+            if self.input_cursor < self.cache_start
+                || self.input_cursor >= self.cache_start + self.cache_count
+            {
+                self.cache_start = self.input_cursor;
+                self.cache_count = self
+                    .source
+                    .read_frames(self.input_cursor as u64, &mut self.cache)?;
+                ensure!(self.cache_count > 0, "Unexpected source EOF");
+            }
+            let frame = self.cache[self.input_cursor - self.cache_start];
             self.left[count] = frame[0] * gain;
             self.right[count] = frame[1] * gain;
             self.input_cursor += 1;
             count += 1;
         }
-        let final_block = region.is_none() && self.input_cursor == self.audio.frames.len();
+        let final_block = region.is_none() && self.input_cursor == self.frames;
         self.dsp
             .process(&self.left[..count], &self.right[..count], final_block);
         self.finalized = final_block;
+        Ok(())
     }
 
     /// Variable-output streaming. Call on a worker, never in a device callback.
+    /// Compatibility convenience for infallible in-memory audio. File-backed
+    /// callers must use `try_next_block` and propagate read failures.
     pub fn next_block(&mut self) -> Vec<RenderedFrame> {
+        self.try_next_block().expect("In-memory source read failed")
+    }
+
+    pub fn try_next_block(&mut self) -> Result<Vec<RenderedFrame>> {
         loop {
             if self.dsp.available() > 0 {
                 let count = self.dsp.retrieve(&mut self.left, &mut self.right);
@@ -174,7 +221,7 @@ impl Engine {
                 let mut result = Vec::with_capacity(count - discard);
                 let region = self.loop_frames();
                 for n in discard..count {
-                    if region.is_none() && self.source_position >= self.audio.frames.len() as f64 {
+                    if region.is_none() && self.source_position >= self.frames as f64 {
                         break;
                     }
                     result.push(RenderedFrame {
@@ -190,15 +237,15 @@ impl Engine {
                     }
                 }
                 if !result.is_empty() {
-                    return result;
+                    return Ok(result);
                 }
                 if self.finalized && self.dsp.available() <= 0 {
-                    return Vec::new();
+                    return Ok(Vec::new());
                 }
             } else if self.finalized {
-                return Vec::new();
+                return Ok(Vec::new());
             } else {
-                self.feed();
+                self.feed()?;
             }
         }
     }
@@ -232,4 +279,26 @@ pub fn render(
         }
     }
     Ok(frames)
+}
+
+/// Compatibility adapter for existing whole-file callers.
+pub struct MemorySource(pub Arc<Audio>);
+impl BlockSource for MemorySource {
+    fn rate(&self) -> u32 {
+        self.0.rate
+    }
+    fn len_frames(&self) -> u64 {
+        self.0.frames.len() as u64
+    }
+    fn read_frames(&mut self, position: u64, output: &mut [[f32; 2]]) -> Result<usize> {
+        let position = usize::try_from(position)?;
+        let count = output
+            .len()
+            .min(self.0.frames.len().saturating_sub(position));
+        if count == 0 {
+            return Ok(0);
+        }
+        output[..count].copy_from_slice(&self.0.frames[position..position + count]);
+        Ok(count)
+    }
 }

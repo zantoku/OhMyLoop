@@ -433,7 +433,11 @@ This experiment is separate from the desktop practice workflow.
 The desktop integration—implemented UUID song identity and managed imports, with
 planned stem playback and a practice mixer—is in [docs/STEMS.md](docs/STEMS.md), with its ADRs
 and delivery slices. UUID identity/replacement/reset and managed
-storage are implemented; stem playback and integrated separation remain planned.
+storage are implemented. A native file-backed stem player now exercises a shared
+Rubber Band pipeline through a terminal harness; see
+[usage and listening steps](docs/STEM_DSP_USAGE.md). Desktop mixer integration
+and integrated separation remain planned. Shared-DSP sound quality awaits
+maintainer listening approval.
 
 ## Architecture and limits
 

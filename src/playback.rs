@@ -2,8 +2,10 @@ use crate::{
     audio::Audio,
     count_in::{CountIn, Plan as CountInPlan, Settings as CountInSettings},
     dsp::Controls,
+    engine::MemorySource,
     engine::{Engine, LoopRegion, RenderedFrame},
     metronome::{ClickMixer, Tick},
+    stems::{MixState, SourceFactory},
     timing::MeasureMap,
 };
 use anyhow::{Context, Result, ensure};
@@ -31,11 +33,14 @@ pub struct Shared {
     pub epoch: AtomicU64,
     pub playing: AtomicBool,
     pub count_in: AtomicBool,
+    preserve_queued_count_in: AtomicBool,
     pub finished: AtomicBool,
     pub source_position: AtomicU64,
     pub render_position: AtomicU64,
     pub underflow_frames: AtomicU64,
     pub callbacks: AtomicU64,
+    pub pre_clamp_peak: AtomicU64,
+    pub clipped_samples: AtomicU64,
     pub output_frames: AtomicU64,
     pub device_errors: AtomicU64,
     pub max_render_us: AtomicU64,
@@ -51,11 +56,14 @@ impl Shared {
             epoch: AtomicU64::new(0),
             playing: AtomicBool::new(false),
             count_in: AtomicBool::new(false),
+            preserve_queued_count_in: AtomicBool::new(false),
             finished: AtomicBool::new(false),
             source_position: AtomicU64::new(0_f64.to_bits()),
             render_position: AtomicU64::new(0_f64.to_bits()),
             underflow_frames: AtomicU64::new(0),
             callbacks: AtomicU64::new(0),
+            pre_clamp_peak: AtomicU64::new(0_f64.to_bits()),
+            clipped_samples: AtomicU64::new(0),
             output_frames: AtomicU64::new(0),
             device_errors: AtomicU64::new(0),
             max_render_us: AtomicU64::new(0),
@@ -98,8 +106,12 @@ impl Consumer {
         let epoch = self.shared.epoch.load(Ordering::Acquire);
         let playing = self.shared.playing.load(Ordering::Acquire);
         if epoch != self.epoch || (self.was_playing && !playing) {
-            self.fade_remaining = self.fade_length;
-            self.fade_in = self.fade_length;
+            // Mix edits during count-in invalidate only music, preserving the
+            // queued click chronology without moving frames out of the queue.
+            if !self.shared.preserve_queued_count_in.load(Ordering::Acquire) || !playing {
+                self.fade_remaining = self.fade_length;
+                self.fade_in = self.fade_length;
+            }
             self.epoch = epoch;
         }
         if !self.was_playing && playing {
@@ -115,7 +127,10 @@ impl Consumer {
             return [0.0; 2];
         }
         while let Some(queued) = self.shared.queue.pop() {
-            if queued.epoch != epoch {
+            if queued.epoch != epoch
+                && !(queued.count_in
+                    && self.shared.preserve_queued_count_in.load(Ordering::Acquire))
+            {
                 continue;
             }
             let mut frame = queued.frame.samples;
@@ -124,6 +139,15 @@ impl Consumer {
                 frame[0] *= gain;
                 frame[1] *= gain;
                 self.fade_in -= 1;
+            }
+            for value in &mut frame {
+                self.shared
+                    .pre_clamp_peak
+                    .fetch_max(f64::from(value.abs()).to_bits(), Ordering::Relaxed);
+                if value.abs() > 1.0 {
+                    self.shared.clipped_samples.fetch_add(1, Ordering::Relaxed);
+                }
+                *value = value.clamp(-1.0, 1.0);
             }
             self.last = frame;
             self.shared
@@ -150,16 +174,18 @@ enum Command {
     Metronome(bool, f32, Vec<Tick>, SyncSender<()>),
     CountIn(CountInSettings, Option<MeasureMap>, SyncSender<()>),
     Start(SyncSender<()>),
+    Mix(usize, MixState, SyncSender<()>),
     Shutdown,
 }
 
 pub struct Player {
-    _stream: cpal::Stream,
+    _stream: Option<cpal::Stream>,
     commands: SyncSender<Command>,
     worker: Option<JoinHandle<()>>,
     pub shared: Arc<Shared>,
     pub rate: u32,
     pub source_rate: u32,
+    pub source_frames: u64,
     pub duration: f64,
     pub device_name: String,
     pub device_buffer_frames: u32,
@@ -171,6 +197,66 @@ impl Player {
     }
 
     pub fn open_shared(audio: Arc<Audio>, finer: bool) -> Result<Self> {
+        Self::open_factory(Arc::new(AudioFactory(audio)), finer, None)
+    }
+
+    pub fn open_bounded(
+        source: Arc<dyn SourceFactory>,
+        finer: bool,
+        reference_rate: u32,
+    ) -> Result<Self> {
+        Self::open_factory(source, finer, Some(reference_rate))
+    }
+
+    pub fn headless(
+        source: Arc<dyn SourceFactory>,
+        finer: bool,
+        reference_rate: u32,
+    ) -> Result<Self> {
+        let rate = source.rate();
+        let (canonical_rate, source_frames) = source.reference_geometry();
+        ensure!(
+            reference_rate == canonical_rate,
+            "Reference sample rate mismatch"
+        );
+        let duration = source.len_frames() as f64 / rate as f64;
+        let shared = Arc::new(Shared::new((rate as usize / 10).max(1024)));
+        let (commands, receiver) = mpsc::sync_channel(32);
+        let worker_shared = shared.clone();
+        let worker = thread::spawn(move || {
+            if let Err(error) = run_source_worker(source, finer, receiver, &worker_shared) {
+                worker_shared.playing.store(false, Ordering::Release);
+                *worker_shared.worker_error.lock().unwrap() = Some(format!("{error:#}"));
+            }
+        });
+        Ok(Self {
+            _stream: None,
+            commands,
+            worker: Some(worker),
+            shared,
+            rate,
+            source_rate: reference_rate,
+            source_frames,
+            duration,
+            device_name: "software consumer".into(),
+            device_buffer_frames: 0,
+        })
+    }
+
+    pub fn output_rate() -> Result<u32> {
+        Ok(cpal::default_host()
+            .default_output_device()
+            .context("No audio output device")?
+            .default_output_config()?
+            .sample_rate()
+            .0)
+    }
+
+    fn open_factory(
+        mut source: Arc<dyn SourceFactory>,
+        finer: bool,
+        reference_rate: Option<u32>,
+    ) -> Result<Self> {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -178,18 +264,24 @@ impl Player {
         let device_name = device
             .name()
             .unwrap_or_else(|_| "Unknown output device".into());
-        let source_rate = audio.rate;
+        let (canonical_rate, source_frames) = source.reference_geometry();
+        let source_rate = reference_rate.unwrap_or(canonical_rate);
+        ensure!(
+            source_rate == canonical_rate,
+            "Reference sample rate mismatch"
+        );
+        let requested_rate = source.rate();
         let supported = device
             .supported_output_configs()
             .context("Enumerating audio output configurations")?
             .find(|c| {
                 c.channels() == 2
                     && c.sample_format() == cpal::SampleFormat::F32
-                    && c.min_sample_rate().0 <= source_rate
-                    && c.max_sample_rate().0 >= source_rate
+                    && c.min_sample_rate().0 <= requested_rate
+                    && c.max_sample_rate().0 >= requested_rate
             });
         let supported = match supported {
-            Some(c) => c.with_sample_rate(cpal::SampleRate(source_rate)),
+            Some(c) => c.with_sample_rate(cpal::SampleRate(requested_rate)),
             None => device
                 .default_output_config()
                 .context("Reading default audio output configuration")?,
@@ -208,12 +300,10 @@ impl Player {
             }
             cpal::SupportedBufferSize::Unknown => 0,
         };
-        let duration = audio.duration();
-        let audio = if rate == source_rate {
-            audio
-        } else {
-            Arc::new(audio.resample(rate)?)
-        };
+        let duration = source.len_frames() as f64 / source.rate() as f64;
+        if rate != source.rate() {
+            source = source.resample_legacy(rate)?;
+        }
         let shared = Arc::new(Shared::new((rate as usize / 10).max(1024)));
         let stream = match sample_format {
             cpal::SampleFormat::F32 => {
@@ -233,7 +323,7 @@ impl Player {
         let worker = thread::Builder::new()
             .name("ohmyloop-render".into())
             .spawn(move || {
-                if let Err(error) = run_worker(audio, finer, receiver, &worker_shared) {
+                if let Err(error) = run_source_worker(source, finer, receiver, &worker_shared) {
                     worker_shared.playing.store(false, Ordering::Release);
                     *worker_shared.worker_error.lock().unwrap() = Some(format!("{error:#}"));
                 }
@@ -242,12 +332,13 @@ impl Player {
             .play()
             .context("Starting native audio callback stream")?;
         Ok(Self {
-            _stream: stream,
+            _stream: Some(stream),
             commands,
             worker: Some(worker),
             shared,
             rate,
             source_rate,
+            source_frames,
             duration,
             device_name,
             device_buffer_frames,
@@ -279,6 +370,11 @@ impl Player {
         self.shared.playing.store(true, Ordering::Release);
         Ok(())
     }
+    pub fn set_mix(&self, selection: usize, mix: MixState) -> Result<()> {
+        mix.validate()?;
+        self.request(|reply| Command::Mix(selection, mix, reply))
+    }
+
     pub fn pause(&self) {
         self.shared.playing.store(false, Ordering::Release);
     }
@@ -323,8 +419,7 @@ impl Player {
         if let Some(map) = &map {
             map.validate()?;
             ensure!(
-                map.rate == self.source_rate
-                    && (map.frames as f64 / f64::from(map.rate) - self.duration).abs() < 1e-6,
+                map.rate == self.source_rate && map.frames == self.source_frames,
                 "Count-in map belongs to a different source"
             );
             ensure!(
@@ -360,7 +455,7 @@ impl Player {
         let position = s.position() / self.rate as f64;
         let input = f64::from_bits(s.render_position.load(Ordering::Relaxed));
         let message = format!(
-            "{} | estimated output {:.3}/{:.3}s | input {:.3}s | queued {:.1}ms | underrun events {} | max render {:.2}ms | last seek setup {:.2}ms | input loop wraps {} | callbacks {} | device errors {}",
+            "{} | estimated output {:.3}/{:.3}s | input {:.3}s | queued {:.1}ms | underrun events {} | max render {:.2}ms | last seek setup {:.2}ms | input loop wraps {} | callbacks {} | device errors {} | pre-clamp peak {:.4} | clipped samples {}",
             if s.playing.load(Ordering::Relaxed) {
                 "playing"
             } else {
@@ -375,7 +470,9 @@ impl Player {
             s.last_seek_us.load(Ordering::Relaxed) as f64 / 1000.0,
             s.loop_wraps.load(Ordering::Relaxed),
             s.callbacks.load(Ordering::Relaxed),
-            s.device_errors.load(Ordering::Relaxed)
+            s.device_errors.load(Ordering::Relaxed),
+            f64::from_bits(s.pre_clamp_peak.load(Ordering::Relaxed)),
+            s.clipped_samples.load(Ordering::Relaxed)
         );
         if let Some(error) = s.worker_error.lock().unwrap().as_ref() {
             format!("{message}\nWORKER ERROR: {error}")
@@ -432,25 +529,39 @@ where
     )?)
 }
 
+#[cfg(test)]
 fn run_worker(
     audio: Arc<Audio>,
     finer: bool,
     receiver: Receiver<Command>,
     shared: &Shared,
 ) -> Result<()> {
+    run_source_worker(Arc::new(AudioFactory(audio)), finer, receiver, shared)
+}
+
+fn run_source_worker(
+    source: Arc<dyn SourceFactory>,
+    finer: bool,
+    receiver: Receiver<Command>,
+    shared: &Shared,
+) -> Result<()> {
+    let rate = source.rate();
+    let mut selection = 0;
+    let mut mix = MixState::default();
     let mut controls = Controls::default();
     let mut region = None;
-    let mut engine = Engine::new(audio.clone(), controls, 0.0, region, finer)?;
+    let mut engine =
+        Engine::new_source(source.open(selection, mix)?, controls, 0.0, region, finer)?;
     let mut pending = Vec::new().into_iter();
     let mut ended = false;
-    let mut metronome = ClickMixer::new(audio.rate);
+    let mut metronome = ClickMixer::new(rate);
     let mut count_in_settings = CountInSettings::default();
     let mut count_in_map: Option<MeasureMap> = None;
     let mut count_in: Option<CountIn> = None;
     let mut repeat_plan: Option<CountInPlan> = None;
     let mut held_frame = None;
     let mut last_music_frame = None;
-    let target = audio.rate as usize / 20;
+    let target = rate as usize / 20;
     loop {
         loop {
             let command = match receiver.try_recv() {
@@ -459,14 +570,44 @@ fn run_worker(
                 Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
             };
             let mut start_count_in = false;
+            let mut preserve_count_in = false;
             let reset = match command {
                 Command::Shutdown => return Ok(()),
+                Command::Mix(value, settings, reply) => {
+                    selection = value;
+                    mix = settings;
+                    preserve_count_in = true;
+                    if count_in.is_some() || shared.count_in.load(Ordering::Acquire) {
+                        let position = count_in
+                            .as_ref()
+                            .map_or(shared.position(), |c| c.source_frame);
+                        engine = Engine::new_source(
+                            source.open(selection, mix)?,
+                            controls,
+                            position / rate as f64,
+                            region,
+                            finer,
+                        )?;
+                        shared
+                            .preserve_queued_count_in
+                            .store(true, Ordering::Release);
+                        shared.epoch.fetch_add(1, Ordering::AcqRel);
+                        pending = Vec::new().into_iter();
+                        held_frame = None;
+                        last_music_frame = None;
+                        ended = false;
+                        let _ = reply.send(());
+                        None
+                    } else {
+                        Some((shared.position() / rate as f64, None, reply))
+                    }
+                }
                 Command::Start(reply) => {
                     if count_in_settings.enabled {
                         start_count_in = true;
-                        Some((shared.position() / audio.rate as f64, None, reply))
+                        Some((shared.position() / rate as f64, None, reply))
                     } else if shared.count_in.load(Ordering::Acquire) || count_in.is_some() {
-                        Some((shared.position() / audio.rate as f64, None, reply))
+                        Some((shared.position() / rate as f64, None, reply))
                     } else {
                         let _ = reply.send(());
                         None
@@ -481,7 +622,7 @@ fn run_worker(
                     repeat_plan = if settings.enabled && settings.repeat {
                         region
                             .map(|r: LoopRegion| {
-                                CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, audio.rate)
+                                CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, rate)
                             })
                             .transpose()?
                     } else {
@@ -490,7 +631,7 @@ fn run_worker(
                     if !settings.enabled
                         && (count_in.is_some() || shared.count_in.load(Ordering::Acquire))
                     {
-                        Some((shared.position() / audio.rate as f64, None, reply))
+                        Some((shared.position() / rate as f64, None, reply))
                     } else {
                         let _ = reply.send(());
                         None
@@ -502,7 +643,7 @@ fn run_worker(
                         let _ = reply.send(());
                         None
                     } else {
-                        Some((shared.position() / audio.rate as f64, None, reply))
+                        Some((shared.position() / rate as f64, None, reply))
                     }
                 }
                 Command::Controls(value, reply) => {
@@ -511,13 +652,13 @@ fn run_worker(
                         if count_in.is_some() || shared.count_in.load(Ordering::Acquire) {
                             // Music primed behind a count-in must use the new
                             // controls too; retain the count-in's elapsed phase.
-                            let source = count_in
+                            let source_position = count_in
                                 .as_ref()
                                 .map_or(shared.position(), |c| c.source_frame);
-                            engine = Engine::new(
-                                audio.clone(),
+                            engine = Engine::new_source(
+                                source.open(selection, mix)?,
                                 controls,
-                                source / f64::from(audio.rate),
+                                source_position / f64::from(rate),
                                 region,
                                 finer,
                             )?;
@@ -533,7 +674,7 @@ fn run_worker(
                         None
                     } else {
                         // Prebuffered audio must match controls chosen while paused.
-                        Some((shared.position() / audio.rate as f64, None, reply))
+                        Some((shared.position() / rate as f64, None, reply))
                     }
                 }
                 Command::Seek(seconds, submitted, reply) => Some((seconds, Some(submitted), reply)),
@@ -541,38 +682,47 @@ fn run_worker(
                     region = value;
                     repeat_plan = if count_in_settings.enabled && count_in_settings.repeat {
                         region
-                            .map(|r| {
-                                CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, audio.rate)
-                            })
+                            .map(|r| CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, rate))
                             .transpose()?
                     } else {
                         None
                     };
-                    Some((shared.position() / audio.rate as f64, None, reply))
+                    Some((shared.position() / rate as f64, None, reply))
                 }
             };
             if let Some((seconds, submitted, reply)) = reset {
-                let new_engine = Engine::new(audio.clone(), controls, seconds, region, finer)?;
+                let new_engine = Engine::new_source(
+                    source.open(selection, mix)?,
+                    controls,
+                    seconds,
+                    region,
+                    finer,
+                )?;
+                shared
+                    .preserve_queued_count_in
+                    .store(false, Ordering::Release);
                 shared.epoch.fetch_add(1, Ordering::AcqRel);
                 while shared.queue.pop().is_some() {}
                 pending = Vec::new().into_iter();
                 shared.source_position.store(
-                    (new_engine.output_position() * audio.rate as f64).to_bits(),
+                    (new_engine.output_position() * rate as f64).to_bits(),
                     Ordering::Relaxed,
                 );
                 shared.finished.store(false, Ordering::Release);
                 shared.loop_wraps.store(0, Ordering::Relaxed);
-                count_in = if start_count_in {
+                count_in = if preserve_count_in {
+                    count_in
+                } else if start_count_in {
                     Some(CountIn::new(
                         CountInPlan::at(
                             count_in_map.as_ref().unwrap(),
                             new_engine.output_position(),
-                            audio.rate,
+                            rate,
                         )?
                         .with_silent_beat(),
-                        audio.rate,
+                        rate,
                         count_in_settings.volume,
-                        new_engine.output_position() * f64::from(audio.rate),
+                        new_engine.output_position() * f64::from(rate),
                     ))
                 } else {
                     None
@@ -598,7 +748,7 @@ fn run_worker(
         }
         if pending.len() == 0 && held_frame.is_none() && !ended {
             let start = Instant::now();
-            let block = engine.next_block();
+            let block = engine.try_next_block()?;
             shared
                 .max_render_us
                 .fetch_max(start.elapsed().as_micros() as u64, Ordering::Relaxed);
@@ -643,11 +793,9 @@ fn run_worker(
                 if wrapped && let Some(plan) = &repeat_plan {
                     count_in = Some(CountIn::new(
                         plan.clone(),
-                        audio.rate,
+                        rate,
                         count_in_settings.volume,
-                        region.map_or(frame.source_frame, |r| {
-                            (r.start * f64::from(audio.rate)).round()
-                        }),
+                        region.map_or(frame.source_frame, |r| (r.start * f64::from(rate)).round()),
                     ));
                     held_frame = Some(frame);
                     metronome.reset(region);
@@ -659,13 +807,13 @@ fn run_worker(
                 {
                     // Rubber Band may retain energy beyond the input fades.
                     // Pair output fades at the joins with inserted count-ins.
-                    let start = (r.start * f64::from(audio.rate)).round();
-                    let end = (r.end * f64::from(audio.rate)).round();
+                    let start = (r.start * f64::from(rate)).round();
+                    let end = (r.end * f64::from(rate)).round();
                     let distance = (frame.source_frame - start)
                         .min(end - frame.source_frame)
                         .max(0.0);
-                    let gain = (distance / (f64::from(audio.rate) * controls.speed * 0.005))
-                        .min(1.0) as f32;
+                    let gain =
+                        (distance / (f64::from(rate) * controls.speed * 0.005)).min(1.0) as f32;
                     frame.samples.iter_mut().for_each(|sample| *sample *= gain);
                 }
                 (frame, false)
@@ -680,6 +828,22 @@ fn run_worker(
                 })
                 .map_err(|_| anyhow::anyhow!("Audio queue unexpectedly full"))?;
         }
+    }
+}
+
+struct AudioFactory(Arc<Audio>);
+impl SourceFactory for AudioFactory {
+    fn rate(&self) -> u32 {
+        self.0.rate
+    }
+    fn len_frames(&self) -> u64 {
+        self.0.frames.len() as u64
+    }
+    fn open(&self, _: usize, _: MixState) -> Result<Box<dyn crate::stems::BlockSource>> {
+        Ok(Box::new(MemorySource(self.0.clone())))
+    }
+    fn resample_legacy(&self, rate: u32) -> Result<Arc<dyn SourceFactory>> {
+        Ok(Arc::new(Self(Arc::new(self.0.resample(rate)?))))
     }
 }
 
@@ -907,6 +1071,62 @@ mod tests {
                 .all(|f| f.count_in && f.frame.source_frame == 24_000.0)
         );
         assert!(clicks.iter().any(|f| f.frame.samples[0].abs() > 0.01));
+    }
+
+    #[test]
+    fn mix_commands_preserve_count_in_elapsed_phase_and_click_schedule() {
+        for speed in [0.25, 1.0, 2.0] {
+            let worker = TestWorker::new();
+            worker.configure(speed, 0.0, false);
+            let consumed = 1200;
+            worker.read(consumed);
+            wait_until(|| worker.shared.queue.len() == 2400);
+            let mut mix = MixState::default();
+            mix.tracks[0].mute = true;
+            worker.send(|reply| Command::Mix(1, mix, reply));
+            let remaining = (30_000.0 / speed) as usize - consumed;
+            let frames = worker.read(remaining);
+            assert!(
+                frames.iter().all(|f| f.count_in),
+                "Mix edits cannot skip count-in frames"
+            );
+            let music = worker.read(1200);
+            assert!(music.iter().all(|f| !f.count_in));
+            assert_eq!(music[0].frame.source_frame, 24_000.0);
+        }
+    }
+
+    #[test]
+    fn concurrent_mix_edits_do_not_reorder_or_fade_count_in_clicks() {
+        fn capture(edits: bool) -> Vec<[f32; 2]> {
+            let worker = TestWorker::new();
+            worker.configure(1.0, 0.0, false);
+            let shared = worker.shared.clone();
+            let consumer_thread = thread::spawn(move || {
+                let mut consumer = Consumer::new(shared.clone(), 48_000);
+                let mut samples = Vec::new();
+                let start = Instant::now();
+                for block in 0..400 {
+                    for _ in 0..48 {
+                        samples.push(consumer.next_frame());
+                    }
+                    let due = start + Duration::from_millis(block + 1);
+                    if let Some(remaining) = due.checked_duration_since(Instant::now()) {
+                        thread::sleep(remaining);
+                    }
+                }
+                assert_eq!(shared.underflow_frames.load(Ordering::Relaxed), 0);
+                samples
+            });
+            if edits {
+                for selection in [1, 2, 0, 1, 0] {
+                    thread::sleep(Duration::from_millis(35));
+                    worker.send(|reply| Command::Mix(selection, MixState::default(), reply));
+                }
+            }
+            consumer_thread.join().unwrap()
+        }
+        assert_eq!(capture(false), capture(true));
     }
 
     fn worker_map() -> Option<MeasureMap> {
