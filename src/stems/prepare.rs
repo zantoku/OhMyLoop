@@ -1,3 +1,4 @@
+pub mod library;
 use super::{MixState, Pcm, PcmReader, Role, SourceFactory, StemSource, TemporaryDirectory};
 use anyhow::{Context, Result, ensure};
 use rubato::{
@@ -61,7 +62,7 @@ impl PreparedComparison {
             builder.mode(0o700);
         }
         builder.create(&directory)?;
-        let temporary = Arc::new(TemporaryDirectory(directory.clone()));
+        let temporary = Arc::new(TemporaryDirectory(directory.clone(), false.into()));
         let mut preparer = Preparer {
             directory,
             next: 0,

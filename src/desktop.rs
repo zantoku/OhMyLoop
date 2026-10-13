@@ -1,4 +1,5 @@
 mod managed;
+pub mod stems;
 use crate::{
     audio::Audio,
     count_in::Settings as CountInSettings,
@@ -63,13 +64,22 @@ pub struct LibraryStatus {
 }
 
 enum Command {
+    StemStatus(String),
+    BeginStems(String),
+    BeginStemRefresh(String),
+    FinishStems,
+    CommitStems(stems::Operation, stems::Activation),
+    RefreshStems(stems::Operation, stems::Activation),
+    RemoveStems(String, String),
+    MixStems(String, String, Vec<stems::TrackControl>, bool),
     ManagedStatus,
     ManagedSnapshot,
     ManagedLastSong,
     ManagedContext,
+    BeginManagedOpen,
     SelectManaged(crate::managed::ManagedLibrary, bool),
     CommitManaged(u64, crate::managed::Prepared),
-    ActivateManaged(u64, crate::managed::Prepared),
+    ActivateManaged(u64, u64, stems::PreparedOpen),
     CommitReplacement(u64, crate::managed::PreparedReplacement, Option<String>),
     ReplacementContext(String),
     DeleteManaged(String),
@@ -92,10 +102,13 @@ enum Command {
     CountIn(String, CountInSettings),
 }
 enum Response {
+    StemStatus(stems::Status),
+    StemOperation(Box<stems::Operation>),
     ManagedStatus(LibraryStatus),
     ManagedLastSong(Option<String>),
     ReplacementContext(bool),
     ManagedContext(crate::managed::ManagedLibrary, u64),
+    ManagedOpenContext(crate::managed::ManagedLibrary, u64, u64),
     Snapshot(Box<Snapshot>),
     Status(Transport),
     Source(Arc<Audio>),
@@ -149,6 +162,7 @@ impl Desktop {
                     managed,
                     root_error,
                     managed_generation: 0,
+                    activation_generation: 0,
                     store,
                     library,
                     library_error: None,
@@ -163,6 +177,8 @@ impl Desktop {
                     metronome_enabled: false,
                     metronome_volume: 0.5,
                     count_in: CountInSettings::default(),
+                    stems: None,
+                    stems_busy: false,
                 };
                 while let Ok(request) = receiver.recv() {
                     if matches!(request.command, Command::Shutdown) {
@@ -202,10 +218,24 @@ impl Desktop {
         }
     }
     pub fn open_library(&self, key: String) -> Result<Snapshot> {
+        self.open_library_with_progress(key, |_, _| {})
+    }
+    pub fn open_library_with_progress(
+        &self,
+        key: String,
+        mut progress: impl FnMut(String, crate::stems::PreparationProgress),
+    ) -> Result<Snapshot> {
         if self.managed_status()?.selected.is_some() {
-            let (library, generation) = self.managed_context()?;
+            let (library, generation, open_generation) = self.begin_managed_open()?;
             let prepared = library.open_song(&key)?;
-            return self.snapshot(Command::ActivateManaged(generation, prepared));
+            let token = prepared.record.reference(SessionId::new()).token();
+            let prepared =
+                Self::prepare_stem_open(&library, prepared, |p| progress(token.clone(), p));
+            return self.snapshot(Command::ActivateManaged(
+                generation,
+                open_generation,
+                prepared,
+            ));
         }
         self.snapshot(Command::OpenLibrary(key))
     }
@@ -220,19 +250,38 @@ impl Desktop {
         }
     }
     pub fn restore_managed(&self) -> Result<Snapshot> {
+        self.restore_managed_with_progress(|_, _| {})
+    }
+    pub fn restore_managed_with_progress(
+        &self,
+        progress: impl FnMut(String, crate::stems::PreparationProgress),
+    ) -> Result<Snapshot> {
         let status = self.managed_status()?;
         if status.selected.is_none() {
             return self.snapshot(Command::ManagedSnapshot);
         }
-        self.restore()
+        self.restore_with_progress(progress)
     }
     pub fn restore(&self) -> Result<Snapshot> {
+        self.restore_with_progress(|_, _| {})
+    }
+    fn restore_with_progress(
+        &self,
+        mut progress: impl FnMut(String, crate::stems::PreparationProgress),
+    ) -> Result<Snapshot> {
         let initial = self.snapshot(Command::Restore)?;
         if initial.library_status.available {
-            let (library, generation) = self.managed_context()?;
+            let (library, generation, open_generation) = self.begin_managed_open()?;
             if let Some(key) = self.managed_last_song()? {
                 let prepared = library.open_song(&key)?;
-                return self.snapshot(Command::ActivateManaged(generation, prepared));
+                let token = prepared.record.reference(SessionId::new()).token();
+                let prepared =
+                    Self::prepare_stem_open(&library, prepared, |p| progress(token.clone(), p));
+                return self.snapshot(Command::ActivateManaged(
+                    generation,
+                    open_generation,
+                    prepared,
+                ));
             }
         }
         Ok(initial)
@@ -244,6 +293,19 @@ impl Desktop {
         self.snapshot(Command::Update(document))
     }
     pub fn act(&self, action: Action, reference_token: String) -> Result<Snapshot> {
+        self.act_with_progress(action, reference_token, |_| {})
+    }
+    pub fn act_with_progress(
+        &self,
+        action: Action,
+        reference_token: String,
+        progress: impl FnMut(crate::stems::PreparationProgress),
+    ) -> Result<Snapshot> {
+        if matches!(action, Action::RetryAudio)
+            && self.stems_status(reference_token.clone())?.set_id.is_some()
+        {
+            self.refresh_stems(reference_token.clone(), progress)?;
+        }
         self.snapshot(Command::Act(action, reference_token))
     }
     pub fn load_separate(&self, path: String) -> Result<Snapshot> {
@@ -359,6 +421,7 @@ struct Controller {
     managed: Option<crate::managed::ManagedLibrary>,
     root_error: Option<String>,
     managed_generation: u64,
+    activation_generation: u64,
     store: Store,
     library: crate::library::Store,
     library_error: Option<String>,
@@ -373,10 +436,30 @@ struct Controller {
     metronome_enabled: bool,
     metronome_volume: f32,
     count_in: CountInSettings,
+    stems: Option<stems::Activation>,
+    stems_busy: bool,
 }
 
 impl Controller {
     fn request(&mut self, command: Command) -> Result<Response> {
+        if self.stems_busy {
+            ensure!(
+                matches!(
+                    command,
+                    Command::Status
+                        | Command::Source(_)
+                        | Command::ManagedStatus
+                        | Command::StemStatus(_)
+                        | Command::FinishStems
+                        | Command::CommitStems(..)
+                        | Command::RefreshStems(..)
+                ),
+                "Stem operation in progress; wait until it completes"
+            );
+        }
+        if let Some(response) = self.stem_command(&command)? {
+            return Ok(response);
+        }
         let include_song = matches!(
             command,
             Command::Restore
@@ -392,6 +475,14 @@ impl Controller {
                 | Command::ReplaceLibrary(..)
         );
         match command {
+            Command::StemStatus(_)
+            | Command::BeginStems(_)
+            | Command::BeginStemRefresh(_)
+            | Command::FinishStems
+            | Command::CommitStems(..)
+            | Command::RefreshStems(..)
+            | Command::RemoveStems(..)
+            | Command::MixStems(..) => unreachable!(),
             Command::ManagedSnapshot => {
                 return Ok(Response::Snapshot(Box::new(self.snapshot(true))));
             }
@@ -401,6 +492,30 @@ impl Controller {
                 ));
             }
             Command::ManagedStatus => return Ok(Response::ManagedStatus(self.managed_status())),
+            Command::BeginManagedOpen => {
+                ensure!(
+                    self.managed_status().available,
+                    "Selected library is unavailable"
+                );
+                if let Some(player) = &self.player {
+                    player.pause();
+                }
+                self.persist_position();
+                ensure!(
+                    self.save_error.is_none(),
+                    "Practice settings could not be saved"
+                );
+                self.player = None;
+                if let Some(stems) = &mut self.stems {
+                    stems.prepared = None;
+                }
+                self.activation_generation = self.activation_generation.wrapping_add(1);
+                return Ok(Response::ManagedOpenContext(
+                    self.managed.clone().context("Select a library first")?,
+                    self.managed_generation,
+                    self.activation_generation,
+                ));
+            }
             Command::ManagedContext => {
                 ensure!(
                     self.managed_status().available,
@@ -459,9 +574,13 @@ impl Controller {
                     anyhow::bail!("{error}");
                 }
                 let prepared = library.commit_import(prepared)?;
-                self.activate_managed(&library, prepared)?;
+                self.activate_managed(&library, prepared, None)?;
             }
-            Command::ActivateManaged(id, prepared) => {
+            Command::ActivateManaged(id, open_generation, prepared) => {
+                ensure!(
+                    self.activation_generation == open_generation,
+                    "Song changed; discard stale open"
+                );
                 let library = self.managed.clone().context("Library is unavailable")?;
                 ensure!(
                     self.managed_generation == id && self.managed_status().available,
@@ -471,7 +590,7 @@ impl Controller {
                 if let Some(error) = &self.save_error {
                     anyhow::bail!("{error}");
                 }
-                self.activate_managed(&library, prepared)?;
+                self.activate_managed(&library, prepared.recording, prepared.stems)?;
             }
             Command::ReplacementContext(token) => {
                 let expected = Reference::parse(&token)?;
@@ -498,7 +617,7 @@ impl Controller {
                     anyhow::bail!("{error}");
                 }
                 let prepared = library.commit_replace(replacement)?;
-                self.activate_managed(&library, prepared)?;
+                self.activate_managed(&library, prepared, None)?;
             }
             Command::DeleteManaged(key) => {
                 let library = self.managed.as_ref().context("Library is unavailable")?;
@@ -951,7 +1070,9 @@ impl Controller {
                 warnings.push(format!("Song opened, but last-song restoration could not be saved; original preserved: {error:#}"));
             }
         }
+        self.activation_generation = self.activation_generation.wrapping_add(1);
         self.player = None;
+        self.stems = None;
         self.review_map = None;
         self.metronome_enabled = false;
         self.count_in = CountInSettings::default();
@@ -969,7 +1090,17 @@ impl Controller {
         let audio = self.audio.as_ref().unwrap().clone();
         let document = self.document.as_ref().unwrap();
         let result = (|| -> Result<Player> {
-            let player = Player::open_shared(audio, true)?;
+            let player =
+                if let Some(prepared) = self.stems.as_ref().and_then(|s| s.prepared.clone()) {
+                    Player::open_bounded(prepared, true, audio.rate)?
+                } else {
+                    Player::open_shared(audio, true)?
+                };
+            if let Some(stems) = &self.stems
+                && stems.prepared.is_some()
+            {
+                player.set_mix(stems.selection(), stems.mix)?;
+            }
             player.set_controls(document.controls)?;
             player.set_loop(document.active_loop())?;
             player.seek(document.last_position)?;
@@ -1069,10 +1200,14 @@ impl Controller {
                 || player.shared.worker_error.lock().unwrap().is_some()
             {
                 player.pause();
-                self.audio_error = Some(
-                    "Audio output stopped. Reconnect an output device and choose Retry audio."
-                        .into(),
-                );
+                let worker = player.shared.worker_error.lock().unwrap().clone();
+                self.audio_error = Some(worker.map_or_else(
+                    || {
+                        "Audio output stopped. Reconnect an output device and choose Retry audio."
+                            .into()
+                    },
+                    |error| format!("Playback stopped: {error}"),
+                ));
             }
             Transport {
                 song_key: self.song.as_ref().map(|s| s.key.clone()),

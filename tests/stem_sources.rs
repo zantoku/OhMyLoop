@@ -38,6 +38,7 @@ fn write_manifest(set: &Path, mut value: Value) {
 fn fixture(roles: &[Role], second: bool) -> Fixture {
     let root = std::env::temp_dir().join(format!("ohmyloop-stem-test-{}", uuid::Uuid::new_v4()));
     fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
     let rate = 44_100;
     let frames = 4097;
     let reference = root.join("reference.wav");
@@ -73,7 +74,18 @@ fn fixture(roles: &[Role], second: bool) -> Fixture {
             };
             stems.insert(role.name().into(),json!({"file":file,"sha256":sha(&set.join(format!("{}.wav",role.name()))),"rate":rate,"frames":frames,"channels":2}));
         }
-        let value = json!({"version":1,"status":"complete","identity":{"preparation":{"version":1,"source_sha256":sha(&reference),"source_rate":rate,"source_frames":frames,"source_span":{"start":0,"end_exclusive":frames},"prepared_rate":rate,"prepared_frames":frames,"channels":2,"prepared_sha256":sha(&set.join("prepared.wav"))}},"stems":stems});
+        let mut value = json!({"version":1,"status":"complete","identity":{"preparation":{"version":1,"source_sha256":sha(&reference),"source_rate":rate,"source_frames":frames,"source_span":{"start":0,"end_exclusive":frames},"prepared_rate":rate,"prepared_frames":frames,"channels":2,"prepared_sha256":sha(&set.join("prepared.wav"))}},"stems":stems});
+        value["identity"]["preparation"]["preprocessing"] =
+            json!("symphonia-stereo-rubato-delay-compensated-v1");
+        value["identity"]["preparation"]["geometry_policy"] = json!(
+            "floor(seconds * source_rate); floor(span_frames * 44100 / source_rate); no context"
+        );
+        value["corrections"] = json!([]);
+        value["identity"]["settings"] = json!({"normalization":"none per stem"});
+        value["identity"]["model_lock"] = json!({"version":1,"model":"demucs-6s","files":{
+            "5c90dfd2-34c22ccb.th":{"sha256":"34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd","bytes":54996327,"url":"https://example.test/checkpoint"},
+            "htdemucs_6s.yaml":{"sha256":"207405151270af8fd81c2373c25d27950916682ac91dca7884a11ce13dad6f58","bytes":21,"url":"https://example.test/config"}
+        }});
         write_manifest(&set, value);
         sets.push(set);
     }
@@ -328,4 +340,415 @@ fn stem_rate_conversion_uses_direct_reference_floor_mapping() {
         let expected = (1000.0 * device as f64 / f.rate as f64).round() as i64;
         assert!((peak - expected).abs() <= 2);
     }
+}
+
+#[test]
+fn owned_attachment_removes_prototype_dependency_and_cache_reuses_without_hashing() {
+    use ohmyloop::stems::library::{SavedMix, attach, prepare};
+    let f = fixture(&[Role::Bass, Role::Drums], false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let cache = f.root.join("cache");
+    let mut record = attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap();
+    assert_eq!(owned.file_name().unwrap().to_str().unwrap(), record.id);
+    assert!(!owned.join("prepared.wav").exists());
+    assert_eq!(fs::read_dir(&owned).unwrap().count(), 2);
+    fs::remove_dir_all(&f.sets[0]).unwrap();
+    let initial = prepare(&record, &f.reference, &owned, &cache, f.rate, |_| {}).unwrap();
+    let attenuation = initial.shared_attenuation;
+    let cache_before = fs::read(cache.join("cache.json")).unwrap();
+    drop(initial);
+    assert!(cache.exists());
+    let mut mix = MixState::default();
+    mix.tracks[Role::Bass.index()].gain = 0.5;
+    mix.tracks[Role::Bass.index()].solo = true;
+    record.mix = SavedMix::from_mix(mix);
+    assert!(!record.mix.to_mix().tracks[0].solo);
+    let mut phases = vec![];
+    let reused = prepare(&record, &f.reference, &owned, &cache, f.rate, |p| {
+        phases.push(p.phase)
+    })
+    .unwrap();
+    assert_eq!(phases, ["Reuse prepared playback"]);
+    assert_eq!(fs::read(cache.join("cache.json")).unwrap(), cache_before);
+    assert_eq!(attenuation, reused.shared_attenuation);
+    let mut source = reused.open(record.selection(mix), mix).unwrap();
+    let mut out = [[0.; 2]; 1];
+    source.read_frames(32, &mut out).unwrap();
+    assert!((out[0][0] - 0.05 * attenuation).abs() < 1e-6);
+    drop(source);
+    drop(reused);
+    // An ordinary manual edit rebuilds without enforcing the recorded hash.
+    write_wav(
+        &owned.join("bass.wav"),
+        f.rate,
+        &vec![[0.6; 2]; f.frames as usize],
+    )
+    .unwrap();
+    let mut phases = vec![];
+    let edited = prepare(&record, &f.reference, &owned, &cache, f.rate, |p| {
+        phases.push(p.phase)
+    })
+    .unwrap();
+    assert!(!phases.iter().any(|p| p.starts_with("Hash")));
+    assert!(phases.iter().any(|p| p.starts_with("Decode")));
+    assert!((edited.shared_attenuation - 0.875).abs() < 1e-5);
+    drop(edited);
+    let resampled = prepare(&record, &f.reference, &owned, &cache, 48_000, |_| {}).unwrap();
+    assert_eq!(resampled.frames, f.frames * 48_000 / f.rate as u64);
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
+    drop(resampled);
+    // Missing/truncated preparation rebuilds; missing authoritative stems fail.
+    let pointer: Value =
+        serde_json::from_slice(&fs::read(cache.join("cache.json")).unwrap()).unwrap();
+    let generation = cache.join(pointer["generation"].as_str().unwrap());
+    assert_eq!(fs::read_dir(&generation).unwrap().count(), 3);
+    let entry = fs::read_dir(&generation)
+        .unwrap()
+        .find(|e| {
+            e.as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|x| x == "pcm")
+        })
+        .unwrap()
+        .unwrap();
+    fs::write(entry.path(), [0; 8]).unwrap();
+    assert!(prepare(&record, &f.reference, &owned, &cache, 48_000, |_| {}).is_ok());
+    fs::remove_file(owned.join("bass.wav")).unwrap();
+    assert!(prepare(&record, &f.reference, &owned, &cache, 48_000, |_| {}).is_err());
+}
+
+#[test]
+fn owned_records_validate_versions_provenance_paths_and_present_role_selection() {
+    use ohmyloop::stems::library::attach;
+    let f = fixture(&[Role::Bass], false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let record = attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap();
+    let mut mix = MixState::default();
+    mix.tracks[Role::Guitar.index()].mute = true;
+    assert_eq!(record.selection(mix), 0);
+    mix.tracks[Role::Bass.index()].solo = true;
+    assert_eq!(record.selection(mix), 1);
+    for case in 0..6 {
+        let mut invalid = record.clone();
+        match case {
+            0 => invalid.version = 2,
+            1 => invalid.tracks[0].file = "../reference.wav".into(),
+            2 => invalid.tracks[0].role = "banjo".into(),
+            3 => invalid.tracks.push(invalid.tracks[0].clone()),
+            4 => invalid.provenance["preparation"]["source_span"]["start"] = json!(1),
+            _ => invalid.mix.tracks[0].gain = 1.1,
+        }
+        assert!(invalid.validate().is_err(), "case {case}");
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn owned_preparation_rejects_symlink_and_attachment_failure_keeps_inputs() {
+    use ohmyloop::stems::library::{attach, prepare};
+    let f = fixture(&[Role::Bass], false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let record = attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap();
+    fs::remove_file(owned.join("bass.wav")).unwrap();
+    std::os::unix::fs::symlink(f.sets[0].join("bass.wav"), owned.join("bass.wav")).unwrap();
+    assert!(
+        prepare(
+            &record,
+            &f.reference,
+            &owned,
+            &f.root.join("cache"),
+            f.rate,
+            |_| {}
+        )
+        .is_err()
+    );
+    let invalid = f.root.join("invalid-owned");
+    let before = sha(&f.sets[0].join("bass.wav"));
+    fs::write(f.sets[0].join("bass.wav"), b"broken").unwrap();
+    assert!(attach(&f.reference, &f.sets[0], &invalid, f.rate, |_| {}).is_err());
+    assert!(!invalid.exists());
+    assert_ne!(sha(&f.sets[0].join("bass.wav")), before);
+}
+
+#[test]
+fn managed_stem_publication_preserves_edits_rejects_stale_and_cleans_reference_replacement() {
+    use ohmyloop::{
+        managed::ManagedLibrary,
+        project::SessionId,
+        stems::library::{attach, prepare},
+    };
+    let f = fixture(&[Role::Bass], false);
+    let library = ManagedLibrary::create(&f.root).unwrap();
+    let imported = library
+        .commit_import(library.import(&f.reference, |_, _| {}).unwrap())
+        .unwrap();
+    let key = imported.record.id.to_string();
+    let id = uuid::Uuid::new_v4().to_string();
+    let owned = library.stem_directory(&key, &id).unwrap();
+    let mut attached = attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap();
+    attached.mix.tracks[0].gain = 0.5;
+    library
+        .save_stems(
+            &key,
+            imported.record.reference_revision,
+            Some(attached.clone()),
+        )
+        .unwrap();
+    let mut document = imported.record.document(SessionId::new()).unwrap();
+    document.notes = "Authored notes survive attachment".into();
+    library.save_document(&document).unwrap();
+    assert_eq!(library.record(&key).unwrap().stems, Some(attached.clone()));
+    let before = fs::read(library.root().join(format!("songs/{key}/song.json"))).unwrap();
+    assert!(
+        library
+            .save_stems(&key, imported.record.reference_revision + 1, None)
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(library.root().join(format!("songs/{key}/song.json"))).unwrap(),
+        before
+    );
+    let cache = library.stem_cache_directory(&key).unwrap();
+    let playback = prepare(
+        &attached,
+        &library.asset_path(&imported.record).unwrap(),
+        &owned,
+        &cache,
+        f.rate,
+        |_| {},
+    )
+    .unwrap();
+    drop(playback);
+    let replacement = library
+        .prepare_replace(&key, &f.reference, true, |_, _| {})
+        .unwrap();
+    let replaced = library.commit_replace(replacement).unwrap();
+    assert!(library.record(&key).unwrap().stems.is_none());
+    assert!(!owned.exists());
+    assert!(!cache.exists());
+    assert_eq!(
+        replaced.record.document(SessionId::new()).unwrap().notes,
+        document.notes
+    );
+    // Reattach to the new reference, then preserve a future-version record byte-for-byte.
+    let id = uuid::Uuid::new_v4().to_string();
+    let owned = library.stem_directory(&key, &id).unwrap();
+    let attached = attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap();
+    library
+        .save_stems(&key, replaced.record.reference_revision, Some(attached))
+        .unwrap();
+    let song_path = library.root().join(format!("songs/{key}/song.json"));
+    let saved = fs::read(&song_path).unwrap();
+    let mut future: Value = serde_json::from_slice(&saved).unwrap();
+    future["stems"]["version"] = json!(2);
+    fs::write(&song_path, serde_json::to_vec(&future).unwrap()).unwrap();
+    let future_bytes = fs::read(&song_path).unwrap();
+    assert!(
+        library
+            .save_stems(&key, replaced.record.reference_revision, None)
+            .is_err()
+    );
+    assert!(library.save_document(&document).is_err());
+    assert_eq!(fs::read(&song_path).unwrap(), future_bytes);
+    fs::write(&song_path, saved).unwrap();
+    library.delete(&key).unwrap();
+    assert!(!owned.exists());
+    assert!(f.reference.exists());
+    assert!(f.sets[0].join("bass.wav").exists());
+}
+
+#[test]
+fn attachment_requires_known_preprocessing_coordinate_policy_and_model_artifacts() {
+    use ohmyloop::stems::library::attach;
+    let f = fixture(&[Role::Bass], false);
+    let path = f.sets[0].join("manifest.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for case in 0..12 {
+        let mut invalid = original.clone();
+        match case {
+            0 => {
+                invalid["identity"]["preparation"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("preprocessing");
+            }
+            1 => {
+                invalid["identity"]["preparation"]["preprocessing"] =
+                    json!("unknown-shifted-preprocessing")
+            }
+            2 => {
+                invalid["identity"]["preparation"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("geometry_policy");
+            }
+            3 => {
+                invalid["identity"]["preparation"]["geometry_policy"] =
+                    json!("ceil-with-context-and-delay")
+            }
+            4 => {
+                invalid["identity"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("model_lock");
+            }
+            5 => invalid["identity"]["model_lock"]["model"] = json!("unsupported-model"),
+            6 => invalid["identity"]["model_lock"]["files"] = json!({}),
+            7 => {
+                invalid["identity"]["model_lock"]["files"]["5c90dfd2-34c22ccb.th"]["sha256"] =
+                    json!("0".repeat(64))
+            }
+            8 => invalid["identity"]["model_lock"]["version"] = json!(2),
+            9 => invalid["identity"]["settings"]["normalization"] = json!("normalize each stem"),
+            10 => invalid["corrections"] = json!([{"offset_frames":100}]),
+            _ => {
+                invalid.as_object_mut().unwrap().remove("corrections");
+            }
+        }
+        write_manifest(&f.sets[0], invalid);
+        let before = fs::read(&path).unwrap();
+        let destination = f.root.join(uuid::Uuid::new_v4().to_string());
+        assert!(
+            attach(&f.reference, &f.sets[0], &destination, f.rate, |_| {}).is_err(),
+            "case {case}"
+        );
+        assert!(!destination.exists());
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+    // Both declared prototype backends are accepted; no model files/runtime are required.
+    let mut roformer = original;
+    roformer["identity"]["model_lock"] = json!({"version":1,"model":"roformer-sw","files":{
+        "BS-Roformer-SW.ckpt":{"sha256":"24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e","bytes":699412152,"url":"https://example.test/checkpoint"},
+        "BS-Roformer-SW.yaml":{"sha256":"b558996f1e25eb48798bd6502505a5de94c4f966d6edfb1a0420f06cc40b501a","bytes":4653,"url":"https://example.test/config"}
+    }});
+    let mut missing_padding = roformer.clone();
+    write_manifest(&f.sets[0], missing_padding.clone());
+    assert!(
+        attach(
+            &f.reference,
+            &f.sets[0],
+            &f.root.join(uuid::Uuid::new_v4().to_string()),
+            f.rate,
+            |_| {}
+        )
+        .is_err()
+    );
+    missing_padding["identity"]["settings"]["roformer_short_input"] =
+        json!("uncompensated-padding");
+    write_manifest(&f.sets[0], missing_padding);
+    assert!(
+        attach(
+            &f.reference,
+            &f.sets[0],
+            &f.root.join(uuid::Uuid::new_v4().to_string()),
+            f.rate,
+            |_| {}
+        )
+        .is_err()
+    );
+    roformer["identity"]["settings"]["roformer_short_input"] =
+        json!("right-zero-pad-to-config-chunk; crop-declared-padding");
+    write_manifest(&f.sets[0], roformer);
+    assert!(
+        attach(
+            &f.reference,
+            &f.sets[0],
+            &f.root.join(uuid::Uuid::new_v4().to_string()),
+            f.rate,
+            |_| {}
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn overlapping_preparation_keeps_active_generations_readable_and_retires_when_released() {
+    use ohmyloop::stems::library::{attach, prepare};
+    use std::sync::{Arc, mpsc};
+    let f = fixture(&[Role::Bass], false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let record = Arc::new(attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap());
+    let cache = f.root.join("cache");
+    let original = prepare(&record, &f.reference, &owned, &cache, f.rate, |_| {}).unwrap();
+    let pointer: Value =
+        serde_json::from_slice(&fs::read(cache.join("cache.json")).unwrap()).unwrap();
+    let old_directory = cache.join(pointer["generation"].as_str().unwrap());
+    let mut active = original.open(1, MixState::default()).unwrap();
+    drop(original);
+    let (started_tx, started_rx) = mpsc::channel();
+    let (continue_tx, continue_rx) = mpsc::channel();
+    let (second_tx, second_rx) = mpsc::channel();
+    let reference = f.reference.clone();
+    let first = std::thread::spawn({
+        let record = Arc::clone(&record);
+        let owned = owned.clone();
+        let cache = cache.clone();
+        let reference = reference.clone();
+        move || {
+            let mut blocked = false;
+            prepare(&record, &reference, &owned, &cache, 48_000, |progress| {
+                if !blocked && progress.phase.starts_with("Decode") {
+                    blocked = true;
+                    started_tx.send(()).unwrap();
+                    continue_rx.recv().unwrap();
+                }
+            })
+            .unwrap()
+        }
+    });
+    started_rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
+    let second = std::thread::spawn({
+        let record = Arc::clone(&record);
+        let owned = owned.clone();
+        let cache = cache.clone();
+        move || {
+            prepare(&record, &reference, &owned, &cache, 44_100, |_| {
+                let _ = second_tx.send(());
+            })
+            .unwrap()
+        }
+    });
+    // The second caller must not enter preparation while the first owns the cache.
+    assert!(
+        second_rx
+            .recv_timeout(std::time::Duration::from_millis(30))
+            .is_err()
+    );
+    let mut samples = [[0.; 2]; 32];
+    active.read_frames(100, &mut samples).unwrap();
+    assert!(samples.iter().all(|s| (s[0] - 0.1).abs() < 1e-6));
+    continue_tx.send(()).unwrap();
+    let first = first.join().unwrap();
+    let second = second.join().unwrap();
+    assert!(old_directory.exists());
+    active.read_frames(200, &mut samples).unwrap();
+    for prepared in [&first, &second] {
+        let mut reader = prepared.open(1, MixState::default()).unwrap();
+        assert_eq!(reader.read_frames(200, &mut samples).unwrap(), 32);
+        assert!(samples.iter().flatten().all(|s| s.is_finite()));
+    }
+    drop(active);
+    assert!(!old_directory.exists());
+    drop(first);
+    drop(second);
+    // Only the most recently published device-rate generation remains on disk.
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
+    let mut phases = vec![];
+    let reused = prepare(&record, &f.reference, &owned, &cache, 44_100, |p| {
+        phases.push(p.phase)
+    })
+    .unwrap();
+    assert_eq!(phases, ["Reuse prepared playback"]);
+    assert_eq!(reused.output_rate, 44_100);
+    let pointer_before = fs::read(cache.join("cache.json")).unwrap();
+    fs::write(owned.join("bass.wav"), b"invalid edited audio").unwrap();
+    assert!(prepare(&record, &f.reference, &owned, &cache, 48_000, |_| {}).is_err());
+    assert_eq!(fs::read(cache.join("cache.json")).unwrap(), pointer_before);
+    assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
+    let mut surviving_reader = reused.open(1, MixState::default()).unwrap();
+    assert_eq!(surviving_reader.read_frames(100, &mut samples).unwrap(), 32);
 }

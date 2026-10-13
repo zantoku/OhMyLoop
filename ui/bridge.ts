@@ -1,3 +1,4 @@
+import type {StemsSnapshot,StemTrack,StemProgress} from './stems';
 import type {Catalogue,SongMetadata} from './library';
 import {listen} from '@tauri-apps/api/event';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -27,6 +28,12 @@ function demo(): Snapshot {
 }
 
 export const bridge = {
+  stemsStatus:(referenceToken:string)=>native?invoke<StemsSnapshot>('stems_status',{referenceToken}):Promise.resolve({reference_token:referenceToken,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null}),
+  pickStemsDirectory:()=>native?invoke<string|null>('pick_stems_directory'):Promise.reject(new Error('Attach stems in the desktop app.')),
+  attachStems:(referenceToken:string,path:string)=>native?invoke<StemsSnapshot>('attach_stems',{referenceToken,path}):Promise.reject(new Error('Attach stems in the desktop app.')),
+  removeStems:(referenceToken:string,setId:string)=>native?invoke<StemsSnapshot>('remove_stems',{referenceToken,setId}):Promise.reject(new Error('Remove stems in the desktop app.')),
+  setStemMix:(referenceToken:string,setId:string,tracks:StemTrack[],persist:boolean)=>native?invoke<StemsSnapshot>('set_stem_mix',{referenceToken,setId,tracks,persist}):Promise.reject(new Error('Mix stems in the desktop app.')),
+  onStemProgress:(handler:(progress:StemProgress)=>void)=>native?listen<StemProgress>('stem-progress',event=>handler(event.payload)):Promise.resolve(()=>{}),
   libraryStatus:()=>native?invoke<LibraryStatus>('library_status'):Promise.resolve({selected:null,available:false,error:null,import_notice_seen:false}),
   chooseLibrary:(create:boolean,locate=false)=>native?invoke<Snapshot|null>('choose_library',{create,locate}):Promise.reject(new Error('Select libraries in the desktop app.')),
   retryLibrary:()=>native?invoke<Snapshot>('retry_library'):Promise.reject(new Error('Retry libraries in the desktop app.')),

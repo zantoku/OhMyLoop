@@ -4,7 +4,7 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 
-const mock = vi.hoisted(() => ({ libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ stemsStatus:vi.fn(),setStemMix:vi.fn(),attachStems:vi.fn(),removeStems:vi.fn(),pickStemsDirectory:vi.fn(),onStemProgress:vi.fn(), libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
@@ -12,6 +12,7 @@ const response = (): Snapshot => ({ song: null, document: structuredClone(docume
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.stemsStatus.mockImplementation(async(reference:string)=>({reference_token:reference,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null}));mock.onStemProgress.mockResolvedValue(()=>{});
   mock.libraryStatus.mockResolvedValue({selected:{id:'library',root:'/library'},available:true,error:null,import_notice_seen:true});mock.onImportProgress.mockResolvedValue(()=>{});mock.pickImportSong.mockResolvedValue({path:'/song.wav',candidates:[]});mock.importSong.mockImplementation(()=>mock.openSong());
   mock.metronome.mockResolvedValue({});
   mock.countIn.mockResolvedValue({});
@@ -904,7 +905,7 @@ it.each([false,true])('pages practice playback with mapped=%s, retaining zoom th
   await waitFor(()=>expect(viewport.style.left).toBe('50%'));
   transport.position=5.999;await waitFor(()=>expect(viewport.style.left).toBe('0%')); // Backwards wrap.
   transport.position=6;await waitFor(()=>expect(viewport.style.left).toBe('50%')); // Exclusive page end.
-  transport.position=12;await waitFor(()=>expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.transport-time strong')?.textContent).toBe('0:12.0'));
+  transport.position=12;await waitFor(()=>expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.position-clock strong')?.textContent).toBe('0:12.0'));
   expect(viewport.style.left).toBe('50%');expect(viewport.style.width).toBe('50%');
   expect(mock.action.mock.calls.map(c=>c[0].type)).toEqual(['toggle_play']); // Paging never seeks audio.
 });
@@ -1078,8 +1079,8 @@ it('requires an accepted measure map for count-in and highlights enabled metrono
   expect(count.getAttribute('aria-pressed')).toBe('false');
   const playback=screen.getByRole('group',{name:'Playback controls'});
   expect(playback.contains(count)).toBe(true);
-  expect(playback.contains(screen.getByRole('checkbox',{name:'Before each loop repetition'}))).toBe(true);
-  expect(screen.getByRole('checkbox',{name:'Before each loop repetition'}).hasAttribute('disabled')).toBe(true);
+  expect(screen.queryByRole('checkbox',{name:'Before each loop repetition'})).toBeNull();
+  expect(playback.contains(screen.getByRole('button',{name:'Loop off'}))).toBe(true);
   expect(screen.getByRole('button',{name:'Metronome on'}).classList.contains('active')).toBe(true);
   await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
   expect(screen.getByRole('button',{name:'Metronome off'}).classList.contains('active')).toBe(false);
@@ -1093,9 +1094,9 @@ it('offers count-in and independent loop repetitions only in Practice, using the
   await fireEvent.keyDown(window,{key:'c'});
   const count=screen.getByRole('button',{name:'Count-in on'});
   expect(count.classList.contains('active')).toBe(true);expect(count.getAttribute('aria-pressed')).toBe('true');
-  const repeat=screen.getByRole('checkbox',{name:'Before each loop repetition'}) as HTMLInputElement;
-  expect(repeat.disabled).toBe(false);expect(repeat.checked).toBe(false);
-  await fireEvent.click(repeat);await fireEvent.input(screen.getByLabelText('Metronome volume'),{target:{value:'70'}});
+  await fireEvent.click(screen.getByRole('button',{name:'Loop off'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Loop on'}));
+  expect(screen.getByRole('button',{name:'Loop with count-in'})).toBeTruthy();await fireEvent.input(screen.getByLabelText('Metronome volume'),{target:{value:'70'}});
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,true,.7]));
   await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
   expect(screen.getByRole('button',{name:'Count-in on'}).classList.contains('active')).toBe(true);
@@ -1107,11 +1108,11 @@ it('offers count-in and independent loop repetitions only in Practice, using the
   await fireEvent.click(screen.getByRole('button',{name:'Metronome off'}));
   expect(screen.getByRole('button',{name:'Metronome on'}).classList.contains('active')).toBe(true);
   await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
-  expect((screen.getByRole('checkbox',{name:'Before each loop repetition'}) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole('button',{name:'Loop with count-in'})).toBeTruthy();
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,true,.7]));
   await fireEvent.keyDown(window,{key:'C',shiftKey:true});
   expect(screen.getByRole('button',{name:'Count-in off'}).classList.contains('active')).toBe(false);
-  expect(screen.getByRole('checkbox',{name:'Before each loop repetition'}).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button',{name:'Loop on'})).toBeTruthy();
   expect(document.measure_map).toEqual(original.map);
 });
 
@@ -1123,10 +1124,10 @@ it('waits for native count-in configuration before Play and reports counting wit
   await fireEvent.click(screen.getByRole('button',{name:'Count-in off'}));
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,false,.5]));
   await fireEvent.click(screen.getByRole('button',{name:'Play'}));expect(mock.action).not.toHaveBeenCalled();
-  transport.counting_in=true;finish({});await screen.findByText('Counting in…');
+  transport.counting_in=true;finish({});await screen.findByRole('button',{name:'Pause'});
   expect(screen.getByRole('button',{name:'Pause'})).toBeTruthy();
-  expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.transport-time strong')?.textContent).toBe('0:00.0');
-  await fireEvent.click(screen.getByRole('button',{name:'Pause'}));await screen.findByText('Paused');
+  expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.position-clock strong')?.textContent).toBe('0:00.0');
+  await fireEvent.click(screen.getByRole('button',{name:'Pause'}));await screen.findByRole('button',{name:'Play'});
 });
 
 async function openRecordingDetails(title='Workshop take') {
@@ -1253,4 +1254,57 @@ it('shows copy progress without cancellation or a verification phase',async()=>{
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(screen.getByRole('button',{name:'Import song'}));
   await waitFor(()=>expect(mock.importSong).toHaveBeenCalled());progress({copied:50,total:100});await screen.findByText('Importing song… 50%');
   expect(screen.queryByRole('button',{name:'Cancel'})).toBeNull();expect(screen.queryByText(/Verifying recording/)).toBeNull();finish(null);
+});
+
+function attachedStems(){return {reference_token:'test',set_id:'set',available:true,warning:null,attenuation:.5,model:'roformer-sw',tracks:[{role:'bass' as const,gain:1,mute:false,solo:false},{role:'vocals' as const,gain:1,mute:false,solo:false}]};}
+it('keeps stems navigation transport neutral and isolates role shortcuts from notes and mapping',async()=>{
+ mock.stemsStatus.mockResolvedValue(attachedStems());mock.setStemMix.mockResolvedValue(attachedStems());transport.playing=true;
+ await ready();expect(screen.getByRole('slider',{name:'Bass gain'})).toBeTruthy();mock.action.mockClear();
+ await fireEvent.keyDown(window,{key:'1'});await waitFor(()=>expect(mock.setStemMix).toHaveBeenCalled());expect(mock.setStemMix.mock.lastCall![2][0].mute).toBe(true);
+ await fireEvent.click(screen.getByRole('button',{name:'Stems'}));expect(screen.getByRole('main',{name:'Stems'})).toBeTruthy();expect(mock.action).not.toHaveBeenCalled();
+ await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));await fireEvent.click(screen.getByRole('button',{name:'Notes'}));mock.setStemMix.mockClear();
+ await fireEvent.keyDown(screen.getByRole('textbox',{name:'Notes for this song'}),{key:'1'});expect(mock.setStemMix).not.toHaveBeenCalled();
+ await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.keyDown(window,{key:'1'});expect(mock.setStemMix).not.toHaveBeenCalled();
+});
+it('keeps failed replacement usable, and requires explicit removal confirmation while retaining position',async()=>{
+ mock.stemsStatus.mockResolvedValue(attachedStems());mock.setStemMix.mockResolvedValue(attachedStems());mock.pickStemsDirectory.mockResolvedValue('/new-stems');mock.attachStems.mockRejectedValue(new Error('Invalid provenance'));
+ transport.position=4;transport.playing=true;mock.initialize.mockImplementation(async()=>({...response(),song:{key:'test',reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}}));await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Replace stems…'}));expect(mock.attachStems).not.toHaveBeenCalled();
+ await fireEvent.click(screen.getByRole('button',{name:'Choose replacement…'}));await screen.findByText('Error: Invalid provenance');expect(transport.playing).toBe(false);expect(transport.position).toBe(4);expect(screen.getByText('roformer-sw')).toBeTruthy();
+ mock.removeStems.mockResolvedValue({...attachedStems(),set_id:null,tracks:[],available:false});await fireEvent.click(screen.getByRole('button',{name:'Remove stems…'}));expect(mock.removeStems).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Remove stems'}));await waitFor(()=>expect(mock.removeStems).toHaveBeenCalledWith('test','set'));expect(transport.position).toBe(4);expect(document.sections).toHaveLength(2);
+});
+it('offers visible original fallback with disabled saved track controls',async()=>{
+ mock.stemsStatus.mockResolvedValue({...attachedStems(),available:false,warning:'Vocals file missing'});await ready();expect(screen.getByText(/Vocals file missing/)).toBeTruthy();expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe('true');await fireEvent.keyDown(window,{key:'1'});expect(mock.setStemMix).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Play'}).hasAttribute('disabled')).toBe(false);
+});
+it('cycles loop and count-in with shared bordered icons through mouse and keyboard',async()=>{
+ const original=timingFixture(48000);document.measure_map=original.map;mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
+ await ready();await fireEvent.keyDown(window,{key:'l'});await screen.findByRole('button',{name:'Loop on'});await fireEvent.keyDown(window,{key:'l'});expect(screen.getByRole('button',{name:'Loop with count-in'}).querySelectorAll('svg')).toHaveLength(2);expect(screen.getByRole('button',{name:'Count-in on'}).getAttribute('aria-pressed')).toBe('true');await fireEvent.keyDown(window,{key:'l'});await screen.findByRole('button',{name:'Loop off'});expect(screen.getByRole('button',{name:'Count-in on'})).toBeTruthy();
+});
+
+it.each([true,false])('distinguishes cleanup warnings from unavailable stems in Practice and Stems (available=%s)',async available=>{
+ mock.stemsStatus.mockResolvedValue({...attachedStems(),available,warning:available?'Old set cleanup failed':'Vocals file missing'});mock.setStemMix.mockResolvedValue(attachedStems());await ready();
+ const warning=screen.getByText(available?/Old set cleanup failed/:/Vocals file missing/);
+ expect(warning.textContent?.includes('Using Original playback')).toBe(!available);
+ expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe(String(!available));
+ await fireEvent.keyDown(window,{key:'1'});
+ if(available)await waitFor(()=>expect(mock.setStemMix).toHaveBeenCalled());else expect(mock.setStemMix).not.toHaveBeenCalled();
+ await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+ const details=screen.getByRole('main',{name:'Stems'});
+ expect(within(details).getByText(available?/Old set cleanup failed/:/Vocals file missing/).textContent?.includes('track controls are disabled')).toBe(!available);
+ expect(within(details).getByText(available?'Ready':'Original fallback')).toBeTruthy();
+});
+
+it('re-prepares attached stems during audio retry and refreshes availability without changing the practice view',async()=>{
+ transport.audio_error='Stem reader failed';transport.position=4;
+ mock.initialize.mockImplementation(async()=>({...response(),song:{key:'test',reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}}));
+ mock.stemsStatus.mockResolvedValue({...attachedStems(),available:false,warning:'Vocals file missing'});
+ await ready();await fireEvent.click(screen.getByRole('button',{name:'Zoom in'}));const practice=screen.getByRole('region',{name:'Practice workspace'});const zoomBefore=practice.querySelector('.zoom-controls')?.textContent;
+ let finish!:(value:Snapshot)=>void;mock.action.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));
+ await fireEvent.click(screen.getByRole('button',{name:'Retry audio'}));await waitFor(()=>expect(mock.action).toHaveBeenCalledWith({type:'retry_audio'},'test'));
+ expect(screen.getByRole('button',{name:'Library'}).hasAttribute('disabled')).toBe(true);expect(screen.getByRole('button',{name:'Retry audio'}).hasAttribute('disabled')).toBe(true);
+ const report=mock.onStemProgress.mock.lastCall![0] as (value:{reference_token:string;phase:string;completed:number;total:number})=>void;
+ report({reference_token:'test',phase:'Scanning headroom',completed:1,total:2});await screen.findByText(/Preparing stem playback…\s*Scanning headroom/);
+ const restored={...attachedStems(),attenuation:.4,tracks:[{role:'bass' as const,gain:.5,mute:true,solo:false}]};mock.stemsStatus.mockResolvedValue(restored);transport.audio_error=null;finish(response());
+ await waitFor(()=>expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe('false'));expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-valuenow')).toBe('50');expect(screen.queryByText(/Vocals file missing/)).toBeNull();
+ expect(practice.querySelector('.zoom-controls')?.textContent).toBe(zoomBefore);expect(document.sections).toHaveLength(2);expect(transport.position).toBe(4);
+ await fireEvent.click(screen.getByRole('button',{name:'Stems'}));expect(screen.getByText('-7.96 dB')).toBeTruthy();
 });

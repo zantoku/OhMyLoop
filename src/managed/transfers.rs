@@ -129,6 +129,7 @@ impl ManagedLibrary {
             metadata: prepared.metadata.clone(),
             date_added: now,
             last_opened: now,
+            stems: None,
         };
         match self.save_song(&song) {
             Ok(warnings) => prepared.warnings.extend(warnings),
@@ -229,6 +230,7 @@ impl ManagedLibrary {
             replacement.timing_unchanged,
         )?;
         song.record.asset.id = prepared.record.asset.id;
+        song.stems = None;
         match self.save_song(&song) {
             Ok(warnings) => replacement.prepared.warnings.extend(warnings),
             Err(error) => {
@@ -237,6 +239,11 @@ impl ManagedLibrary {
                     self.discard_prepared(&replacement.prepared),
                 ));
             }
+        }
+        if let Err(error) = self.cleanup_stems(&old.record.id.to_string(), old.stems.as_ref()) {
+            replacement.prepared.warnings.push(format!(
+                "Recording replaced, but stems/cache cleanup failed: {error:#}"
+            ));
         }
         if let Err(error) = self.cleanup_asset(&old.record) {
             replacement.prepared.warnings.push(format!(

@@ -1,7 +1,7 @@
 // Stable action identities and presentation metadata. No UI or device access.
-export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'notes';
+export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'notes' | 'stems';
 export type Requirement = 'none' | 'song' | 'range' | 'sections' | 'audio' | 'loop_on' | 'undo' | 'editor' | 'help' | 'zoom_out';
-export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort';
+export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort' | 'stem_gain';
 function define(description: string, keys: readonly string[] = [], requires: Requirement = 'song', payload: PayloadKind = 'command', repeat = false) {
   return { description, keys, requires, payload, repeat, duringBusy: false, scope: 'all' as ActionScope };
 }
@@ -48,6 +48,24 @@ export type MappingActionId = keyof typeof MAPPING_ACTIONS;
 
 const library = (...args: Parameters<typeof define>) => ({ ...define(...args), scope: 'library' as ActionScope });
 export const ACTIONS = {
+  retry_stem_mix:define('Retry saving stem controls'),
+  show_stems:practice('Open stems attachment and details'),
+  close_stems:{...define('Close stems and return to practice'),scope:'stems' as ActionScope},
+  attach_stems:{...define('Attach or replace this song’s stems'),scope:'stems' as ActionScope},
+  remove_stems:{...define('Remove this song’s stems'),scope:'stems' as ActionScope},
+  stem_gain:practice('Adjust stem gain', [], 'song', 'stem_gain'),
+  solo_bass:practice('Solo / unsolo bass'),
+  solo_drums:practice('Solo / unsolo drums'),
+  solo_guitar:practice('Solo / unsolo guitar'),
+  solo_piano:practice('Solo / unsolo piano'),
+  solo_vocals:practice('Solo / unsolo vocals'),
+  solo_other:practice('Solo / unsolo other'),
+  mute_bass:practice('Mute / unmute bass',['1']),
+  mute_drums:practice('Mute / unmute drums',['2']),
+  mute_guitar:practice('Mute / unmute guitar',['3']),
+  mute_piano:practice('Mute / unmute piano',['4']),
+  mute_vocals:practice('Mute / unmute vocals',['5']),
+  mute_other:practice('Mute / unmute other',['6']),
   managed_settings: define('Open library settings', [], 'none'),
   managed_close: define('Close library dialog', [], 'none'),
   managed_create: define('Create library in the chosen folder', [], 'none'),
@@ -89,7 +107,7 @@ export const ACTIONS = {
   repeat_count_in: practice('Count in one measure before each loop repetition'),
   practice_metronome: practice('Toggle the metronome for the authored measure map'),
   toggle_loop_snap: practice('Snap loop selection to measure boundaries; Shift-drag bypasses snapping'),
-  toggle_loop: practice('Loop on / off', ['l']),
+  toggle_loop: practice('Cycle loop off, loop, and loop with count-in', ['l']),
   set_loop_start: practice('Set A at the playhead', ['a']),
   set_loop_end: practice('Set B at the playhead', ['b']),
   jump_loop_start: define('Jump to A', [','], 'range'),
@@ -129,6 +147,9 @@ export const ACTIONS = {
 
 export type ActionId = keyof typeof ACTIONS;
 export const BUTTONS = {
+  retry_stem_mix:'retry_stem_mix',show_stems:'show_stems',close_stems:'close_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',
+  solo_bass:'solo_bass',  solo_drums:'solo_drums',  solo_guitar:'solo_guitar',  solo_piano:'solo_piano',  solo_vocals:'solo_vocals',  solo_other:'solo_other',
+  mute_bass:'mute_bass',mute_drums:'mute_drums',mute_guitar:'mute_guitar',mute_piano:'mute_piano',mute_vocals:'mute_vocals',mute_other:'mute_other',
   managed_settings:'managed_settings',
   managed_close:'managed_close',
   managed_create:'managed_create',

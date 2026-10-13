@@ -14,6 +14,7 @@
     <h2>Replace reference recording</h2>
   </div>
   <div class="replacement-copy">
+    <p>Replacing the reference removes any attached stems and their playback cache, even when timing is unchanged.</p>
     <p>The song keeps its notes and speed/pitch settings.</p>
     <p>Keep the current map, sections and loop only if the recording has unchanged timing, such as a volume-adjusted copy. Matching duration alone does not establish alignment.</p>
   </div>

@@ -4,7 +4,7 @@
 mod prepare;
 
 use anyhow::{Result, ensure};
-pub use prepare::{PreparationProgress, PreparedComparison};
+pub use prepare::{PreparationProgress, PreparedComparison, library};
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
@@ -109,10 +109,12 @@ impl MixState {
     }
 }
 
-pub(crate) struct TemporaryDirectory(pub PathBuf);
+pub(crate) struct TemporaryDirectory(pub PathBuf, pub std::sync::atomic::AtomicBool);
 impl Drop for TemporaryDirectory {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        if !self.1.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 }
 #[derive(Clone)]

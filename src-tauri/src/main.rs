@@ -58,9 +58,12 @@ async fn read_keymap(state: State<'_, KeymapPath>) -> Result<ohmyloop::keymap::K
 }
 
 #[tauri::command]
-async fn initialize(state: State<'_, Desktop>) -> Result<Snapshot, String> {
+async fn initialize(app: tauri::AppHandle, state: State<'_, Desktop>) -> Result<Snapshot, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.restore_managed()).await
+    work(move || {
+        desktop.restore_managed_with_progress(|token, p| emit_stem_progress(&app, token, p))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -224,11 +227,15 @@ async fn read_library(state: State<'_, Desktop>) -> Result<ohmyloop::library::Ca
 }
 #[tauri::command]
 async fn open_library_song(
+    app: tauri::AppHandle,
     song_key: String,
     state: State<'_, Desktop>,
 ) -> Result<Snapshot, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.open_library(song_key)).await
+    work(move || {
+        desktop.open_library_with_progress(song_key, |token, p| emit_stem_progress(&app, token, p))
+    })
+    .await
 }
 #[tauri::command]
 async fn update_library_song(
@@ -250,12 +257,19 @@ async fn update_document(
 
 #[tauri::command]
 async fn transport_action(
+    app: tauri::AppHandle,
     action: Action,
     reference_token: String,
     state: State<'_, Desktop>,
 ) -> Result<Snapshot, String> {
     let desktop = state.inner().clone();
-    work(move || desktop.act(action, reference_token)).await
+    work(move || {
+        let token = reference_token.clone();
+        desktop.act_with_progress(action, reference_token, |p| {
+            emit_stem_progress(&app, token.clone(), p)
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -280,6 +294,92 @@ async fn set_count_in(
 ) -> Result<Transport, String> {
     let desktop = state.inner().clone();
     work(move || desktop.count_in(reference_token, enabled, repeat, volume)).await
+}
+
+#[tauri::command]
+async fn stems_status(
+    reference_token: String,
+    state: State<'_, Desktop>,
+) -> Result<ohmyloop::desktop::stems::Status, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.stems_status(reference_token)).await
+}
+#[tauri::command]
+async fn pick_stems_directory(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    work(move || {
+        app.dialog()
+            .file()
+            .blocking_pick_folder()
+            .map(|file| Ok(file.into_path()?.to_string_lossy().into_owned()))
+            .transpose()
+    })
+    .await
+}
+#[derive(Clone, serde::Serialize)]
+struct StemProgress {
+    reference_token: String,
+    phase: String,
+    completed: u64,
+    total: Option<u64>,
+}
+fn emit_stem_progress(
+    app: &tauri::AppHandle,
+    reference_token: String,
+    p: ohmyloop::stems::PreparationProgress,
+) {
+    let _ = app.emit(
+        "stem-progress",
+        StemProgress {
+            reference_token,
+            phase: p.phase,
+            completed: p.completed,
+            total: p.total,
+        },
+    );
+}
+#[tauri::command]
+async fn attach_stems(
+    app: tauri::AppHandle,
+    reference_token: String,
+    path: String,
+    state: State<'_, Desktop>,
+) -> Result<ohmyloop::desktop::stems::Status, String> {
+    let desktop = state.inner().clone();
+    work(move || {
+        let token = reference_token.clone();
+        desktop.attach_stems(reference_token, path, move |progress| {
+            let _ = app.emit(
+                "stem-progress",
+                StemProgress {
+                    reference_token: token.clone(),
+                    phase: progress.phase,
+                    completed: progress.completed,
+                    total: progress.total,
+                },
+            );
+        })
+    })
+    .await
+}
+#[tauri::command]
+async fn remove_stems(
+    reference_token: String,
+    set_id: String,
+    state: State<'_, Desktop>,
+) -> Result<ohmyloop::desktop::stems::Status, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.remove_stems(reference_token, set_id)).await
+}
+#[tauri::command]
+async fn set_stem_mix(
+    reference_token: String,
+    set_id: String,
+    tracks: Vec<ohmyloop::desktop::stems::TrackControl>,
+    persist: bool,
+    state: State<'_, Desktop>,
+) -> Result<ohmyloop::desktop::stems::Status, String> {
+    let desktop = state.inner().clone();
+    work(move || desktop.set_stem_mix(reference_token, set_id, tracks, persist)).await
 }
 
 #[tauri::command]
@@ -398,7 +498,12 @@ fn main() {
             transport_action,
             set_map_metronome,
             set_count_in,
-            transport_status
+            transport_status,
+            stems_status,
+            pick_stems_directory,
+            attach_stems,
+            remove_stems,
+            set_stem_mix
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -1,6 +1,7 @@
 <script lang="ts">
   let { name, size = 20 }: { name: string; size?: number } = $props();
   const paths: Record<string, string> = {
+    hourglass:'M6 3h12M6 21h12M7 3v4l10 10v4M17 3v4L7 17v4',
     play: 'M8 5v14l11-7z', pause: 'M8 5v14M16 5v14', folder: 'M3 8V5h6l2 3h10v11H3z',
     loop: 'M4 8h13l-3-3m3 3-3 3M20 16H7l3 3m-3-3 3-3', plus: 'M12 5v14M5 12h14',
     minus: 'M5 12h14', reset: 'M5 8a8 8 0 1 1-1 8M5 3v5h5',

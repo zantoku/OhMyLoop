@@ -3,6 +3,10 @@
   import TrackMixerPrototype from './TrackMixer.prototype.svelte';
   import {mixerPrototypeSnapshot} from './track-mixer-prototype';
   const mixerPrototype = import.meta.env.DEV && !('__TAURI_INTERNALS__' in window) && new URLSearchParams(location.search).has('mixer-prototype');
+  import StemsScreen from './StemsScreen.svelte';
+  import TrackMixer from './TrackMixer.svelte';
+  import {StemsSession,type StemsState} from './stems-session';
+  import {type StemRole,type StemProgress} from './stems';
   import ThemeControl from './ThemeControl.svelte';
   import NotesScreen from './NotesScreen.svelte';
   import RecordingChooser from './RecordingChooser.svelte';
@@ -41,7 +45,29 @@
   let keymapPath = $state<string | null>(null);
   let keymapWarning = $state<string | null>(null);
   let keymapLoading = $state(false);
-  let screen = $state<'practice' | 'mapping' | 'library' | 'notes'>('practice');
+  let screen = $state<'practice' | 'mapping' | 'library' | 'notes' | 'stems'>('practice');
+  let stemsState=$state<StemsState>({snapshot:null,pending:false,error:''});
+  let stemProgress=$state<StemProgress|null>(null),stemsLoading=$state(false);
+  let stemEpoch=0;
+  const stemsSession=new StemsSession(bridge.setStemMix,state=>{stemsState=state;});
+  async function reloadStems(reference:string){const epoch=++stemEpoch;stemsLoading=true;stemsSession.reset(null);try{const value=await bridge.stemsStatus(reference);if(mounted&&epoch===stemEpoch&&song?.reference_token===reference)stemsSession.reset(value);}catch(e){if(mounted&&epoch===stemEpoch)error=String(e);}finally{if(epoch===stemEpoch)stemsLoading=false;}}
+  function soloRole(role:StemRole){const track=stemsState.snapshot?.tracks.find(track=>track.role===role);if(track)stemsSession.change(role,{solo:!track.solo});}
+  function muteRole(role:StemRole){const track=stemsState.snapshot?.tracks.find(track=>track.role===role);if(track)stemsSession.change(role,{mute:!track.mute});}
+  async function stemsWork(remove=false){
+    await transportActions;
+    if(!song||busy)return;
+    const reference=song.reference_token,setId=stemsState.snapshot?.set_id;
+    busy=remove?'Removing stems…':'Choosing stems…';error='';stemProgress=null;
+    try{
+      if(!await prepareChange())return;
+      const path=remove?null:await bridge.pickStemsDirectory();if(!remove&&!path)return;
+      if(song?.reference_token!==reference)return;
+      if(transport.playing)apply(await bridge.action({type:'pause'},reference));
+      busy=remove?'Removing stems…':'Attaching stems…';stemProgress=null;
+      const value=remove?await bridge.removeStems(reference,setId!):await bridge.attachStems(reference,path!);
+      if(mounted&&song?.reference_token===reference){stemsSession.reset(value);const status=await bridge.status();if(status.reference_token===reference)transport=status;}
+    }catch(e){if(mounted)error=String(e);}finally{if(mounted){busy='';stemProgress=null;}}
+  }
   let libraryScreen=$state<LibraryScreen>();
   let libraryEpoch=$state(0);
   let managedState=$state<ManagedState>({status:{selected:null,available:false,error:null,import_notice_seen:false},dialog:null,selection:null,pendingImport:false,deleteKey:null,deleteTitle:''});
@@ -114,7 +140,7 @@
     if(snapshot.library_status)managed.accept(snapshot.library_status);
     if(snapshot.startup_notice)startupNotice=snapshot.startup_notice;
     if(snapshot.library_error)error=snapshot.library_error;
-    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
+    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){void reloadStems(snapshot.song.reference_token);practiceFollowing=true;countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
@@ -133,16 +159,17 @@
   }
   function loaded(snapshot:Snapshot|null){if(!mounted||!snapshot)return;revision++;apply(snapshot);saved=true;undo=[];screen='practice';}
   function unloaded(snapshot:Snapshot){
-    revision++;song=null;project=null;mapView=null;notesSession.reset('', '');reviewMap=null;undo=[];apply(snapshot);saved=true;screen='library';libraryEpoch++;
+    stemEpoch++;stemsLoading=false;stemsSession.reset(null);revision++;song=null;project=null;mapView=null;notesSession.reset('', '');reviewMap=null;undo=[];apply(snapshot);saved=true;screen='library';libraryEpoch++;
   }
   async function prepareChange(){
+    await stemsSession.flush();
     if(!await notesSession.flush())throw new Error('Song notes could not be saved. Close this dialog to review and retry.');
     if(libraryScreen&&!await libraryScreen.flush())throw new Error('Song details could not be saved. Close this dialog to review and retry.');
     flushControls();await saves;
     if(!saved){await update({},true);if(!saved)return false;}return true;
   }
   async function managedWork(label:string,job:()=>Promise<void>){
-    if(busy)return;busy=label;error='';try{await job();}catch(e){if(mounted)error=String(e);}finally{if(mounted)busy='';}
+    if(busy)return;stemProgress=null;busy=label;error='';try{await job();}catch(e){if(mounted)error=String(e);}finally{if(mounted){busy='';stemProgress=null;}}
   }
   async function chooseLibrary(create:boolean,locate=false){
     await managedWork('Opening library…',async()=>{
@@ -172,13 +199,19 @@
     });
     return saves;
   }
-  async function action(action: Action) {
+  let transportActions=Promise.resolve();
+  function action(value:Action):Promise<void>{const reference=song?.reference_token;transportActions=transportActions.catch(()=>{}).then(async()=>{if(song?.reference_token===reference)await performAction(value);});return transportActions;}
+  async function performAction(action: Action) {
     if (!song || busy) return;
     const referenceToken=song.reference_token;
+    const preparingStems=action.type==='retry_audio'&&!!stemsState.snapshot?.set_id;
+    if(preparingStems){busy='Preparing stem playback…';stemProgress=null;}
     try {
       flushControls(); await saves.catch(()=>{}); const actionRevision = revision;
-      if(action.type==='toggle_play'&&!transport.playing)await countInSession.flush();
+      if(preparingStems)await stemsSession.flush();
+      if(action.type==='toggle_play'&&!transport.playing){await stemsSession.flush();await countInSession.flush();}
       const snapshot=await bridge.action(action,referenceToken);apply(snapshot,actionRevision);
+      if(preparingStems&&snapshot.transport.reference_token===song?.reference_token)await reloadStems(song.reference_token);
       // Explicit navigation reveals the resulting native position even when
       // paused or continuous following is off, preserving each screen's zoom.
       if(action.type==='seek'&&snapshot.transport.reference_token===song?.reference_token){
@@ -187,6 +220,7 @@
       }
     }
     catch (e) { error = String(e); }
+    finally{if(preparingStems){busy='';stemProgress=null;}}
   }
   function controls(nextSpeed: number, nextPitch: number) {
     if (!project || !Number.isFinite(nextSpeed) || !Number.isFinite(nextPitch)) return;
@@ -197,9 +231,12 @@
     controlTimer = setTimeout(() => { controlTimer = undefined; void update({ controls: project!.controls }); }, 90);
   }
   async function chooseLoop(loop: Loop) { await update({ loop_selection: loop, loop_enabled: true }); }
-  function clearLoop() { return update({ loop_selection: null, loop_enabled: false }); }
+  function clearLoop() { repeatCountIn=false;return update({ loop_selection: null, loop_enabled: false }); }
   async function toggleLoop() {
+    if(project?.loop_enabled&&hasMeasureMap&&!repeatCountIn){countInEnabled=true;repeatCountIn=true;return;}
+    if(project?.loop_enabled){repeatCountIn=false;await update({loop_enabled:false});return;}
     if (!project || !song) return;
+    repeatCountIn=false;
     if (!selection) {
       const start = Math.min(transport.position, Math.max(0, song.duration - .1));
       const measure = snapToMeasures ? measureAtFrame(mapView?.measures??[],Math.round(start*song.rate)) : null;
@@ -246,7 +283,8 @@
     await update({ sections: [...project.sections, last.section], selected_section: last.selected && !project.selected_section ? last.section.id : project.selected_section });
   }
   function fitLoop() { if (selection && song) { const pad = (selection.end - selection.start) * .15; view = { start: Math.max(0, selection.start - pad), end: Math.min(song.duration, selection.end + pad) }; } }
-  function setBoundary(edge: 'start' | 'end') {
+  async function setBoundary(edge: 'start' | 'end') {
+    await transportActions;
     if (!song) return;
     const at = snapToMeasures ? snapLoopPoint(transport.position,mapView?.measures??[],song.rate) : transport.position;
     if(!selection&&snapToMeasures){
@@ -286,11 +324,22 @@
   const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
   async function closeNotes(){if(await notesSession.flush())screen='practice';}
   async function showLibrary(){
+    await transportActions;
     if(!await notesSession.flush())return;
     if(transport.playing)await action({type:'pause'});
     screen='library';
   }
   const dispatcher = new ActionDispatcher({
+    retry_stem_mix:()=>stemsSession.retry(),
+    show_stems:()=>{screen='stems';},close_stems:()=>{screen='practice';},attach_stems:()=>stemsWork(),remove_stems:()=>stemsWork(true),
+    stem_gain:({role,gain})=>{if(role&&Number.isFinite(gain))stemsSession.change(role,{gain});},
+    solo_bass:()=>soloRole('bass'),
+    solo_drums:()=>soloRole('drums'),
+    solo_guitar:()=>soloRole('guitar'),
+    solo_piano:()=>soloRole('piano'),
+    solo_vocals:()=>soloRole('vocals'),
+    solo_other:()=>soloRole('other'),
+    mute_bass:()=>muteRole('bass'),mute_drums:()=>muteRole('drums'),mute_guitar:()=>muteRole('guitar'),mute_piano:()=>muteRole('piano'),mute_vocals:()=>muteRole('vocals'),mute_other:()=>muteRole('other'),
     import_separate:()=>importSong(),replace_recording:showReplacement,replacement_same_timing:()=>recordingChange(true),replacement_new_timeline:()=>recordingChange(false),replacement_cancel:()=>{replacementDialog.close();},
     managed_settings:()=>{error='';managed.settings();},managed_close:()=>{managed.close();},
     managed_create:()=>chooseLibrary(true),managed_open:()=>chooseLibrary(false),managed_locate:()=>chooseLibrary(false,true),
@@ -311,7 +360,7 @@
     previous_measure:()=>nextMeasure(-1), next_measure:()=>nextMeasure(1),
     goto_measure:()=>{const measure=mapView?.measures.find(m=>m.number===measureNumber);if(measure&&song){if(screen==='mapping')measureEditor?.selectMeasure(measure.id);return action({type:'seek',seconds:measure.start/song.rate});}},
     practice_follow:()=>{practiceFollowing=!practiceFollowing;},
-    practice_count_in:()=>{countInEnabled=!countInActive;}, repeat_count_in:()=>{repeatCountIn=!repeatCountIn;},
+    practice_count_in:()=>{countInEnabled=!countInActive;if(!countInEnabled)repeatCountIn=false;}, repeat_count_in:()=>{repeatCountIn=!repeatCountIn;},
     practice_metronome:()=>{clickEnabled=!clickEnabled;}, toggle_loop_snap:()=>{snapToMeasures=!snapToMeasures;},
     play_pause: () => action({ type: 'toggle_play' }), toggle_loop: toggleLoop,
     set_loop_start: () => setBoundary('start'), set_loop_end: () => setBoundary('end'),
@@ -322,7 +371,7 @@
     seek_backward_fine: () => seekBy(-.1), seek_forward_fine: () => seekBy(.1),
     previous_section: () => nextSection(-1), next_section: () => nextSection(1),
     add_section: () => startSection(), open_song: async () => { await showLibrary(); if(screen==='library')await open(); },
-    disable_loop: () => update({ loop_enabled: false }), show_shortcuts: () => helpDialog.showModal(),
+    disable_loop: () => {repeatCountIn=false;return update({ loop_enabled: false });}, show_shortcuts: () => helpDialog.showModal(),
     reload_keymap: reloadKeymap, load_demo: () => open(true), fit_loop: fitLoop,
     zoom_in: () => { view = zoom(view, song!.duration, .5, selection ? (selection.start + selection.end) / 2 : transport.position); },
     zoom_out: () => { view = zoom(view, song!.duration, 2, (view.start + view.end) / 2); },
@@ -333,7 +382,7 @@
     select_section: ({ section }) => selectSection(section!), edit_section: ({ section }) => startSection(section),
     delete_section: ({ section }) => removeSection(section!.id), speed_preset: ({ speed }) => controls(speed!, pitch),
     save_section: saveSection, close_editor: () => sectionDialog.close(), close_shortcuts: () => helpDialog.close()
-  }, () => ({ context: screen, busy: !!busy, song: !!song, range: !!selection, sections: !!sections.length,
+  }, () => ({ context: screen, busy: !!busy||stemsLoading, song: !!song, range: !!selection, sections: !!sections.length,
     audio: !!song && native && !transport.audio_error, loop_on: !!project?.loop_enabled,
     undo: !!undo.length, editor: !!sectionDialog?.open, help: !!helpDialog?.open,
     zoom_out: !!song && view.end - view.start < song.duration }));
@@ -344,6 +393,12 @@
   function runButton(id: ButtonId, payload: ActionPayload = {}) { return runAction(keymap.actionFor(id), payload); }
   function actionAvailable(id:ActionId) {
     if(!dispatcher.available(id))return false;
+    if(id==='retry_stem_mix')return !!stemsState.error&&!!stemsState.snapshot?.set_id;
+    if(id==='stem_gain')return !!stemsState.snapshot?.available&&!transport.audio_error;
+    if(id.startsWith('mute_')||id.startsWith('solo_'))return !!stemsState.snapshot?.available&&!transport.audio_error&&stemsState.snapshot.tracks.some(track=>track.role===id.slice(5));
+    if(id==='show_stems'||id==='attach_stems')return native&&!!song?.path;
+    if(id==='remove_stems')return native&&!!stemsState.snapshot?.set_id;
+    if(screen==='stems'&&!['retry_stem_mix','close_stems','attach_stems','remove_stems','show_library','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
     if(screen==='notes'&&!['close_notes','retry_notes','show_library','open_song','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'].includes(id))return false;
     if(id==='retry_notes')return notesState.dirty&&!notesState.pending;
     if(id.startsWith('managed_')){
@@ -370,6 +425,7 @@
   function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
   function keyboard(event: KeyboardEvent) {
     if (['Enter',' '].includes(event.key) && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
+    if(event.target instanceof Element&&event.target.closest('[role=slider]'))return;
     if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open || replacementDialog?.isOpen() || managedState.dialog) return;
     const id = keymap.match(event,screen);
     if (!id || !actionAvailable(id)) return;
@@ -380,6 +436,8 @@
 
     const restore = (mixerPrototype ? Promise.resolve(mixerPrototypeSnapshot(transport)) : bridge.initialize()).then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
     Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
+    let unlistenStems:(()=>void)|undefined;
+    void bridge.onStemProgress(progress=>{if(mounted&&!!busy&&(progress.reference_token===song?.reference_token||busy.startsWith('Opening')||busy.startsWith('Restoring')||busy.startsWith('Import'))){stemProgress=progress;}}).then(unlisten=>{if(mounted)unlistenStems=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
     let unlistenProgress:(()=>void)|undefined;
     void bridge.onImportProgress(progress=>{if(mounted&&busy.startsWith('Import'))busy=progress.total&&progress.copied>=progress.total?'Loading recording…':progress.total?`Importing song… ${Math.round(progress.copied/progress.total*100)}%`:'Importing song…';}).then(unlisten=>{if(mounted)unlistenProgress=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
     void managed.refresh().catch(e=>{if(mounted)error=String(e);});
@@ -388,7 +446,7 @@
       if(exiting)return;exiting=true;
       try{
         flushControls();
-        if(await notesSession.flush()){await saves;await bridge.finishExit();}
+        if(await notesSession.flush()){await stemsSession.flush();await saves;await bridge.finishExit();}
       }catch(e){error=String(e);}finally{exiting=false;}
     }).then(unlisten=>{if(mounted)unlistenExit=unlisten;else unlisten();}).catch(e=>{error=String(e);});
     let polling = false;
@@ -398,7 +456,7 @@
       try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.reference_token === song?.reference_token) transport = status; }
       catch (e) { if (mounted) error = String(e); } finally { polling = false; }
     }, 50);
-    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();unlistenProgress?.();managed.dispose();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
+    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();unlistenProgress?.();unlistenStems?.();stemsSession.dispose();managed.dispose();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
   });
 </script>
 
@@ -416,16 +474,20 @@
 
   {#if startupNotice}<div class="notice" role="status">{startupNotice}</div>{/if}
   {#if error&&!managedState.dialog}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
+  {#if stemsLoading||!!busy&&stemProgress}<div class="notice" role="status">Preparing stem playback…{#if stemProgress} {stemProgress.phase}{/if}</div>{/if}
+  {#if stemsState.error}<div class="notice error" role="alert"><span>{stemsState.error}</span><button class="text-button" disabled={!buttonAvailable('retry_stem_mix')} title={keymap.title('retry_stem_mix')} onclick={()=>runButton('retry_stem_mix')}>Retry save</button></div>{/if}
+  {#if stemsState.snapshot?.warning&&screen!=='stems'}<div class="notice" role="status">{stemsState.snapshot.warning}{#if !stemsState.snapshot.available} Using Original playback.{/if}</div>{/if}
   {#if countInState.error}<div class="notice error" role="alert"><span>{countInState.error}</span></div>{/if}
   {#if clickState.error}<div class="notice error" role="alert">{clickState.error}</div>{/if}
   {#if keymapWarning}<div class="notice" role="alert"><span>{keymapWarning}</span><button class="text-button" title={keymap.title('reload_keymap')} disabled={keymapLoading} onclick={() => runButton('reload_keymap')}>Reload configuration</button></div>{/if}
-  {#if transport.audio_error && song}<div class="notice audio-notice" role="status"><span>Audio output is unavailable. Reconnect your output device, then retry.</span><button class="text-button" title={keymap.title('retry_audio')} onclick={() => runButton('retry_audio')}>Retry audio</button></div>{/if}
+  {#if transport.audio_error && song}<div class="notice audio-notice" role="status"><span>Playback stopped: {transport.audio_error}. Reconnect your output device if needed, then retry.</span><button class="text-button" disabled={!buttonAvailable('retry_audio')} title={keymap.title('retry_audio')} onclick={() => runButton('retry_audio')}>Retry audio</button></div>{/if}
   {#if transport.save_error}<div class="notice error" role="alert"><span>{transport.save_error}</span><button class="text-button" title={keymap.title('retry_save')} onclick={() => runButton('retry_save')}>Retry save</button></div>{/if}
   {#if !native}<div class="preview-note">Interface preview · Audio playback and file opening are available in the desktop app.</div>{/if}
 
   <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} status={managedState.status} epoch={libraryEpoch} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
   {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
   <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
+  <StemsScreen active={screen==='stems'} state={stemsState} progress={stemProgress} busy={!!busy||stemsLoading} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}/>
   <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>
     <aside class="sections-panel">
       <div class="panel-title"><h2>Sections</h2><span>{sections.length || ''}</span></div>
@@ -448,7 +510,7 @@
 
     <section class="workbench" aria-label="Practice workspace">
       {#if song && project}
-        <div class="workspace-heading"><div class="workspace-tools"><button class="button map-screen-button" disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}>{keymap.buttonLabel('show_notes','Notes')}</button><button class="button map-screen-button" disabled={!buttonAvailable('show_measure_map')} title={keymap.title('show_measure_map')} onclick={()=>runButton('show_measure_map')}>{keymap.buttonLabel('show_measure_map','Measure map')}</button></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
+        <div class="workspace-heading"><div class="workspace-tools"><button class="button map-screen-button" disabled={!buttonAvailable('show_stems')} title={keymap.title('show_stems')} onclick={()=>runButton('show_stems')}>Stems</button><button class="button map-screen-button" disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}>{keymap.buttonLabel('show_notes','Notes')}</button><button class="button map-screen-button" disabled={!buttonAvailable('show_measure_map')} title={keymap.title('show_measure_map')} onclick={()=>runButton('show_measure_map')}>{keymap.buttonLabel('show_measure_map','Measure map')}</button></div><div class="zoom-controls"><button class="icon-button" aria-label={keymap.buttonLabel('zoom_out', 'Zoom out')} disabled={!buttonAvailable('zoom_out')} title={keymap.title('zoom_out')} onclick={() => runButton('zoom_out')}><Icon name="minus" size={17}/></button><span>{Math.round(song.duration / (view.end - view.start))}×</span><button class="icon-button" aria-label={keymap.buttonLabel('zoom_in', 'Zoom in')} title={keymap.title('zoom_in')} onclick={() => runButton('zoom_in')}><Icon name="plus" size={17}/></button><button class="icon-button" aria-label={keymap.buttonLabel('show_whole_song', 'Show whole song')} title={keymap.title('show_whole_song')} onclick={() => runButton('show_whole_song')}><Icon name="fit" size={17}/></button></div></div>
         <Waveform {mapView} {snapToMeasures} rate={song.rate} peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
         <div class="practice-listening">
           {#if mapView?.measures.length}<label class="snap-control" title={keymap.title('loop_snap')}><input type="checkbox" checked={snapToMeasures} disabled={!buttonAvailable('loop_snap')} onchange={()=>runButton('loop_snap')}/>{keymap.buttonLabel('loop_snap','Snap to measures')}</label>{/if}
@@ -464,17 +526,17 @@
         {#if mixerPrototype}
           <TrackMixerPrototype/>
         {:else}
-        <div class="transport-row">
-          <div class="transport-buttons" role="group" aria-label="Playback controls"><button class="icon-button" aria-label={keymap.buttonLabel('previous_section', 'Previous section')} disabled={!buttonAvailable('previous_section')} title={keymap.title('previous_section')} onclick={() => runButton('previous_section')}><Icon name="back"/></button><button class="play-button" aria-label={keymap.buttonLabel('play', transport.playing ? 'Pause' : 'Play')} title={keymap.title('play')} disabled={!buttonAvailable('play')} onclick={() => runButton('play')}><Icon name={transport.playing ? 'pause' : 'play'} size={27}/></button><button class="icon-button" aria-label={keymap.buttonLabel('next_section', 'Next section')} disabled={!buttonAvailable('next_section')} title={keymap.title('next_section')} onclick={() => runButton('next_section')}><Icon name="next"/></button>
-            {#if screen==='practice'}
-              <div class="count-in-controls" role="group" aria-label="Count-in controls">
-                <button class="button" class:active={countInActive} aria-pressed={countInActive} disabled={!buttonAvailable('count_in')} title={hasMeasureMap?keymap.title('count_in'):'Build a measure map to enable count-in'} onclick={()=>runButton('count_in')}>{keymap.buttonLabel('count_in',countInActive?'Count-in on':'Count-in off')}</button>
-                <label title={keymap.title('repeat_count_in')}><input type="checkbox" checked={repeatCountIn} disabled={!buttonAvailable('repeat_count_in')} onchange={()=>runButton('repeat_count_in')}/>{keymap.buttonLabel('repeat_count_in','Before each loop repetition')}</label>
-              </div>
-            {/if}
+        <div class="transport-row production-transport">
+          <div class="transport-buttons" role="group" aria-label="Playback controls">
+            <button class="icon-button" aria-label={keymap.buttonLabel('previous_section','Previous section')} disabled={!buttonAvailable('previous_section')} title={keymap.title('previous_section')} onclick={()=>runButton('previous_section')}><Icon name="back"/></button>
+            <div class="play-position"><button class="play-button" aria-label={keymap.buttonLabel('play',transport.playing?'Pause':'Play')} title={keymap.title('play')} disabled={!buttonAvailable('play')} onclick={()=>runButton('play')}><Icon name={transport.playing?'pause':'play'} size={27}/></button><div class="position-clock"><strong>{time(transport.position)}</strong><span> / {time(song.duration)}</span></div></div>
+            <button class="icon-button" aria-label={keymap.buttonLabel('next_section','Next section')} disabled={!buttonAvailable('next_section')} title={keymap.title('next_section')} onclick={()=>runButton('next_section')}><Icon name="next"/></button>
+            <div class="transport-modes">
+              <button class="transport-mode" class:active={countInActive} aria-label={keymap.buttonLabel('count_in',countInActive?'Count-in on':'Count-in off')} aria-pressed={countInActive} disabled={!buttonAvailable('count_in')} title={hasMeasureMap?keymap.title('count_in'):'Build a measure map to enable count-in'} onclick={()=>runButton('count_in')}><Icon name="hourglass" size={19}/></button>
+              <button class="transport-mode" disabled={!buttonAvailable('loop')} aria-label={project.loop_enabled?(repeatCountIn?'Loop with count-in':'Loop on'):'Loop off'} aria-pressed={project.loop_enabled} title={keymap.title('loop')} onclick={()=>runButton('loop')}><span class:lit={project.loop_enabled}><Icon name="loop" size={19}/></span><span class:lit={project.loop_enabled&&repeatCountIn}><Icon name="hourglass" size={19}/></span></button>
+            </div>
           </div>
-          <div class="transport-time"><strong>{time(transport.position)}</strong><span>/ {time(song.duration)}</span><small>{transport.playing ? (transport.counting_in?'Counting in…':'Playing') : transport.finished ? 'End of song' : 'Paused'}</small></div>
-          <button class:active={project.loop_enabled} class="loop-toggle" onclick={() => runButton('loop')} aria-pressed={project.loop_enabled} title={keymap.title('loop')}><Icon name="loop"/>{keymap.buttonLabel('loop', project.loop_enabled ? 'Loop on' : 'Loop off')}</button>
+          {#if stemsState.snapshot?.set_id}<TrackMixer tracks={stemsState.snapshot.tracks} disabled={!!busy||stemsLoading||!stemsState.snapshot.available||!!transport.audio_error} {keymap} ongain={(role,gain)=>runAction('stem_gain',{role,gain})} onmute={role=>runButton(`mute_${role}`)} onsolo={role=>runButton(`solo_${role}`)}/>{/if}
         </div>
 
         <PlaybackSettings disabled={!!busy} {speed} {pitch} {keymap} {controls} {runButton}/>
@@ -490,7 +552,7 @@
       {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls(value,pitch)} disabled={!!busy}/>{/snippet}
       <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.reference_token,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
     {/key}
-    <div class="musical-navigation" hidden={screen==='library'||screen==='notes'||!mapView?.measures.length}>
+    <div class="musical-navigation" hidden={screen==='library'||screen==='notes'||screen==='stems'||!mapView?.measures.length}>
       <span>{transport.musical_position?`Measure ${transport.musical_position.label}, beat ${transport.musical_position.beat.toFixed(2)}`:'Unmapped position'}</span>
       <button class="text-button" disabled={!buttonAvailable('previous_measure')} title={keymap.title('previous_measure')} onclick={()=>runButton('previous_measure')}>{keymap.buttonLabel('previous_measure','Previous measure')}</button>
       <button class="text-button" disabled={!buttonAvailable('next_measure')} title={keymap.title('next_measure')} onclick={()=>runButton('next_measure')}>{keymap.buttonLabel('next_measure','Next measure')}</button>
@@ -499,7 +561,7 @@
     </div>
 
   {/if}
-  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><div class="statusbar-tools"><ThemeControl/><button class="shortcuts-button" title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts {#if screen==='practice'||screen==='mapping'}<span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}{/if}</button></div></footer>
+  <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (stemsLoading?'Preparing stem playback…':'') || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><div class="statusbar-tools"><ThemeControl/><button class="shortcuts-button" title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts {#if screen==='practice'||screen==='mapping'}<span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}{/if}</button></div></footer>
 </div>
 
 <dialog class="section-dialog" bind:this={sectionDialog} onclose={() => { dialogError = ''; }}>

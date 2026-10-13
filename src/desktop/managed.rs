@@ -3,6 +3,14 @@
 use super::*;
 
 impl Desktop {
+    pub(super) fn begin_managed_open(&self) -> Result<(crate::managed::ManagedLibrary, u64, u64)> {
+        match self.request(Command::BeginManagedOpen)? {
+            Response::ManagedOpenContext(library, generation, opening) => {
+                Ok((library, generation, opening))
+            }
+            _ => unreachable!(),
+        }
+    }
     pub(super) fn managed_last_song(&self) -> Result<Option<String>> {
         match self.request(Command::ManagedLastSong)? {
             Response::ManagedLastSong(value) => Ok(value),
@@ -85,7 +93,9 @@ impl Controller {
         }
     }
     pub(super) fn unload(&mut self) {
+        self.activation_generation = self.activation_generation.wrapping_add(1);
         self.player = None;
+        self.stems = None;
         self.song = None;
         self.audio = None;
         self.document = None;
@@ -99,9 +109,14 @@ impl Controller {
         &mut self,
         library: &crate::managed::ManagedLibrary,
         prepared: crate::managed::Prepared,
+        stems: Option<super::stems::Activation>,
     ) -> Result<()> {
         let mut record = prepared.record;
         let latest_song = library.record(&record.id.to_string())?;
+        ensure!(
+            latest_song.stems.as_ref().map(|s| &s.id) == stems.as_ref().map(|s| &s.record.id),
+            "Stem set changed; discard stale open"
+        );
         let latest = latest_song.record;
         ensure!(
             latest.asset.id == record.asset.id
@@ -143,6 +158,13 @@ impl Controller {
             self.preference_data = prefs;
         }
         self.unload();
+        self.stems = stems.map(|mut stems| {
+            if let Some(latest) = latest_song.stems {
+                stems.mix = latest.mix.to_mix();
+                stems.record = latest;
+            }
+            stems
+        });
         self.audio = Some(audio);
         self.document = Some(document);
         self.song = Some(song);

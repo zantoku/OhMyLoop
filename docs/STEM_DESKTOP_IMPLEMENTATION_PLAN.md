@@ -1,7 +1,8 @@
 # Stem attachment and desktop mixer — issue #5
 
-Status: scope, visual design and technical decisions agreed; awaiting the
-maintainer's final shared-understanding confirmation before implementation.
+Status: scope, visual design and technical decisions confirmed by the maintainer.
+Implementation is authorized. The maintainer superseded the delayed start and
+requested immediate implementation on 2026-10-13.
 
 ## Agreed scope
 

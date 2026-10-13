@@ -1,6 +1,7 @@
 //! User-owned managed recording storage. Multi-file operations are not transactional.
 mod paths;
 mod preferences;
+mod stems;
 mod transfers;
 use crate::{
     library::{Catalogue, Entry, Metadata, now_ms},
@@ -34,6 +35,8 @@ pub struct ManagedSong {
     pub metadata: Metadata,
     pub date_added: u64,
     pub last_opened: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stems: Option<crate::stems::library::StoredStemSet>,
 }
 impl ManagedLibrary {
     pub fn create(parent: &Path) -> Result<Self> {
@@ -111,6 +114,15 @@ impl ManagedLibrary {
             "Unsupported managed song schema; original preserved"
         );
         song.record.validate()?;
+        if let Some(stems) = &song.stems {
+            stems.validate()?;
+            ensure!(
+                stems.reference_sha256 == song.record.asset.digest
+                    && stems.reference_rate == song.record.asset.rate
+                    && stems.reference_frames == song.record.asset.frames,
+                "Stem reference does not match recording"
+            );
+        }
         self.validate_asset(&song.record)?;
         ensure!(
             song.metadata.clone().normalized()? == song.metadata,
