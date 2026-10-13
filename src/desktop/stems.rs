@@ -98,7 +98,7 @@ impl Desktop {
             let reference = operation.library.asset_path(&operation.record.record)?;
             let rate = Player::output_rate().unwrap_or(operation.record.record.asset.rate);
             let mut workflow = WorkflowTracker::attachment(Path::new(&directory))?;
-            progress(workflow.begin("validation.reference.hash"));
+            progress(workflow.begin_first());
             let (record, prepared) = {
                 let mut publish = throttled_progress(&mut progress);
                 let mut report = |event: PreparationProgress| publish(workflow.update(event));

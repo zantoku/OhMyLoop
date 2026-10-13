@@ -16,6 +16,13 @@ recording. The app validates and copies declared stems into the library. The
 prototype directory can subsequently be removed: prepared.wav is attachment
 validation evidence, not a playback dependency.
 
+New attachments omit tracks whose whole-track peak is below −60 dBFS, showing
+“Skipped” in the checklist. A brief sound at or above that level retains the track.
+Existing attached sets are unchanged; reattach to apply this filtering. If all tracks
+fall below the cutoff, the app reports “No audible stems found” and keeps any existing
+set. Attachment now reuses validated playback data instead of preparing it again;
+see [measurements and implementation details](STEM_ATTACHMENT_PERFORMANCE.md).
+
 Attachment/replacement/removal pauses at the current position and stays paused.
 Replacing an attached set and removing stems require confirmation. Opening or
 closing the Stems screen alone does not interrupt playback. Removing stems keeps

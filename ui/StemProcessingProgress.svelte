@@ -6,7 +6,7 @@
  const fraction=$derived(known?Math.max(0,Math.min(1,workflow!.completed/workflow!.total)):0);
  const finished=$derived(known&&fraction===1&&!failed);
  const current=$derived(workflow?.steps.find(step=>step.state==='active'));
- function stepFraction(step:StemProcessingStep){return step.state==='complete'?1:step.total&&step.total>0?Math.max(0,Math.min(1,step.completed/step.total)):0;}
+ function stepFraction(step:StemProcessingStep){return (step.state==='complete'||step.state==='skipped')?1:step.total&&step.total>0?Math.max(0,Math.min(1,step.completed/step.total)):0;}
 </script>
 <section class="processing-progress" aria-label="Stem processing progress">
  <div class="progress-heading"><strong>{failed?'Processing stopped':finished?'Stems ready':operation.replace(/…$/,'')}</strong><span>{known?`${Math.floor(fraction*100)}%`:''}</span></div>
@@ -16,9 +16,9 @@
  <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard focus makes this scrollable list reachable.) -->
  <ul class="processing-steps" aria-label="Processing steps" tabindex="0">
   {#each workflow.steps as step (step.id)}
-   <li class:active={step.state==='active'} class:complete={step.state==='complete'} aria-current={step.state==='active'?'step':undefined}>
+   <li class:active={step.state==='active'} class:complete={step.state==='complete'||step.state==='skipped'} aria-current={step.state==='active'?'step':undefined}>
     <span class="step-circle" class:running={busy&&step.state==='active'&&step.total===null} style:--sweep={`${stepFraction(step)*360}deg`} aria-hidden="true"></span>
-    <span class="step-label">{step.label}</span><span class="step-status">{step.state==='complete'?'Complete':step.state==='active'?(failed?'Stopped':step.total?`${Math.floor(stepFraction(step)*100)}%`:'Working'):'Pending'}</span>
+    <span class="step-label">{step.label}</span><span class="step-status">{step.state==='skipped'?'Skipped':step.state==='complete'?'Complete':step.state==='active'?(failed?'Stopped':step.total?`${Math.floor(stepFraction(step)*100)}%`:'Working'):'Pending'}</span>
    </li>
   {/each}
  </ul>

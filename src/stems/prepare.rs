@@ -50,6 +50,45 @@ impl PreparedComparison {
         reference: &Path,
         sets: &[PathBuf],
         output_rate: u32,
+        progress: impl FnMut(PreparationProgress),
+    ) -> Result<Self> {
+        Self::prepare_inputs(
+            reference,
+            sets,
+            None,
+            output_rate,
+            &mut Vec::new(),
+            progress,
+        )
+    }
+
+    /// Attachment validates the actual owned copies, retaining their decoded PCM.
+    /// Manifest and prepared.wav evidence still come from the prototype directory.
+    fn prepare_owned(
+        reference: &Path,
+        prototype: &Path,
+        owned_paths: &BTreeMap<String, PathBuf>,
+        output_rate: u32,
+        progress: impl FnMut(PreparationProgress),
+    ) -> Result<(Self, Vec<String>)> {
+        let mut excluded = Vec::new();
+        let prepared = Self::prepare_inputs(
+            reference,
+            &[prototype.to_path_buf()],
+            Some(owned_paths),
+            output_rate,
+            &mut excluded,
+            progress,
+        )?;
+        Ok((prepared, excluded))
+    }
+
+    fn prepare_inputs(
+        reference: &Path,
+        sets: &[PathBuf],
+        owned_paths: Option<&BTreeMap<String, PathBuf>>,
+        output_rate: u32,
+        excluded: &mut Vec<String>,
         mut progress: impl FnMut(PreparationProgress),
     ) -> Result<Self> {
         ensure!(sets.len() <= 2, "At most two stem sets are supported");
@@ -73,6 +112,7 @@ impl PreparedComparison {
             next: 0,
             progress: &mut progress,
             step: None,
+            decoded_peak: 0.,
         };
         preparer.stage("validation.reference.hash");
         let reference_hash = preparer.digest(reference)?;
@@ -154,6 +194,11 @@ impl PreparedComparison {
                 !manifest.stems.is_empty() && manifest.stems.len() <= 6,
                 "Stem set must have one to six supported roles"
             );
+            ensure!(
+                owned_paths.is_none_or(|paths| paths.len() == manifest.stems.len()
+                    && manifest.stems.keys().all(|role| paths.contains_key(role))),
+                "Owned stem paths do not match declared roles"
+            );
             let mut bank = Vec::new();
             for (name, track) in manifest.stems {
                 let role = Role::parse(&name)?;
@@ -163,7 +208,11 @@ impl PreparedComparison {
                         && track.channels == 2,
                     "Declared geometry mismatch for {name}"
                 );
-                let path = safe_file(set, &track.file)?;
+                let prototype_path = safe_file(set, &track.file)?;
+                let path = owned_paths
+                    .and_then(|paths| paths.get(&name))
+                    .cloned()
+                    .unwrap_or(prototype_path);
                 preparer.stage(format!("validation.{name}.hash"));
                 ensure!(
                     preparer.digest(&path)? == track.sha256,
@@ -177,9 +226,22 @@ impl PreparedComparison {
                         && pcm.channels == track.channels,
                     "Decoded geometry mismatch: {name}"
                 );
+                // Desktop attachment omits near-empty estimates only after verifying
+                // their actual owned hash, finite samples and complete geometry.
+                if owned_paths.is_some() && preparer.decoded_peak < 0.001_f32 {
+                    fs::remove_file(&pcm.path)?;
+                    excluded.push(name.clone());
+                    preparer.stage(format!("skip.{name}"));
+                    preparer.notify(format!("Skip near-silent {name}"), 1, Some(1));
+                    continue;
+                }
                 preparer.stage(format!("validation.{name}.resample"));
                 bank.push((role, preparer.resample(pcm, output_rate, frames)?));
             }
+            ensure!(
+                owned_paths.is_none() || !bank.is_empty(),
+                "No audible stems found"
+            );
             banks.push(bank);
         }
         preparer.stage("validation.headroom");
@@ -361,6 +423,7 @@ struct Preparer<'a, F: FnMut(PreparationProgress)> {
     next: usize,
     progress: &'a mut F,
     step: Option<String>,
+    decoded_peak: f32,
 }
 impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
     fn stage(&mut self, id: impl Into<String>) {
@@ -420,6 +483,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
         let output = self.path();
         let mut writer = BufWriter::new(File::create(&output)?);
         let mut frames = 0u64;
+        let mut peak = 0.0_f32;
         let mut rate = None;
         let mut input_channels = None;
         loop {
@@ -459,6 +523,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
                     sample.iter().all(|x| x.is_finite()),
                     "Non-finite decoded sample"
                 );
+                peak = peak.max(sample[0].abs()).max(sample[channels - 1].abs());
                 writer.write_all(&sample[0].to_le_bytes())?;
                 writer.write_all(&sample[channels - 1].to_le_bytes())?;
                 frames += 1;
@@ -470,6 +535,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
             );
         }
         writer.flush()?;
+        self.decoded_peak = peak;
         ensure!(frames > 0, "Empty decoded audio");
         // WAV declares an exact PCM frame count. Compressed containers may
         // report codec padding or estimates, so their decoded count is primary.

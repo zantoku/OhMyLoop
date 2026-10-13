@@ -247,9 +247,13 @@ steps have hollow circular bullets, measured active progress fills a green pie,
 and completed steps have solid green bullets. Keep the completed checklist after
 attachment; an error leaves incomplete steps incomplete.
 
+New attachments omit tracks with a whole-track peak below −60 dBFS. Show those
+steps as “Skip near-silent <instrument>”, with a green bullet and “Skipped” status;
+count them toward overall completion and retain that status after publication.
+
 Overall progress represents completed task units plus the measured fraction of the
 active task, not a time estimate. Keep the full attachment denominator stable
-through validation, copying, playback preparation and final song-association save;
+through copying, validation, playback preparation and final song-association save;
 show 100% only after successful publication. Unknown work is indeterminate. Reused
 playback preparation can show a single completed reuse step. Throttle visual updates
 while preserving stage transitions and completion events.

@@ -351,7 +351,7 @@ fn owned_attachment_removes_prototype_dependency_and_cache_reuses_without_hashin
     let mut record = attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap();
     assert_eq!(owned.file_name().unwrap().to_str().unwrap(), record.id);
     assert!(!owned.join("prepared.wav").exists());
-    assert_eq!(fs::read_dir(&owned).unwrap().count(), 2);
+    assert_eq!(fs::read_dir(&owned).unwrap().count(), 3);
     fs::remove_dir_all(&f.sets[0]).unwrap();
     let initial = prepare(&record, &f.reference, &owned, &cache, f.rate, |_| {}).unwrap();
     let attenuation = initial.shared_attenuation;
@@ -760,7 +760,7 @@ fn attachment_workflow_covers_actual_work_and_waits_for_publication() {
     let owned = f.root.join(uuid::Uuid::new_v4().to_string());
     let mut tracker = WorkflowTracker::attachment(&f.sets[0]).unwrap();
     let mut snapshots = Vec::new();
-    snapshots.push(tracker.begin("validation.reference.hash").workflow.unwrap());
+    snapshots.push(tracker.begin_first().workflow.unwrap());
     let record = attach(&f.reference, &f.sets[0], &owned, 48_000, |p| {
         snapshots.push(tracker.update(p).workflow.unwrap());
     })
@@ -850,4 +850,244 @@ fn failed_attachment_progress_never_completes_remaining_work() {
     let final_snapshot = snapshots.last().unwrap();
     assert!(final_snapshot.completed < final_snapshot.total as f64);
     assert_eq!(final_snapshot.steps.last().unwrap().state, "pending");
+}
+
+#[test]
+fn attachment_decodes_owned_once_and_reuses_identical_pcm_without_rescanning() {
+    use ohmyloop::stems::library::{attach, prepare};
+    let f = fixture(&Role::ALL, false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let mut steps = std::collections::BTreeSet::new();
+    let record = attach(&f.reference, &f.sets[0], &owned, 48000, |p| {
+        if let Some(id) = p.step {
+            steps.insert(id);
+        }
+    })
+    .unwrap();
+    let mut reopened = Vec::new();
+    let adopted = prepare(
+        &record,
+        &f.reference,
+        &owned,
+        &owned.join("playback-cache"),
+        48000,
+        |p| reopened.push(p.phase),
+    )
+    .unwrap();
+    assert_eq!(reopened, ["Reuse prepared playback"]);
+    assert_eq!(steps.iter().filter(|id| id.ends_with(".hash")).count(), 8);
+    assert_eq!(steps.iter().filter(|id| id.ends_with(".decode")).count(), 8);
+    assert_eq!(
+        steps.iter().filter(|id| id.ends_with(".resample")).count(),
+        7
+    );
+    assert_eq!(
+        steps.iter().filter(|id| id.ends_with(".headroom")).count(),
+        1
+    );
+    assert!(
+        !steps
+            .iter()
+            .any(|id| id.starts_with("cache.") && id.ends_with(".decode"))
+    );
+    let expected = PreparedComparison::prepare(&f.reference, &f.sets, 48000, |_| {}).unwrap();
+    assert_eq!(adopted.shared_attenuation, expected.shared_attenuation);
+    for selection in [0, 1] {
+        let mut actual = adopted.open(selection, MixState::default()).unwrap();
+        let mut before = expected.open(selection, MixState::default()).unwrap();
+        let mut a = [[0.; 2]; 128];
+        let mut b = a;
+        assert_eq!(
+            actual.read_frames(1024, &mut a).unwrap(),
+            before.read_frames(1024, &mut b).unwrap()
+        );
+        assert_eq!(a, b);
+    }
+}
+
+#[test]
+fn near_silent_tracks_are_validated_then_excluded_with_truthful_progress() {
+    use ohmyloop::stems::library::{WorkflowTracker, attach, prepare};
+    let f = fixture(&[Role::Bass, Role::Drums, Role::Guitar, Role::Piano], false);
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(f.sets[0].join("manifest.json")).unwrap()).unwrap();
+    for role in [Role::Bass, Role::Drums, Role::Guitar, Role::Piano] {
+        let mut samples = vec![[0.; 2]; f.frames as usize];
+        match role {
+            Role::Bass => {}
+            Role::Drums => samples.fill([0.0005, -0.0005]),
+            Role::Guitar => samples.fill([0.001, -0.001]),
+            Role::Piano => samples[1000] = [0.002, 0.],
+            _ => unreachable!(),
+        }
+        let path = f.sets[0].join(format!("{}.wav", role.name()));
+        write_wav(&path, f.rate, &samples).unwrap();
+        manifest["stems"][role.name()]["sha256"] = json!(sha(&path));
+    }
+    write_manifest(&f.sets[0], manifest);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let mut workflow = WorkflowTracker::attachment(&f.sets[0]).unwrap();
+    let mut snapshots = Vec::new();
+    let mut ids = std::collections::BTreeSet::new();
+    let record = attach(&f.reference, &f.sets[0], &owned, 48000, |p| {
+        if let Some(id) = &p.step {
+            ids.insert(id.clone());
+        }
+        snapshots.push(workflow.update(p).workflow.unwrap());
+    })
+    .unwrap();
+    assert_eq!(record.roles(), [Role::Guitar, Role::Piano]);
+    for role in ["bass", "drums"] {
+        assert!(!owned.join(format!("{role}.wav")).exists());
+        assert!(f.sets[0].join(format!("{role}.wav")).exists());
+        assert!(ids.contains(&format!("validation.{role}.hash")));
+        assert!(ids.contains(&format!("validation.{role}.decode")));
+        assert!(!ids.contains(&format!("validation.{role}.resample")));
+    }
+    for s in &snapshots {
+        assert!(s.completed < s.total as f64);
+    }
+    let done = workflow.finish().workflow.unwrap();
+    assert_eq!(done.completed, done.total as f64);
+    let skipped: Vec<_> = done
+        .steps
+        .iter()
+        .filter(|s| s.state == "skipped")
+        .map(|s| s.label.as_str())
+        .collect();
+    assert_eq!(skipped, ["Skip near-silent bass", "Skip near-silent drums"]);
+    let mut events = Vec::new();
+    let _prepared = prepare(
+        &record,
+        &f.reference,
+        &owned,
+        &owned.join("playback-cache"),
+        48000,
+        |p| events.push(p.phase),
+    )
+    .unwrap();
+    assert_eq!(events, ["Reuse prepared playback"]);
+}
+
+#[test]
+fn rejected_owned_corruption_reference_races_and_all_quiet_sets_leave_no_new_assets() {
+    use ohmyloop::stems::library::{WorkflowTracker, attach};
+    for scenario in 0..3 {
+        let f = fixture(&[Role::Bass], false);
+        let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+        if scenario == 2 {
+            let path = f.sets[0].join("bass.wav");
+            write_wav(&path, f.rate, &vec![[0.0005; 2]; f.frames as usize]).unwrap();
+            let mut manifest: Value =
+                serde_json::from_slice(&fs::read(f.sets[0].join("manifest.json")).unwrap())
+                    .unwrap();
+            manifest["stems"]["bass"]["sha256"] = json!(sha(&path));
+            write_manifest(&f.sets[0], manifest);
+        }
+        let mut changed = false;
+        let mut workflow = WorkflowTracker::attachment(&f.sets[0]).unwrap();
+        let mut snapshots = Vec::new();
+        let result = attach(&f.reference, &f.sets[0], &owned, 48000, |p| {
+            if !changed
+                && ((scenario == 0
+                    && p.step.as_deref() == Some("owned.bass.copy")
+                    && p.total == Some(p.completed))
+                    || (scenario == 1 && p.step.as_deref() == Some("validation.reference.decode")))
+            {
+                changed = true;
+                let path = if scenario == 0 {
+                    owned.join("bass.wav")
+                } else {
+                    f.reference.clone()
+                };
+                let mut bytes = fs::read(&path).unwrap();
+                if scenario == 0 {
+                    bytes[44] ^= 1;
+                    bytes.push(0);
+                } else {
+                    bytes[128] ^= 1;
+                }
+                let modified = fs::metadata(&path).unwrap().modified().unwrap();
+                fs::write(&path, bytes).unwrap();
+                fs::File::options()
+                    .write(true)
+                    .open(path)
+                    .unwrap()
+                    .set_modified(modified + std::time::Duration::from_secs(1))
+                    .unwrap();
+            }
+            snapshots.push(workflow.update(p).workflow.unwrap());
+        });
+        let error = result.unwrap_err().to_string();
+        if scenario == 1 {
+            assert!(
+                error.contains("changed during attachment preparation"),
+                "{error}"
+            );
+        }
+        if scenario == 2 {
+            assert!(error.contains("No audible stems found"), "{error}");
+        }
+        assert!(!owned.exists());
+        assert!(f.sets[0].join("bass.wav").exists());
+        let last = snapshots.last().unwrap();
+        assert!(last.completed < last.total as f64);
+        assert_eq!(last.steps.last().unwrap().state, "pending");
+    }
+}
+
+#[test]
+fn all_near_silent_replacement_keeps_existing_managed_association_and_playback() {
+    use ohmyloop::{
+        managed::ManagedLibrary,
+        stems::library::{attach, prepare},
+    };
+    let f = fixture(&[Role::Bass], false);
+    let library = ManagedLibrary::create(&f.root).unwrap();
+    let imported = library
+        .commit_import(library.import(&f.reference, |_, _| {}).unwrap())
+        .unwrap();
+    let key = imported.record.id.to_string();
+    let reference = library.asset_path(&imported.record).unwrap();
+    let old_id = uuid::Uuid::new_v4().to_string();
+    let old_directory = library.stem_directory(&key, &old_id).unwrap();
+    let old = attach(&reference, &f.sets[0], &old_directory, 48000, |_| {}).unwrap();
+    library
+        .save_stems(&key, imported.record.reference_revision, Some(old.clone()))
+        .unwrap();
+    let old_audio = prepare(
+        &old,
+        &reference,
+        &old_directory,
+        &old_directory.join("playback-cache"),
+        48000,
+        |_| {},
+    )
+    .unwrap();
+    let mut reader = old_audio.open(1, MixState::default()).unwrap();
+    let mut samples = [[0.; 2]; 16];
+    reader.read_frames(100, &mut samples).unwrap();
+    let before_audio = samples;
+    let document = library.root().join(format!("songs/{key}/song.json"));
+    let before_document = fs::read(&document).unwrap();
+    let path = f.sets[0].join("bass.wav");
+    write_wav(&path, f.rate, &vec![[0.0005; 2]; f.frames as usize]).unwrap();
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(f.sets[0].join("manifest.json")).unwrap()).unwrap();
+    manifest["stems"]["bass"]["sha256"] = json!(sha(&path));
+    write_manifest(&f.sets[0], manifest);
+    let new_directory = library
+        .stem_directory(&key, &uuid::Uuid::new_v4().to_string())
+        .unwrap();
+    assert!(
+        attach(&reference, &f.sets[0], &new_directory, 48000, |_| {})
+            .unwrap_err()
+            .to_string()
+            .contains("No audible stems found")
+    );
+    assert!(!new_directory.exists());
+    assert_eq!(fs::read(document).unwrap(), before_document);
+    assert!(old_directory.join("bass.wav").exists());
+    reader.read_frames(100, &mut samples).unwrap();
+    assert_eq!(samples, before_audio);
 }

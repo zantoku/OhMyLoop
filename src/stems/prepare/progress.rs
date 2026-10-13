@@ -48,7 +48,11 @@ impl WorkflowTracker {
         for role in &roles {
             Role::parse(role)?;
         }
-        let mut plan = vec![
+        let mut plan = Vec::new();
+        for role in &roles {
+            plan.push((format!("owned.{role}.copy"), format!("Copy {role} audio")));
+        }
+        plan.extend(vec![
             (
                 "validation.reference.hash".into(),
                 "Check reference recording".into(),
@@ -69,7 +73,7 @@ impl WorkflowTracker {
                 "validation.prepared.decode".into(),
                 "Read separation source".into(),
             ),
-        ];
+        ]);
         for role in &roles {
             for (stage, action) in [("hash", "Check"), ("decode", "Read"), ("resample", "Align")] {
                 plan.push((
@@ -82,19 +86,8 @@ impl WorkflowTracker {
             "validation.headroom".into(),
             "Measure safe playback levels".into(),
         ));
-        for role in &roles {
-            for (stage, action) in [
-                ("copy", "Copy"),
-                ("hash", "Verify copied"),
-                ("decode", "Read copied"),
-            ] {
-                plan.push((
-                    format!("owned.{role}.{stage}"),
-                    format!("{action} {role} audio"),
-                ));
-            }
-        }
-        plan.extend(Self::cache_plan(&roles));
+        plan.push(("cache.adopt".into(), "Keep validated playback audio".into()));
+        plan.push(("cache.save".into(), "Save prepared playback".into()));
         plan.push(("attachment.publish".into(), "Save attached stems".into()));
         Ok(Self::new(plan))
     }
@@ -132,6 +125,10 @@ impl WorkflowTracker {
     pub(super) fn cache(roles: &[String]) -> Self {
         Self::new(Self::cache_plan(roles))
     }
+    pub fn begin_first(&mut self) -> PreparationProgress {
+        let id = self.steps.first().map(|s| s.id.clone()).unwrap_or_default();
+        self.begin(&id)
+    }
     pub fn begin(&mut self, id: &str) -> PreparationProgress {
         self.update(PreparationProgress {
             phase: "Processing audio".into(),
@@ -143,7 +140,9 @@ impl WorkflowTracker {
     }
     pub fn finish(&mut self) -> PreparationProgress {
         for step in &mut self.steps {
-            step.state = "complete";
+            if step.state != "skipped" {
+                step.state = "complete";
+            }
             step.completed = 1;
             step.total = Some(1);
         }
@@ -158,6 +157,32 @@ impl WorkflowTracker {
         p
     }
     pub fn update(&mut self, mut progress: PreparationProgress) -> PreparationProgress {
+        if let Some(role) = progress
+            .step
+            .as_deref()
+            .and_then(|id| id.strip_prefix("skip."))
+            && Role::parse(role).is_ok()
+            && let Some(index) = self
+                .steps
+                .iter()
+                .position(|s| s.id == format!("validation.{role}.resample"))
+        {
+            for step in &mut self.steps[..index] {
+                if step.state != "skipped" {
+                    step.state = "complete";
+                    step.completed = 1;
+                    step.total = Some(1);
+                }
+            }
+            let step = &mut self.steps[index];
+            step.state = "skipped";
+            step.label = format!("Skip near-silent {role}");
+            step.completed = 1;
+            step.total = Some(1);
+            self.current = Some(index);
+            progress.workflow = Some(self.snapshot());
+            return progress;
+        }
         if let Some(index) = progress
             .step
             .as_ref()
@@ -166,7 +191,9 @@ impl WorkflowTracker {
             if self.current != Some(index) {
                 // Only successful sequential handoffs complete earlier work.
                 for step in &mut self.steps[..index] {
-                    step.state = "complete";
+                    if step.state != "skipped" {
+                        step.state = "complete";
+                    }
                     step.completed = 1;
                     step.total = Some(1);
                 }
@@ -185,7 +212,7 @@ impl WorkflowTracker {
             .steps
             .iter()
             .map(|step| match step.state {
-                "complete" => 1.0,
+                "complete" | "skipped" => 1.0,
                 "active" => step
                     .total
                     .filter(|n| *n > 0)

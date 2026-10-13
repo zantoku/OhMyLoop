@@ -250,8 +250,8 @@ fn directory_safe(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Validates the prototype contract, copies only declared stem audio, then validates
-/// owned copies. Caller publishes the association before deleting an older set.
+/// Copy declared stems, validate the owned bytes once, then retain their bounded
+/// PCM/headroom as a rebuildable cache. Publication remains the caller's job.
 pub fn attach(
     reference: &Path,
     prototype: &Path,
@@ -266,62 +266,86 @@ pub fn attach(
         "Oversized prototype manifest"
     );
     let original_manifest = fs::read(&manifest_path)?;
-    let original_value: serde_json::Value = serde_json::from_slice(&original_manifest)?;
-    supported_provenance(&original_value["identity"])?;
+    let raw: serde_json::Value = serde_json::from_slice(&original_manifest)?;
+    supported_provenance(&raw["identity"])?;
     ensure!(
-        original_value["corrections"]
-            .as_array()
-            .is_some_and(|corrections| corrections.is_empty()),
+        raw["corrections"].as_array().is_some_and(|c| c.is_empty()),
         "Unsupported or missing alignment corrections"
     );
-    let validated = PreparedComparison::prepare(
-        reference,
-        &[prototype.to_path_buf()],
-        output_rate,
-        &mut progress,
-    )?;
-    drop(validated);
-    let bytes = fs::read(safe_file(prototype, "manifest.json")?)?;
+    let manifest: Manifest = serde_json::from_slice(&original_manifest)?;
     ensure!(
-        bytes == original_manifest,
-        "Prototype manifest changed during validation"
+        manifest.version == 1 && manifest.status == "complete",
+        "Unsupported or incomplete prototype manifest"
     );
-    let manifest: Manifest = serde_json::from_slice(&bytes)?;
-    let raw: serde_json::Value = serde_json::from_slice(&bytes)?;
+    ensure!(
+        format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&raw["identity"])?)
+        ) == manifest.job_key,
+        "Invalid manifest job identity"
+    );
+    let mut source_files = std::collections::HashSet::new();
+    let mut sources = Vec::new();
+    let mut tracks = Vec::new();
+    let mut paths = BTreeMap::new();
+    for (role, track) in &manifest.stems {
+        Role::parse(role)?;
+        ensure!(
+            source_files.insert(&track.file),
+            "Duplicate declared stem file"
+        );
+        let source = safe_file(prototype, &track.file)?;
+        let extension = source.extension().and_then(|e| e.to_str()).unwrap_or("wav");
+        let file = format!("{role}.{extension}");
+        tracks.push(StoredTrack {
+            role: role.clone(),
+            file: file.clone(),
+            sha256: track.sha256.clone(),
+            rate: track.rate,
+            frames: track.frames,
+            channels: track.channels,
+        });
+        paths.insert(role.clone(), owned.join(&file));
+        sources.push((role.clone(), source, file));
+    }
+    let preparation = &manifest.identity.preparation;
+    let mut record = StoredStemSet {
+        version: VERSION,
+        id: owned
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| uuid::Uuid::parse_str(n).ok())
+            .unwrap_or_else(uuid::Uuid::new_v4)
+            .to_string(),
+        reference_sha256: preparation.source_sha256.clone(),
+        reference_rate: preparation.source_rate,
+        reference_frames: preparation.source_frames,
+        provenance: raw["identity"].clone(),
+        tracks,
+        mix: SavedMix::default(),
+    };
+    record.validate()?;
     directory_safe(owned)?;
     ensure!(!owned.exists(), "Stem destination already exists");
     fs::create_dir_all(owned)?;
     let result = (|| {
-        let mut validation = Preparer {
-            directory: std::env::temp_dir().join(format!(
-                "ohmyloop-owned-validation-{}",
-                uuid::Uuid::new_v4()
-            )),
-            next: 0,
-            progress: &mut progress,
-            step: None,
-        };
-        fs::create_dir(&validation.directory)?;
-        let _temporary = TemporaryDirectory(validation.directory.clone(), false.into());
-        let preparation = &manifest.identity.preparation;
-        let mut tracks = Vec::new();
-        let mut source_files = std::collections::HashSet::new();
-        for (role, track) in &manifest.stems {
-            ensure!(
-                source_files.insert(&track.file),
-                "Duplicate declared stem file"
-            );
-            let source = safe_file(prototype, &track.file)?;
-            // Generated filenames avoid carrying input directory structures into storage.
-            let extension = source.extension().and_then(|e| e.to_str()).unwrap_or("wav");
-            let file = format!("{role}.{extension}");
-            let destination = owned.join(&file);
-            validation.stage(format!("owned.{role}.copy"));
-            let total = fs::metadata(&source)?.len();
+        let mut buffer = vec![0; 256 * 1024];
+        for (role, source, file) in sources {
             let mut input = File::open(&source)?;
-            let mut output = File::create(&destination)?;
-            let mut buffer = vec![0; 256 * 1024];
+            let total = input.metadata()?.len();
+            let mut output = fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(owned.join(file))?;
             let mut copied = 0;
+            let step = format!("owned.{role}.copy");
+            progress(PreparationProgress {
+                phase: format!("Copy {role}"),
+                completed: 0,
+                total: Some(total),
+                step: Some(step.clone()),
+                workflow: None,
+            });
             loop {
                 let n = input.read(&mut buffer)?;
                 if n == 0 {
@@ -329,47 +353,60 @@ pub fn attach(
                 }
                 output.write_all(&buffer[..n])?;
                 copied += n as u64;
-                validation.notify(format!("Copy {role}"), copied, Some(total));
+                progress(PreparationProgress {
+                    phase: format!("Copy {role}"),
+                    completed: copied,
+                    total: Some(total),
+                    step: Some(step.clone()),
+                    workflow: None,
+                });
             }
+            ensure!(copied == total, "Stem changed while copying: {role}");
             output.sync_all()?;
-            validation.stage(format!("owned.{role}.hash"));
-            ensure!(
-                validation.digest(&destination)? == track.sha256,
-                "Owned stem digest mismatch"
-            );
-            validation.stage(format!("owned.{role}.decode"));
-            let pcm = validation.decode(&destination)?;
-            ensure!(
-                pcm.rate == track.rate
-                    && pcm.frames == track.frames
-                    && pcm.channels == track.channels,
-                "Owned stem geometry mismatch"
-            );
-            tracks.push(StoredTrack {
-                role: role.clone(),
-                file,
-                sha256: track.sha256.clone(),
-                rate: track.rate,
-                frames: track.frames,
-                channels: track.channels,
-            });
         }
-        let record = StoredStemSet {
-            version: VERSION,
-            id: owned
-                .file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| uuid::Uuid::parse_str(n).ok())
-                .unwrap_or_else(uuid::Uuid::new_v4)
-                .to_string(),
-            reference_sha256: preparation.source_sha256.clone(),
-            reference_rate: preparation.source_rate,
-            reference_frames: preparation.source_frames,
-            provenance: raw["identity"].clone(),
-            tracks,
-            mix: SavedMix::default(),
-        };
-        record.validate()?;
+        // Metadata is captured before hash/decode, never refreshed after validation
+        // and presented as evidence that older PCM represents newer input bytes.
+        let checked = cache::capture_inputs(&record, reference, owned)?;
+        let evidence_path = safe_file(prototype, "prepared.wav")?;
+        let evidence = file_state(&evidence_path)?;
+        let (validated, excluded) = PreparedComparison::prepare_owned(
+            reference,
+            prototype,
+            &paths,
+            output_rate,
+            &mut progress,
+        )?;
+        ensure!(
+            fs::read(safe_file(prototype, "manifest.json")?)? == original_manifest,
+            "Prototype manifest changed during validation"
+        );
+        ensure!(
+            file_state(&safe_file(prototype, "prepared.wav")?)? == evidence,
+            "Prepared input changed during validation"
+        );
+        cache::verify_inputs(&record, reference, owned, &checked)?;
+        let original_record = record.clone();
+        record
+            .tracks
+            .retain(|track| !excluded.contains(&track.role));
+        let checked = checked.retained(&original_record, &record)?;
+        for track in original_record
+            .tracks
+            .iter()
+            .filter(|track| excluded.contains(&track.role))
+        {
+            fs::remove_file(safe_file(owned, &track.file)?)?;
+        }
+        let adopted = cache::adopt(
+            &record,
+            reference,
+            owned,
+            &owned.join("playback-cache"),
+            validated,
+            &checked,
+            &mut progress,
+        )?;
+        drop(adopted);
         Ok(record)
     })();
     match result {
@@ -381,4 +418,10 @@ pub fn attach(
         },
         success => success,
     }
+}
+
+fn file_state(path: &Path) -> Result<(u64, std::time::SystemTime)> {
+    let metadata = fs::metadata(path)?;
+    ensure!(metadata.is_file(), "Expected an audio file");
+    Ok((metadata.len(), metadata.modified()?))
 }
