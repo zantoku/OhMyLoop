@@ -3,7 +3,8 @@
 The terminal player uses the production `Player` worker and `Engine`, feeding
 one Rubber Band R3 processor. Existing desktop and CLI callers retain their
 whole-file `Audio` entry points through `MemorySource`; desktop adoption is a
-later work item. ADR 0009 remains proposed pending maintainer listening approval.
+later work item. ADR 0009 was accepted after the maintainer's successful listening
+trial on 2026-10-13.
 
 `stems::BlockSource` supplies stereo blocks at prepared output-device rate.
 `SourceFactory` reopens that source when transport changes require fresh DSP.
@@ -56,6 +57,7 @@ Send/Sync overrides.
 
 See [usage, measurements and listening checks](STEM_DSP_USAGE.md). RSS sampling
 is an observed process-memory peak, not a proof that a 10 ms sampler captures
-every shorter spike. Windows/Linux playback and subjective sound quality remain
-untested in this session. No persistent cache, crash recovery, desktop mixer,
+every shorter spike. Windows/Linux playback remains untested in this session.
+The maintainer reported successful listening and selected Roformer-SW after
+comparing the existing output sets. No persistent cache, crash recovery, desktop mixer,
 library attachment or separation process is introduced here.

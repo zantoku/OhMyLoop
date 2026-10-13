@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import TrackMixerPrototype from './TrackMixer.prototype.svelte';
+  import {mixerPrototypeSnapshot} from './track-mixer-prototype';
+  const mixerPrototype = import.meta.env.DEV && !('__TAURI_INTERNALS__' in window) && new URLSearchParams(location.search).has('mixer-prototype');
   import ThemeControl from './ThemeControl.svelte';
   import NotesScreen from './NotesScreen.svelte';
   import RecordingChooser from './RecordingChooser.svelte';
@@ -374,7 +377,8 @@
   }
   onMount(() => {
     mounted = true; busy = 'Restoring practice…';
-    const restore = bridge.initialize().then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
+
+    const restore = (mixerPrototype ? Promise.resolve(mixerPrototypeSnapshot(transport)) : bridge.initialize()).then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
     Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
     let unlistenProgress:(()=>void)|undefined;
     void bridge.onImportProgress(progress=>{if(mounted&&busy.startsWith('Import'))busy=progress.total&&progress.copied>=progress.total?'Loading recording…':progress.total?`Importing song… ${Math.round(progress.copied/progress.total*100)}%`:'Importing song…';}).then(unlisten=>{if(mounted)unlistenProgress=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
@@ -457,6 +461,9 @@
           {:else}<span class="selection-hint">Choose any passage to loop, or save it as a named section.</span><span class="selection-shortcut"><span class="keycap">{keymap.shortcut('set_loop_start')}</span><span class="keycap">{keymap.shortcut('set_loop_end')}</span>Set boundaries at the playhead</span>{/if}
         </div>
 
+        {#if mixerPrototype}
+          <TrackMixerPrototype/>
+        {:else}
         <div class="transport-row">
           <div class="transport-buttons" role="group" aria-label="Playback controls"><button class="icon-button" aria-label={keymap.buttonLabel('previous_section', 'Previous section')} disabled={!buttonAvailable('previous_section')} title={keymap.title('previous_section')} onclick={() => runButton('previous_section')}><Icon name="back"/></button><button class="play-button" aria-label={keymap.buttonLabel('play', transport.playing ? 'Pause' : 'Play')} title={keymap.title('play')} disabled={!buttonAvailable('play')} onclick={() => runButton('play')}><Icon name={transport.playing ? 'pause' : 'play'} size={27}/></button><button class="icon-button" aria-label={keymap.buttonLabel('next_section', 'Next section')} disabled={!buttonAvailable('next_section')} title={keymap.title('next_section')} onclick={() => runButton('next_section')}><Icon name="next"/></button>
             {#if screen==='practice'}
@@ -471,6 +478,7 @@
         </div>
 
         <PlaybackSettings disabled={!!busy} {speed} {pitch} {keymap} {controls} {runButton}/>
+        {/if}
 
       {:else}
         <div class="empty-workbench"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M10 45h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12m17 4h12l5-11 8 25 8-40 9 56 8-48 8 35 8-21h12" fill="none" stroke="#9caed1" stroke-width="3" stroke-linecap="round"/></svg><h2>A good place to get it right.</h2><p>Browse your library, find a song, and play it at your pace.</p><div><button class="button primary" title={keymap.title('show_library')} onclick={() => runButton('show_library')} disabled={!buttonAvailable('show_library')}>Browse library</button><button class="text-button" title={keymap.title('demo')} onclick={() => runButton('demo')} disabled={!buttonAvailable('demo')}>Try the demo</button></div><span>WAV, MP3, FLAC, M4A and Ogg</span></div>

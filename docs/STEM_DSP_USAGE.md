@@ -2,8 +2,8 @@
 
 The terminal player uses the native practice engine: aligned source blocks are
 mixed before one Rubber Band R3 processor. It does not attach stems to library
-songs or change desktop playback. Shared DSP acceptance still requires the
-maintainer's listening approval.
+songs or change desktop playback. The maintainer approved shared DSP after a
+successful listening trial on 2026-10-13 and selected Roformer-SW.
 
 Run from the repository root, substituting the full reference recording path:
 
@@ -169,5 +169,7 @@ CARGO_HOME="$PWD/.cargo-home" cargo run --locked --release --example stem_player
 ```
 
 That path is machine-specific and should be replaced after moving the library.
-Preparation success does not establish perceptual onset alignment or listening
-acceptance. ADR 0009 remains awaiting the maintainer's listening approval.
+Preparation success alone does not establish perceptual onset alignment or
+listening acceptance. The maintainer subsequently reported successful listening
+with this tool and selected Roformer-SW; ADR 0009 is accepted. The exact listening
+control matrix was not recorded.

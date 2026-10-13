@@ -1,10 +1,14 @@
 # Managed songs, stem separation and practice mixing
 
-Date: 2026-10-12. Status: UUID identity/reset/replacement slice implemented;
-managed storage and stem integration remain planned. UUID song identity
-and managed-library ownership are agreed; separation and DSP ADRs remain proposals. The user has
-authorized planning beyond the previous deferred-stems scope. Final separation
-model selection remains open while the user compares full-song outputs.
+Updated: 2026-10-13. Status: UUID identity/reset/replacement, managed storage and
+the bounded native DSP proof are implemented. Shared pre-mix DSP is accepted
+following automated measurements and the maintainer's successful listening trial.
+Desktop stem integration and local inference remain planned. The maintainer
+selected **Roformer-SW** after comparing full-song outputs through the harness;
+Demucs remains an evaluation backend, not the selected production model. The
+player and stem-set domain remain independent of the model. Separation runtime
+and packaging decisions remain proposals. The user has authorized this work
+beyond the previous deferred-stems scope.
 
 Planning update: the sole user has no valuable existing app data and explicitly
 authorized wiping incompatible metadata on launch. Legacy identity migration,
@@ -17,6 +21,24 @@ library move are excluded. The [managed-library plan](MANAGED_LIBRARY_IMPLEMENTA
 and accepted ADR 0006 supersede the earlier storage proposal. Later separation
 job publication/recovery proposals are not requirements of #3 and need their own
 scope review before implementation.
+
+## Agreed desktop scope for issue #5
+
+The [desktop implementation plan](STEM_DESKTOP_IMPLEMENTATION_PLAN.md) supersedes
+older multi-set/A/B and recoverable-publication proposals below for #5. One song
+owns at most one stem set, replaced only after validated copy and atomic association.
+No retained sets, A/B selectors, journal or restart recovery. Reference replacement
+always removes attached stems. A minimal Stems screen owns attach/replace/remove;
+#6 later extends it with inference.
+
+Practice uses the agreed compact transport-strip knobs, inferring Original for
+unity/unmuted/unsoloed present tracks and Stems otherwise. Persist gains/mutes;
+solo and count-in remain session state. Persistent prepared PCM/headroom caches
+avoid repeated preparation; cheap size/modification-time checks invalidate them,
+without stem rehashing on ordinary open. Preparation waits with visible progress;
+unavailable stems fall back visibly, and runtime read errors stop playback. Retain
+only current-output-rate preparation. See the plan for all accepted decisions and
+[UI design](UI_DESIGN.md) for the selected mockup.
 
 ## Outcome and first release
 
@@ -283,7 +305,8 @@ it may change when a new comparison group is loaded, never per mute toggle.
 Reserve click headroom and protect against post-DSP overshoot without independent
 stem normalization. A/B is a comparison aid, not a claim of matched perceived
 loudness or exact reconstruction. Mute/switch fades and latency must be measured
-with Rubber Band at slow speed; retain ADR 0009 as proposed until this proof.
+with Rubber Band at slow speed. The bounded native proof and maintainer listening
+trial have now accepted ADR 0009; see [measurements and usage](STEM_DSP_USAGE.md).
 
 ## Delivery slices and dependencies
 
@@ -333,17 +356,18 @@ above is illustrative, not a requirement for a separate timeline file.
   and backup documentation. Never delete external originals.
 - [ ] Focused error/path/schema/native/frontend tests; report actual platform evidence.
 
-### 3. Source seam and DSP mixer proof (can start alongside 2 after ID contracts)
+### 3. Source seam and DSP mixer proof (implemented and accepted)
 
-- [ ] Add bounded single-audio/stem source implementations, common headroom and
+- [x] Add bounded single-audio/stem source implementations, common headroom and
   role-based mix commands; preserve existing CLI/single-song behavior.
-- [ ] Test impulses/tones for alignment, resampling, source-coordinate conversions,
+- [x] Test impulses/tones for alignment, resampling, source-coordinate conversions,
   gain math, every mute combination and solo precedence.
-- [ ] Actual DSP tests verify pitch/duration independently, seek/loop boundaries,
+- [x] Actual DSP tests verify pitch/duration independently, seek/loop boundaries,
   count-in/metronome timing, paused edits, EOF, live gain/A/B changes and stale
   queue invalidation. Benchmark switch latency, cache use and underruns.
-- [ ] Hardware/listening review under slow playback determines whether shared
-  pre-mix DSP is acceptable before committing to the screen design.
+- [x] Hardware smoke and maintainer listening approve shared pre-mix DSP before
+  committing to the screen design. The exact listening control matrix was not
+  recorded; see the evidence in the harness guide.
 
 ### 4. Attach validated sets and practice UI (depends on 2 and 3)
 
@@ -373,8 +397,9 @@ above is illustrative, not a requirement for a separate timeline file.
 
 ### 6. Packaging and release (depends on 1–5)
 
-- [ ] Choose model/default from listening and resource evidence; the domain and
-  player stay model-independent. Record final package/runtime provenance.
+- [x] Choose Roformer-SW from the maintainer's listening comparison; the domain
+  and player stay model-independent.
+- [ ] Record final package/runtime provenance and accelerator defaults.
 - [ ] Package local inference per Linux/macOS/Windows, without developer tools or
   system Python assumptions. Verify installed application with network disabled
   after explicit setup; probe actual runtime cache/network behavior.
@@ -385,9 +410,10 @@ above is illustrative, not a requirement for a separate timeline file.
 
 ## Decisions still to settle with evidence
 
-The final model and accelerator defaults await the user's comparison. Source
-cache size, output protection and live-change re-prime strategy await DSP/resource
-measurements. Production runtime packaging awaits all-platform installation
+Roformer-SW is selected from the user's comparison; accelerator defaults remain
+open. The bounded source path, output protection and live-change re-prime strategy
+have measured evidence and maintainer listening acceptance. Production runtime
+packaging awaits all-platform installation
 proof. Different-rate replacement confirmation awaits coordinate-mapping tests.
 Keep these explicit; avoid claiming that the short generated-audio inference
 smokes or normal-speed terminal mixer settle them.

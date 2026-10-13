@@ -207,3 +207,32 @@ and practice preserves transport. A failed save keeps the text with Retry save.
 
 Inactive Library and Notes markup is removed while session state remains mounted,
 so WebKit accessibility updates correctly when switching between screens.
+
+## Practice mixer — agreed design for issue #5
+
+The maintainer selected transport-strip mockup A. Place a compact, centered group
+of track controls beside playback, with 26 px gaps at desktop widths: track name,
+rotary gain knob, percentage and M/S buttons. Condense speed and pitch into a
+shallow row below the transport. Put position/duration directly below Play;
+omit the playback-status text.
+
+Stack Count-in above Loop. Both buttons have permanent outer borders and equal
+widths. Loop contains the loop and hourglass icons inside one shared border;
+use the same hourglass drawing as Count-in. Cycle Off → Loop → Loop with count-in
+→ Off. Highlight only the loop icon in the second state, both icons in the third.
+Selecting loop with count-in enables Count-in; disabling Count-in downgrades to
+ordinary looping. Turning looping off leaves Count-in enabled.
+
+There is no Original/Stems selector or A/B control. Play the reference recording
+when every track is at 100%, unmuted and unsoloed; otherwise play the attached stem
+set. Track controls remain operable in the default state. One song owns at most
+one stem set. Attaching another requires confirmation and replaces the prior set
+only after successful validation, copying and saving; retain controls for matching
+roles. Runtime availability, shortcuts and preparation are refined separately.
+
+The throwaway source is `ui/TrackMixer.prototype.svelte`, hosted in Practice via
+`npm run prototype:mixer`; it contains synthetic display data and no audio.
+
+For #5, a Stems button beside Notes and Measure map opens attachment/replacement,
+current-set details and errors. Integrated model installation/separation extends
+that same screen in #6.

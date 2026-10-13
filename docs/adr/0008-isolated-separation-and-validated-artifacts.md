@@ -33,10 +33,22 @@ reporting cancellation.
   not delete the reference recording.
 - A production Python runtime must be packaged and tested per platform. Do not
   run workspace setup scripts, depend on system Python or install packages through
-  a package manager in the shipped application. Packaging and final model choice
-  remain delivery gates, not claims settled by the prototype.
+  a package manager in the shipped application. The maintainer selected
+  Roformer-SW on 2026-10-13 after comparing full-song outputs through the shared
+  DSP harness. Production runtime packaging remains a delivery gate.
 
 Native conversion now was rejected because the working model comparison provides
 no portability or quality evidence for it. Preserve upstream notices/provenance;
 model distribution terms remain unresolved in the research, with no new licensing
 gate imposed on this planning or development pass.
+
+## Issue #5 attachment scope
+
+On 2026-10-13 the maintainer accepted a simpler publication policy for externally
+attached results: copy and validate new owned outputs, atomically save the song
+association, then remove replaced outputs. Report ordinary failures and attempt
+immediate cleanup; no journal or restart recovery. This supersedes recoverable
+publication as a requirement of #5. Integrated job cancellation/publication in
+#6 remains to be scoped independently. Verified prototype provenance is translated
+into app-owned records; prepared.wav is validated on attachment but need not be
+retained as a runtime dependency.

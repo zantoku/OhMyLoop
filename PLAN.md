@@ -240,11 +240,13 @@ The user has authorized architectural planning for a managed library, stable
 UUID song identity, local stem separation and synchronized practice mixing.
 See [docs/STEMS.md](docs/STEMS.md) for ADRs, launch reset, storage ownership,
 reference-timeline rules, UI and dependency-ordered delivery slices. UUID
-identity/reset/replacement is implemented; managed copying and stem playback
-remain planned, and the final separation model is still unselected.
+identity/reset/replacement and managed copying are implemented. The bounded native
+stem playback proof is implemented, reviewed and accepted after maintainer
+listening; desktop integration remains planned. Roformer-SW is the selected
+separation model.
 
 Song UUIDs replace content hashes as identity; hashes remain asset integrity and
-inference provenance. The proposed user-selected library copies imported audio
+inference provenance. The user-selected managed library copies imported audio
 and holds generated sets. Measure mapping and timing analysis stay on the
 reference recording regardless of the audible mix. Deliver UUID identity and
 managed imports before attaching stems; prove shared practice DSP before mixer

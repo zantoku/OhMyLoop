@@ -33,9 +33,9 @@ from equal durations. Clips may be supported later through explicit span mapping
   history. Notes and speed/pitch settings remain song-level. This revises the
   earlier proposal to keep annotations for every recording version.
 - Even a confirmed timing-compatible replacement invalidates automatic evidence
-  for the new reference input. Existing stems retain their old input provenance
-  and can be auditioned if timeline-compatible, clearly marked as coming from a
-  previous reference recording. Regeneration creates a new set.
+  for the new reference input. Every reference replacement removes the attached stem set, even when its
+  timeline remains compatible. Explain this removal before confirmation.
+  Regeneration or attachment replaces the single set; no older sets are retained.
 - Mix/settings are song-level; positional annotations are timeline-scoped.
   Stale analysis, separation and UI replies check recording/timeline revision as
   well as song identity. Finishing a job never selects its output automatically
@@ -44,3 +44,15 @@ from equal durations. Clips may be supported later through explicit span mapping
 Putting a separate map on each stem was rejected: instrument estimates should
 not fork a song's authored musical structure. Using the currently audible mix as
 the analysis source would make results depend on mute controls and model artifacts.
+
+## Desktop scope refinement for issue #5
+
+On 2026-10-13 the maintainer chose at most one attached stem set per song, with
+confirmed replacement rather than retained stem-set history or A/B management.
+A replacement is validated, copied and saved before the prior set is removed.
+This supersedes the earlier consequence that regeneration retains older sets.
+The maintainer also chose to remove attached stems on every reference replacement,
+even when the measure map is retained. Keeping older stems was rejected because
+automatic switching between the replacement recording and older stem levels could
+be surprising and would add history/compatibility management. Reference timelines
+and immutable input provenance remain authoritative.

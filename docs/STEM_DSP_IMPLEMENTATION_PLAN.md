@@ -2,9 +2,9 @@
 
 Implementation contract for GitHub issue #4. Scope confirmed by the maintainer
 on 2026-10-13; implemented and independently reviewed against standards and spec.
-Automated and hardware smoke checks passed. Maintainer listening acceptance
-remains pending; see [usage and measured results](STEM_DSP_USAGE.md).
-ADR 0009 remains proposed until measured results and listening support it.
+Automated and hardware smoke checks passed. The maintainer reported successful
+listening on 2026-10-13 and selected Roformer-SW; ADR 0009 is accepted.
+See [usage and measured results](STEM_DSP_USAGE.md).
 
 ## Agreed scope
 
@@ -212,6 +212,8 @@ listening checklist. Missed memory/latency/correctness limits require an explici
 report and architecture review; do not silently weaken them. The maintainer's
 listening approval is required to accept ADR 0009. Until then, report the shared
 DSP proposal as awaiting listening approval even if automated checks pass.
+This gate was satisfied on 2026-10-13 by the maintainer's successful listening
+trial. Production desktop integration remains the next deliverable.
 
 Block/cache sizes, prefetch strategy, temporary PCM representation, thread/module
 layout, conservative attenuation margin and measurement tooling are engineering

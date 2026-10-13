@@ -1,10 +1,12 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Mix aligned stems before a shared practice DSP pipeline
 
-Proposed: 2026-10-12. Render original audio or one selected stem set through a
+Proposed: 2026-10-12. Accepted: 2026-10-13 following the bounded native proof,
+automated measurements and the maintainer's successful listening trial.
+Render original audio or one selected stem set through a
 single source-coordinate transport. For stems, apply per-track gain/mute/solo
 on the Rust render worker, sum aligned input blocks and pass that mix through
 one Rubber Band pipeline. Metronome/count-in clicks retain their current fixed
@@ -36,9 +38,12 @@ DSP history, at the cost of changes being subject to DSP lookahead and re-primin
   source interface hides original-versus-stems reading and mixing; use actual
   single-audio and stem adapters, not a generic track workstation abstraction.
 
-This is an initial architectural proposal. Prototype A/B playback at normal
-speed does not establish that pre-mix updates under Rubber Band meet practice
-latency and quality requirements; the plan includes a focused proof before UI work.
+The earlier direct-playback prototype did not establish practice-DSP quality.
+The subsequent bounded R3 harness passed generated-audio correctness/protection
+checks and the agreed resource/latency targets. The maintainer reported that it
+worked successfully during listening and used it to select Roformer-SW over
+Demucs. This accepts the shared pre-mix architecture for desktop integration;
+it does not establish listening results for every recording or platform.
 
 ## Agreed proof scope
 
@@ -54,6 +59,28 @@ Targets are 256 MiB incremental preparation/playback memory independent of song
 duration and software mix-change latency of 250 ms at normal speed, 500 ms across
 supported controls. Keep the existing final clamp rather than introducing another
 limiter; report clipping instead of hiding it. Read failures stop playback with an
-error. Automated results establish correctness/performance; acceptance still
-requires the maintainer's listening review, particularly at slow playback.
+error. Automated results establish correctness/performance; the maintainer's
+successful listening trial supplies the subjective acceptance evidence.
 See [the implementation contract](../STEM_DSP_IMPLEMENTATION_PLAN.md).
+
+## Desktop cache scope for issue #5
+
+The maintainer accepted persistent, rebuildable prepared PCM and headroom caches
+inside each managed song directory. Key them by audio content, output rate and
+preparation/resampling/headroom policy versions. Reuse bounded readers rather than
+preparing every song again on open. Remove obsolete caches with replacement and
+song deletion. This changes the desktop cache lifetime, not the proof harness's
+per-run temporary-storage contract. The existing whole-reference Audio allocation
+for desktop waveform/analysis remains in #5; only the stem path inherits the
+bounded preparation/playback design.
+
+For the one-set desktop mixer, use the reference automatically when every present
+role is at unity gain, unmuted and unsoloed; any adjustment uses stems. Maintain one
+fixed shared headroom factor across those transitions, including reference playback,
+to avoid a mute action changing the base playback level. Show attenuation in Stems
+details. Ordinary reopening trusts managed stems rather than rehashing; cheap file
+size/modification-time checks invalidate prepared caches after typical manual edits,
+without promising detection when both are preserved. Keep only current-rate
+preparation; rebuilding on output-rate change trades occasional waiting for bounded
+cache accumulation. Missing caches rebuild, unavailable stems visibly fall back to
+reference, and runtime read failures stop playback.
