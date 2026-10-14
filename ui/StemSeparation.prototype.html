@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OhMyLoop · Separation flow prototype</title>
+<style>
+:root{color-scheme:light;--page:#f3f5fa;--surface:#fff;--sidebar:#f9fafc;--text:#24314c;--muted:#6b7690;--border:#e1e6f0;--blue:#526fc0;--green:#49695b;--green-bg:#e8f1ec;--red:#963e57;--red-bg:#fbebef;font:14px/1.5 "Avenir Next","Segoe UI",sans-serif;font-variant-numeric:tabular-nums;color:var(--text);background:var(--page)}
+*{box-sizing:border-box}body{margin:0;padding:24px}h1,h2,h3,p{margin:0}h1{font-size:21px;font-weight:600}h2{font-size:23px;font-weight:500}h3{font-size:15px}button,input{font:inherit}button{cursor:pointer;color:inherit;border:1px solid var(--border);border-radius:6px;background:var(--surface);padding:9px 14px;font-size:13px}button:hover:not(:disabled){background:#edf1fa}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:3px solid #8297d2;outline-offset:3px}.primary{color:white;background:var(--blue);border-color:var(--blue)}.primary:hover:not(:disabled){background:#435fae}.icon{width:32px;height:32px;padding:3px;font-size:23px;line-height:1}.quiet{font-size:12px;color:var(--muted)}.intro{max-width:1380px;margin:0 auto 20px;display:flex;justify-content:space-between;gap:24px;align-items:center}.intro p{margin-top:5px;max-width:850px}.prototype-label{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--blue);margin-bottom:5px}.layout{max-width:1380px;margin:auto;display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:20px}.app{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:9px;overflow:hidden}.app-header{height:78px;padding:0 25px;display:flex;align-items:center;gap:24px;border-bottom:1px solid var(--border)}.brand{font-size:20px;font-weight:650;letter-spacing:-.6px;white-space:nowrap}.song-heading{border-left:1px solid var(--border);padding-left:20px;flex:1;min-width:0}.song-heading strong{display:block;font-size:16px}.app-header button{padding:6px 11px}.workspace{min-height:515px;padding:25px;position:relative}.title{display:flex;align-items:center;gap:12px;margin-bottom:15px}.intro-copy{color:var(--muted);max-width:670px;margin-bottom:22px;font-size:13px}.model-card{border:1px solid var(--border);border-radius:7px;padding:19px;display:flex;align-items:center;justify-content:space-between;gap:20px;max-width:720px}.model-name{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.tag{font-size:11px;border-radius:12px;padding:3px 9px;background:#edf1fa;color:var(--muted)}.tag.ready{color:var(--green);background:var(--green-bg)}.model-card p{margin-top:6px}.actions{display:flex;gap:10px;margin-top:23px;align-items:center;flex-wrap:wrap}.model-foot{margin-top:9px}.progress-region{margin:20px 0;border-top:1px solid var(--border);padding-top:20px;max-width:720px}.progress-heading{display:flex;justify-content:space-between;gap:15px;margin-bottom:10px}.progress-heading strong{font-size:14px}.bar{height:10px;background:#dbe3f3;border-radius:5px;overflow:hidden}.bar>span{display:block;height:100%;background:var(--blue)}.checklist{list-style:none;padding:0 12px 0 0;margin:15px 0 0;max-height:170px;overflow:auto}.checklist li{display:flex;align-items:center;gap:11px;padding:8px 0;font-size:13px}.dot{width:17px;height:17px;border:1px solid #bcc9bf;border-radius:50%;flex-shrink:0;background:conic-gradient(#62927a var(--fill,0%),transparent 0)}.checklist small{margin-left:auto;color:var(--muted);font-size:11px}.notice{padding:12px 15px;background:var(--green-bg);border:1px solid #c1d8cb;border-radius:6px;margin-top:20px;font-size:13px;max-width:720px}.error{color:var(--red);background:var(--red-bg);border-color:#ebcbd4}.secondary{border:0;background:transparent;padding:4px 0;color:var(--blue);font-size:12px}.manual{margin-top:27px;padding-top:17px;border-top:1px solid var(--border);max-width:720px}.confirm{border:1px solid #d3ddeb;border-radius:7px;padding:18px;margin-top:20px;max-width:640px}.confirm .title{margin-bottom:10px}.current{margin-top:21px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px}.current span{color:var(--muted)}.statusbar{padding:10px 25px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:12px}.sidebar{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:19px;align-self:start}.sidebar h2{font-size:15px;font-weight:600}.sidebar dl{display:grid;grid-template-columns:1fr 1fr;gap:9px 12px;font-size:12px;margin:17px 0}.sidebar dt{color:var(--muted)}.sidebar dd{margin:0;text-align:right;overflow-wrap:anywhere}.state-detail{border-top:1px solid var(--border);padding-top:14px;font-size:12px}.sim-controls{margin-top:18px;border-top:1px solid var(--border);padding-top:15px;display:grid;gap:9px}.sim-controls button{text-align:left;font-size:12px;padding:7px 10px}.sim-controls label{font-size:12px;display:flex;gap:8px;align-items:center}.simulation-note{font-size:11px;line-height:1.6;color:var(--muted);margin-top:13px}.library-row{display:flex;align-items:center;justify-content:space-between;padding:18px 12px;border-bottom:1px solid var(--border);gap:16px}.library-row strong{display:block}.library-head{margin-bottom:18px}.tools{display:flex;gap:9px;margin-bottom:20px}.wave{height:145px;background:#233552;border-radius:5px;margin-top:18px;display:flex;align-items:center;overflow:hidden;padding:0 8px;gap:3px}.wave i{display:block;flex:1;min-width:2px;background:#90acd9;opacity:.8;border-radius:1px}.wave-note{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted)}.transport{display:flex;align-items:center;gap:28px;padding:23px 0;flex-wrap:wrap}.play{display:flex;flex-direction:column;align-items:center;gap:6px}.play button{background:var(--blue);color:white;width:48px;height:45px;font-size:21px}.play small{font-size:11px}.mixer{display:flex;gap:23px;flex-wrap:wrap;justify-content:center;flex:1}.track{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px}.knob{width:37px;height:37px;border:2px solid #d6dfef;border-top-color:var(--blue);border-radius:50%;position:relative}.knob:after{content:"";position:absolute;left:17px;top:3px;width:2px;height:9px;background:var(--blue)}.track button{font-size:10px;padding:3px 8px}.track button.muted{background:#fbf0dc;border-color:#e6cd9d;color:#826030}.walkthrough{max-width:1380px;margin:20px auto 0;border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:20px}.walkthrough h2{font-size:16px;font-weight:600}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin:13px 0}.tabs button[aria-selected=true]{background:#e9eef9;border-color:#b6c6e8;color:var(--blue)}.walk-body{display:grid;grid-template-columns:280px 1fr;gap:25px}.walk-body p{font-size:12px;color:var(--muted)}.steps{display:flex;gap:7px;flex-wrap:wrap}.steps button{font-size:12px}.steps button.done{color:var(--green);border-color:#c1d8cb}.steps button.current-step{border-color:var(--blue);background:#edf1fa}.walk-note{margin-top:12px}.simulation-banner{font-size:10px;color:var(--muted);text-align:right;margin-top:8px}.badge-button{background:#e9eef9!important;color:var(--blue);border-color:#c6d4ee!important}.empty-mixer{color:var(--muted);font-size:13px;margin:auto}.manage{max-width:720px;margin-top:13px;font-size:12px;color:var(--muted)}.manage summary{cursor:pointer}.manage button{margin-top:9px}.fixed-label{font-size:11px;color:var(--muted);margin-top:18px}
+@media(max-width:1000px){body{padding:15px}.layout{grid-template-columns:1fr}.sidebar dl{grid-template-columns:repeat(4,1fr)}.sidebar dd{text-align:left}.sim-controls{display:flex;flex-wrap:wrap;align-items:center}.sidebar{padding:14px}.walk-body{grid-template-columns:1fr}.app-header{gap:13px;padding:0 18px}.workspace{padding:19px}.intro{align-items:flex-start}}
+@media(max-width:540px){.intro{flex-direction:column;gap:12px}.brand{font-size:17px}.song-heading{padding-left:12px}.model-card{align-items:flex-start;flex-direction:column}.sidebar dl{grid-template-columns:1fr 1fr}.app-header{flex-wrap:wrap;height:auto;min-height:78px;padding-block:12px}.workspace{min-height:460px}.walkthrough{padding:15px}.mixer{gap:15px}}
+</style>
+</head>
+<body>
+<header class="intro"><div><div class="prototype-label">THROWAWAY FLOW PROTOTYPE · ISSUE #6</div><h1>From a song to playable stems</h1><p class="quiet">Does explicit model download → separate song → return to Practice feel right? Click through the app, or use a guided scenario below. All progress, package sizes and audio are simulated; nothing is downloaded or saved.</p></div><button data-action="RESET">Reset demo</button></header>
+<div class="layout"><section class="app" aria-label="OhMyLoop flow preview"><header class="app-header" id="app-header"></header><main class="workspace" id="screen"></main><footer class="statusbar" id="statusbar"></footer></section><aside class="sidebar" aria-label="Prototype state"><h2>Current state</h2><dl id="state"></dl><p id="last-action" class="state-detail" aria-live="polite"></p><div class="sim-controls"><label><input id="automatic" type="checkbox" checked>Run simulated progress</label><button data-action="ADVANCE">Advance one stage</button><button data-action="FAIL_MODEL">Simulate download failure</button><button data-action="FAIL_JOB">Simulate separation failure</button><button data-action="OPEN_OTHER">Open another song</button></div><p class="simulation-note">App controls show the proposed experience. These controls only drive the demo. Guided scenarios pause the timer so you can inspect each state.</p><p class="simulation-note">Assumptions to review: finishing attaches the new set automatically; the current song stays fixed during separation. Playback during inference is not decided here.</p></aside></div>
+<section class="walkthrough" aria-label="Guided walkthroughs"><h2>Guided walkthroughs</h2><div class="tabs" role="tablist" aria-label="Scenario" id="tabs"></div><div class="walk-body"><div><h3 id="scenario-title"></h3><p id="scenario-description"></p><button id="restart-scenario" style="margin-top:12px">Start / restart scenario</button></div><div><div id="steps" class="steps"></div><p id="walk-note" class="quiet walk-note">You can also use the app controls freely.</p></div></div></section>
+<details class="walkthrough"><summary>All actions · explore freely</summary><p class="quiet" style="margin:12px 0">Try actions in any order, including ones the app normally hides. Current state explains when an action cannot apply.</p><div class="steps"><button data-action="OPEN">Open Bones</button><button data-action="OPEN_OTHER">Open another song</button><button data-action="LIBRARY">Go to Library</button><button data-action="STEMS">Open Stems</button><button data-action="PRACTICE">Go to Practice</button><button data-action="DOWNLOAD">Download / retry model</button><button data-action="CANCEL_DOWNLOAD">Cancel installation</button><button data-action="FAIL_MODEL">Fail installation</button><button data-action="REMOVE_MODEL">Remove model</button><button data-action="START">Separate / retry song</button><button data-action="CONFIRM_REPLACE">Confirm replacement</button><button data-action="CLOSE_CONFIRM">Dismiss replacement</button><button data-action="ADVANCE">Advance stage</button><button data-action="CANCEL_JOB">Cancel separation</button><button data-action="FAIL_JOB">Fail separation</button><button data-action="MUTE" data-role="Vocals">Mute / unmute vocals</button></div></details>
+<p class="simulation-banner" style="max-width:1380px;margin:8px auto">Open this file directly · no server, dependencies, persistence or real audio</p>
+<script>
+// PROTOTYPE: pure flow model. It deliberately has no DOM, storage or backend dependencies.
+const Flow = (() => {
+  const phases = ['preparing', 'inferring', 'validating', 'playback', 'committing'];
+  const activeJob = state => phases.includes(state.job);
+  const activeModel = state => ['downloading','verifying'].includes(state.model);
+  const initial = overrides => ({screen:'library',song:'Bones',songs:{},model:'missing',modelProgress:0,job:'idle',jobProgress:0,stems:false,stemRevision:0,confirmation:false,elapsed:0,muted:[],notice:'Open a song to begin.',...overrides});
+  function reduce(state,action) {
+    const s = {...state,muted:[...state.muted]};
+    const no = message => ({...s,notice:message});
+    const openSong = name => {
+      if(activeJob(s))return no('Finish or cancel separation before opening another song in this prototype.');
+      const songs={...s.songs,[s.song]:{stems:s.stems,stemRevision:s.stemRevision,muted:s.muted}};
+      const song=songs[name]??{stems:false,stemRevision:0,muted:[]};
+      return {...s,...song,songs,screen:'practice',song:name,job:'idle',jobProgress:0,elapsed:0,confirmation:false,notice:'Song opened. Model installation is shared across the app; nothing starts automatically.'};
+    };
+    const beginJob = () => ({...s,job:'preparing',jobProgress:0,confirmation:false,elapsed:0,notice:'Preparing the reference recording. Existing stems remain available.'});
+    const advanceJob = () => {
+      const next=phases[phases.indexOf(s.job)+1];
+      if(next)return {...s,job:next,jobProgress:0,notice:next==='committing'?'Finishing save. Cancellation is no longer available.':'Next processing stage.'};
+      return {...s,job:'completed',jobProgress:100,stems:true,stemRevision:s.stemRevision+1,notice:'Stems attached. Matching track controls are retained; playback remains paused.'};
+    };
+    switch(action.type) {
+      case 'RESET': return initial();
+      case 'OPEN': return openSong('Bones');
+      case 'OPEN_OTHER': return openSong('Morning light');
+      case 'LIBRARY':
+        if(activeJob(s))return no('This prototype keeps the current song fixed while separation runs.');
+        return {...s,screen:'library',confirmation:false,notice:'Back in the Library. Model installation continues independently.'};
+      case 'STEMS': if(s.screen==='library')return no('Open a song first.');return {...s,screen:'stems',notice:'Opening Stems never starts a download or separation.'};
+      case 'PRACTICE': if(s.screen==='library')return no('Open a song first.');return {...s,screen:'practice',confirmation:false,notice:'Back in Practice. Any active download or separation continues.'};
+      case 'DOWNLOAD':
+        if(s.model==='ready'||activeModel(s))return no('The model is already ready or installation is running.');
+        return {...s,model:'downloading',modelProgress:0,notice:'Downloading the model once for all songs.'};
+      case 'CANCEL_DOWNLOAD':
+        if(!activeModel(s))return no('There is no model installation to cancel.');
+        return {...s,model:'missing',modelProgress:0,notice:'Installation cancelled. No song data changed.'};
+      case 'FAIL_MODEL':
+        if(!activeModel(s))return no('Start a download before simulating its failure.');
+        return {...s,model:'failed',notice:'Download failed. Retry is explicit; no separation started.'};
+      case 'REMOVE_MODEL':
+        if(activeJob(s))return no('The model is in use by separation.');
+        return {...s,model:'missing',modelProgress:0,notice:'Model removed. Attached stems are untouched and still playable.'};
+      case 'START':
+        if(s.model!=='ready')return no('Download and set up the model first.');
+        if(activeJob(s))return no('A separation job is already running.');
+        if(s.stems)return {...s,confirmation:true,notice:'Confirm replacement before starting separation.'};
+        return beginJob();
+      case 'CONFIRM_REPLACE': if(!s.confirmation)return no('No replacement confirmation is open.');return beginJob();
+      case 'CLOSE_CONFIRM': return {...s,confirmation:false,notice:'Replacement dismissed. Existing stems are unchanged.'};
+      case 'CANCEL_JOB':
+        if(s.job==='committing')return no('Saving has started. Finish publication instead of reporting cancellation.');
+        if(!activeJob(s))return no('There is no separation to cancel.');
+        return {...s,job:'cancelled',jobProgress:0,notice:'Separation cancelled. Any existing stem set remains intact.'};
+      case 'FAIL_JOB':
+        if(!activeJob(s)||s.job==='committing')return no('Simulate a failure during preparation, inference or validation.');
+        return {...s,job:'failed',notice:'Separation failed. No new set was attached; existing stems are unchanged.'};
+      case 'MUTE':
+        if(!s.stems)return no('There are no stems to mix yet.');
+        s.muted=s.muted.includes(action.role)?s.muted.filter(role=>role!==action.role):[...s.muted,action.role];
+        return {...s,notice:s.muted.length?'A track adjustment selects stem playback.':'Neutral controls select the reference recording.'};
+      case 'ADVANCE':
+        if(s.model==='downloading')return {...s,model:'verifying',modelProgress:0,notice:'Download complete. Verifying the package and setting up the model.'};
+        if(s.model==='verifying')return {...s,model:'ready',modelProgress:100,notice:'Model ready. Separation does not start automatically.'};
+        if(activeJob(s))return advanceJob();
+        return no('Start a download or separation to advance its stages.');
+      case 'TICK':
+        if(activeModel(s)){
+          const progress=s.modelProgress+(s.model==='downloading'?5:20);
+          return progress>=100?reduce(s,{type:'ADVANCE'}):{...s,modelProgress:progress};
+        }
+        if(activeJob(s)){
+          s.elapsed+=0.4;
+          const progress=s.jobProgress+(s.job==='inferring'?5:s.job==='committing'?34:20);
+          return progress>=100?advanceJob():{...s,jobProgress:progress};
+        }
+        return state;
+      default:return state;
+    }
+  }
+  return {initial,reduce,activeJob,activeModel,phases};
+})();
+
+// Everything below is the disposable demo shell.
+let state=Flow.initial(), automatic=true, selectedScenario=0, scenarioStep=0;
+const phaseNames={idle:'Not started',preparing:'Preparing recording',inferring:'Separating instruments',validating:'Checking separated tracks',playback:'Preparing playback',committing:'Finishing save',completed:'Completed',failed:'Failed',cancelled:'Cancelled'};
+const modelNames={missing:'Not installed',downloading:'Downloading',verifying:'Verifying and setting up',ready:'Ready',failed:'Download failed'};
+const scenarios=[
+  {name:'First song',description:'The full first-run journey. Model setup ends with an explicit Separate song action; finishing attaches the result and leaves playback paused.',seed:{},steps:[['Open song','OPEN'],['Open Stems','STEMS'],['Download model','DOWNLOAD'],['Finish download','ADVANCE'],['Finish setup','ADVANCE'],['Separate song','START'],['Finish preparation','ADVANCE'],['Finish inference','ADVANCE'],['Finish validation','ADVANCE'],['Finish playback preparation','ADVANCE'],['Finish save','ADVANCE'],['Go to Practice','PRACTICE']]},
+  {name:'Next song',description:'Installation belongs to the app. A second song can start separation without another download. Removing the model afterwards leaves completed stems available.',seed:{screen:'practice',model:'ready',stems:true,stemRevision:1},steps:[['Open another song','OPEN_OTHER'],['Open Stems','STEMS'],['Separate song','START'],['Prepare','ADVANCE'],['Separate','ADVANCE'],['Validate','ADVANCE'],['Prepare playback','ADVANCE'],['Save','ADVANCE'],['Remove model','REMOVE_MODEL'],['Go to Practice','PRACTICE']]},
+  {name:'Cancel & retry',description:'First fail a download and retry. Then leave Stems during separation and cancel after returning. Retry is a new, explicit action.',seed:{screen:'stems'},steps:[['Download model','DOWNLOAD'],['Fail download','FAIL_MODEL'],['Retry download','DOWNLOAD'],['Finish download','ADVANCE'],['Finish setup','ADVANCE'],['Separate song','START'],['Begin inference','ADVANCE'],['Return to Practice','PRACTICE'],['Return to Stems','STEMS'],['Cancel separation','CANCEL_JOB'],['Try again','START']]},
+  {name:'Replace stems',description:'An existing set is kept until a replacement succeeds. A failed attempt keeps it intact. After saving begins, cancellation must not claim the job was cancelled.',seed:{screen:'stems',model:'ready',stems:true,stemRevision:1},steps:[['Separate again','START'],['Dismiss confirmation','CLOSE_CONFIRM'],['Separate again','START'],['Confirm replacement','CONFIRM_REPLACE'],['Simulate failure','FAIL_JOB'],['Try again','START'],['Confirm replacement','CONFIRM_REPLACE'],['Prepare','ADVANCE'],['Separate','ADVANCE'],['Validate','ADVANCE'],['Prepare playback','ADVANCE'],['Attempt cancellation','CANCEL_JOB'],['Finish save','ADVANCE']]}
+];
+const $=id=>document.getElementById(id);
+const button=(label,action,kind='',disabled=false,extra='')=>`<button class="${kind}" data-action="${action}" ${disabled?'disabled':''} ${extra}>${label}</button>`;
+const close=action=>button('×',action,'icon',false,'aria-label="Return to Practice" title="Return to Practice"');
+const progress=(pct,label)=>`<div class="bar" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><span style="width:${pct}%"></span></div>`;
+function checklist(rows){return `<ul class="checklist" tabindex="0" aria-label="Processing steps">${rows.map(row=>`<li><span class="dot" style="--fill:${row.fill}%"></span><span>${row.label}</span><small>${row.status}</small></li>`).join('')}</ul>`;}
+function jobRows(){
+  const index=state.job==='completed'?5:Flow.phases.indexOf(state.job);
+  return Flow.phases.map((phase,i)=>({label:phaseNames[phase],fill:state.job==='completed'||i<index?100:i===index?state.jobProgress:0,status:state.job==='completed'||i<index?'Complete':i===index?'In progress':'Pending'}));
+}
+function jobProgress(){
+  const complete=state.job==='completed',pct=complete?100:(Flow.phases.indexOf(state.job)*100+state.jobProgress)/5;
+  return `<section class="progress-region"><div class="progress-heading"><strong>${phaseNames[state.job]}</strong><span class="quiet">${complete?'100%':`${Math.floor(state.elapsed)}s elapsed`}</span></div>${progress(pct,'Overall processing')}${checklist(jobRows())}<div class="actions">${complete?button('Go to Practice','PRACTICE','primary'):state.job==='committing'?'<span class="quiet">Finishing save · cancellation unavailable</span>':button('Cancel','CANCEL_JOB')}</div></section>`;
+}
+function modelCard(){
+  let action='';
+  if(state.model==='missing')action=button('Download model','DOWNLOAD','primary');
+  if(state.model==='failed')action=button('Retry download','DOWNLOAD','primary');
+  if(Flow.activeModel(state))action=button('Cancel','CANCEL_DOWNLOAD');
+  let out=`<section class="model-card"><div><div class="model-name"><h3>Roformer-SW</h3><span class="tag ${state.model==='ready'?'ready':''}">${modelNames[state.model]}</span></div><p class="quiet">${state.model==='ready'?'Installed for all songs · offline separation available':'One-time setup for all songs · illustrative download: 2.4 GB'}</p></div>${action}</section>`;
+  if(Flow.activeModel(state)){
+    const downloading=state.model==='downloading',pct=state.modelProgress;
+    out+=`<section class="progress-region"><div class="progress-heading"><strong>${downloading?'Downloading model':'Verifying and setting up'}</strong><span class="quiet">${downloading?`${(2.4*pct/100).toFixed(2)} / 2.40 GB`:'Checking package'}</span></div>${progress(downloading?pct/2:50+pct/2,'Model installation')}${checklist([{label:'Download model',fill:downloading?pct:100,status:downloading?'In progress':'Complete'},{label:'Verify and set up',fill:downloading?0:pct,status:downloading?'Pending':'In progress'}])}</section>`;
+  }
+  if(state.model==='failed')out+='<div class="notice error" role="alert">The download was interrupted. No song data changed. Retry when you are ready.</div>';
+  if(state.model==='ready')out+=`<details class="manage"><summary>Model management</summary><p>Removing the model does not remove any completed stems.</p>${button('Remove model','REMOVE_MODEL','',Flow.activeJob(state))}</details>`;
+  return out;
+}
+function stemsScreen(){
+  let out=`<div class="title">${close('PRACTICE')}<h2>Stems</h2></div><p class="intro-copy">Separate <strong>${state.song}</strong> into instrument tracks for practice. The reference recording and measure map stay unchanged.</p>`;
+  if(Flow.activeJob(state)||state.job==='completed')out+=jobProgress();
+  else if(state.job==='failed'||state.job==='cancelled')out+=`<div class="notice ${state.job==='failed'?'error':''}" role="status">${state.job==='failed'?'Separation failed. No new set was attached.':'Separation cancelled.'} ${state.stems?'Your existing stems remain available.':'The reference recording is unchanged.'}</div>`;
+  out+=modelCard();
+  if(state.stems)out+=`<div class="current"><strong>Attached stems · set ${state.stemRevision}</strong><span>Bass, drums, guitar, vocals, other</span></div><p class="quiet model-foot">Piano skipped: near-silent track below −60 dBFS.</p>`;
+  if(!Flow.activeJob(state)&&state.model==='ready'&&!state.confirmation){
+    out+=`<div class="actions">${button(state.stems?'Separate again…':state.job==='failed'||state.job==='cancelled'?'Retry separation':'Separate song','START',state.job==='completed'?'':'primary')}</div><p class="fixed-label">${state.stems?'A new result replaces this set only after validation and saving.':'Start when you are ready. Model setup alone never starts separation.'}</p>`;
+  }
+  if(state.confirmation)out+=`<section class="confirm" role="alertdialog" aria-label="Replace stems confirmation"><div class="title">${button('×','CLOSE_CONFIRM','icon',false,'aria-label="Close replacement confirmation"')}<h3>Replace existing stems?</h3></div><p class="quiet">Run separation again for this recording. Your current stems remain available until the new set is validated and saved.</p><div class="actions">${button('Separate and replace','CONFIRM_REPLACE','primary')}</div></section>`;
+  if(!Flow.activeJob(state))out+=`<div class="manual"><button class="secondary" data-demo="attach">Attach existing outputs…</button></div>`;
+  return out;
+}
+function practiceScreen(){
+  const wave=Array.from({length:110},(_,i)=>`<i style="height:${12+Math.abs(Math.sin(i*1.37)*Math.cos(i*.17))*115}px"></i>`).join('');
+  const roles=['Bass','Drums','Guitar','Vocals','Other'];
+  return `<div class="tools">${button(Flow.activeJob(state)?`Stems · ${phaseNames[state.job]}`:Flow.activeModel(state)?'Stems · Installing model':'Stems','STEMS',Flow.activeJob(state)||Flow.activeModel(state)?'badge-button':'')}<button disabled>Notes</button><button disabled>Measure map</button></div><p class="quiet">Reference waveform · sections and musical timing remain unchanged</p><div class="wave" aria-label="Illustrative reference waveform">${wave}</div><div class="wave-note"><span>0:00</span><span>4:56</span></div><div class="transport"><div class="play"><button data-demo="play" aria-label="Play">▶</button><small>1:24 / 4:56</small></div><div class="mixer">${state.stems?roles.map(role=>`<div class="track"><strong>${role}</strong><div class="knob"></div><span>100%</span>${button('M','MUTE',state.muted.includes(role)?'muted':'',false,`data-role="${role}" aria-label="Mute ${role}" aria-pressed="${state.muted.includes(role)}"`)}</div>`).join(''):'<p class="empty-mixer">No stems yet · open Stems to separate this song</p>'}</div></div><p class="quiet">${state.muted.length?'Stem playback selected by track controls.':'Neutral track controls play the reference recording.'} Audio is simulated.</p>${Flow.activeJob(state)||Flow.activeModel(state)?'<div class="notice">Work continues while this screen is open. Return to Stems to see progress or cancel.</div>':''}`;
+}
+function renderApp(){
+  const activity=Flow.activeJob(state)?phaseNames[state.job]:Flow.activeModel(state)?modelNames[state.model]:'';
+  $('app-header').innerHTML=`<div class="brand">OhMyLoop</div><div class="song-heading"><strong>${state.screen==='library'?'Music library':state.song}</strong><span class="quiet">${state.screen==='library'?'Your practice collection':`${state.song==='Bones'?'Imagine Dragons':'Demo artist'} · reference recording`}</span></div>${state.screen!=='library'?button('Library','LIBRARY','',Flow.activeJob(state)):''}`;
+  $('screen').innerHTML=state.screen==='stems'?stemsScreen():state.screen==='practice'?practiceScreen():`<div class="library-head"><h2>Library</h2><p class="quiet">Choose a song to practice or separate.</p></div><div class="library-row"><div><strong>Bones</strong><span class="quiet">Imagine Dragons · 4:56</span></div>${button('Open song','OPEN','primary')}</div><div class="library-row"><div><strong>Morning light</strong><span class="quiet">Demo recording · 3:12</span></div>${button('Open song','OPEN_OTHER')}</div>`;
+  $('statusbar').innerHTML=`<span>${activity||'Ready'}${Flow.activeJob(state)?' · simulated background job':''}</span><span>Prototype · audio paused</span>`;
+  const fields=[['Screen',state.screen==='library'?'Library':state.screen==='stems'?'Stems':'Practice'],['Song',state.song],['Model',modelNames[state.model]],['Install stage',`${state.modelProgress}%`],['Separation',phaseNames[state.job]],['Job stage',`${state.jobProgress}%`],['Elapsed',`${Math.floor(state.elapsed)}s (simulated)`],['Replacement prompt',state.confirmation?'Open':'Closed'],['Attached set',state.stems?`Set ${state.stemRevision}`:'None'],['Recording / map','Unchanged'],['Playback','Paused (simulated)'],['Music source',state.muted.length?'Stems':'Reference'],['Muted tracks',state.muted.join(', ')||'None']];
+  $('state').innerHTML=fields.map(([label,value])=>`<dt>${label}</dt><dd>${value}</dd>`).join('');
+  $('last-action').textContent=state.notice;
+  const canAdvance=Flow.activeJob(state)||Flow.activeModel(state);
+  document.querySelector('[data-action="ADVANCE"]').disabled=!canAdvance;
+  document.querySelector('[data-action="FAIL_MODEL"]').disabled=!Flow.activeModel(state);
+  document.querySelector('[data-action="FAIL_JOB"]').disabled=!Flow.activeJob(state)||state.job==='committing';
+  document.querySelector('[data-action="OPEN_OTHER"]').disabled=Flow.activeJob(state);
+}
+function renderWalkthrough(){
+  const scenario=scenarios[selectedScenario];
+  $('tabs').innerHTML=scenarios.map((item,i)=>`<button role="tab" aria-selected="${i===selectedScenario}" data-scenario="${i}">${item.name}</button>`).join('');
+  $('scenario-title').textContent=scenario.name;
+  $('scenario-description').textContent=scenario.description;
+  $('steps').innerHTML=scenario.steps.map(([label],i)=>`<button data-step="${i}" class="${i<scenarioStep?'done':i===scenarioStep?'current-step':''}" ${i!==scenarioStep?'disabled':''}>${i<scenarioStep?'✓':i+1} ${label}</button>`).join('');
+}
+function dispatch(type,extra={}){state=Flow.reduce(state,{type,...extra});renderApp();}
+function startScenario(index){selectedScenario=index;scenarioStep=0;automatic=false;$('automatic').checked=false;state=Flow.initial(scenarios[index].seed);state.notice='Scenario ready. Use the numbered steps or explore freely.';renderApp();renderWalkthrough();$('walk-note').textContent='Timer paused. Each numbered step changes the same state as the app controls.';}
+document.addEventListener('click',event=>{
+  const target=event.target.closest('button');if(!target||target.disabled)return;
+  if(target.dataset.scenario!==undefined){startScenario(Number(target.dataset.scenario));return;}
+  if(target.id==='restart-scenario'){startScenario(selectedScenario);return;}
+  if(target.dataset.step!==undefined){const index=Number(target.dataset.step);if(index!==scenarioStep)return;dispatch(scenarios[selectedScenario].steps[index][1]);scenarioStep++;renderWalkthrough();$('walk-note').textContent=scenarioStep===scenarios[selectedScenario].steps.length?'Walkthrough complete. Explore freely, or choose another scenario.':'Inspect the app and Current state, then take the next step.';return;}
+  if(target.dataset.action){dispatch(target.dataset.action,{role:target.dataset.role});if(target.dataset.action==='RESET'){automatic=true;$('automatic').checked=true;scenarioStep=0;renderWalkthrough();$('walk-note').textContent='You can also use the app controls freely.';}return;}
+  if(target.dataset.demo){state={...state,notice:target.dataset.demo==='play'?'Playback is paused in this flow demo. Use M to explore automatic source selection.':'Manual attachment already exists in the app; this demo explores generation.'};renderApp();}
+});
+$('automatic').addEventListener('change',event=>{automatic=event.target.checked;});
+setInterval(()=>{if(automatic&&(Flow.activeModel(state)||Flow.activeJob(state)))dispatch('TICK');},400);
+renderApp();renderWalkthrough();
+</script>
+</body>
+</html>
