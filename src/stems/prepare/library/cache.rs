@@ -235,13 +235,58 @@ pub(super) fn adopt(
     )
 }
 
+pub(super) fn adopt_control(
+    record: &StoredStemSet,
+    reference: &Path,
+    owned: &Path,
+    validated: PreparedComparison,
+    checked: &InputSnapshot,
+    control: &super::super::super::WorkControl,
+    progress: impl FnMut(PreparationProgress),
+) -> Result<PreparedComparison> {
+    control.check()?;
+    adopt_with_transfer(
+        record,
+        reference,
+        owned,
+        &owned.join("playback-cache"),
+        validated,
+        checked,
+        progress,
+        |source, target, move_file, report| {
+            control.check()?;
+            transfer_pcm_checked(
+                source,
+                target,
+                move_file,
+                |s, t| fs::rename(s, t),
+                report,
+                Some(control),
+            )
+        },
+    )
+}
+
 fn transfer_pcm(
+    source: &Path,
+    target: &Path,
+    move_file: bool,
+    rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
+    report: &mut dyn FnMut(u64),
+) -> Result<()> {
+    transfer_pcm_checked(source, target, move_file, rename, report, None)
+}
+fn transfer_pcm_checked(
     source: &Path,
     target: &Path,
     move_file: bool,
     mut rename: impl FnMut(&Path, &Path) -> std::io::Result<()>,
     report: &mut dyn FnMut(u64),
+    control: Option<&super::super::super::WorkControl>,
 ) -> Result<()> {
+    if let Some(c) = control {
+        c.check()?;
+    }
     let bytes = fs::metadata(source)?.len();
     if move_file && rename(source, target).is_ok() {
         report(bytes);
@@ -255,6 +300,9 @@ fn transfer_pcm(
         .open(target)?;
     let mut buffer = vec![0; 256 * 1024];
     loop {
+        if let Some(c) = control {
+            c.check()?;
+        }
         let n = input.read(&mut buffer)?;
         if n == 0 {
             break;
@@ -552,6 +600,7 @@ pub fn prepare(
             progress: &mut report,
             step: None,
             decoded_peak: 0.,
+            control: None,
         };
         let reference_path = reference;
         preparer.stage("cache.reference.decode");

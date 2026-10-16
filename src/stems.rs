@@ -1,10 +1,13 @@
 //! Bounded, temporary PCM sources for reference/stem comparison.
 //!
 //! All preparation and reads belong on a worker, never the device callback.
+mod control;
 mod prepare;
+pub mod source;
+pub use control::Control as WorkControl;
 
 use anyhow::{Result, ensure};
-pub use prepare::{PreparationProgress, PreparedComparison, library};
+pub use prepare::{PreparationProgress, PreparedComparison, coordinate_frames, library};
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},

@@ -1,3 +1,4 @@
+import type {SeparationStatus} from './separation';
 import type {StemsSnapshot,StemTrack,StemProgress} from './stems';
 import type {Catalogue,SongMetadata} from './library';
 import {listen} from '@tauri-apps/api/event';
@@ -28,6 +29,13 @@ function demo(): Snapshot {
 }
 
 export const bridge = {
+  separationEstimate:(referenceToken:string)=>invoke<number>('separation_estimate',{referenceToken}),
+  separationStatus:()=>invoke<SeparationStatus>('separation_status'),
+  installSeparationModel:()=>invoke<SeparationStatus>('install_separation_model'),
+  removeSeparationModel:()=>invoke<SeparationStatus>('remove_separation_model'),
+  refreshSeparationRuntime:()=>invoke<SeparationStatus>('refresh_separation_runtime'),
+  startSeparation:(referenceToken:string)=>invoke<SeparationStatus>('start_separation',{referenceToken}),
+  cancelSeparation:(id:string)=>invoke<SeparationStatus>('cancel_separation',{id}),
   stemsStatus:(referenceToken:string)=>native?invoke<StemsSnapshot>('stems_status',{referenceToken}):Promise.resolve({reference_token:referenceToken,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null}),
   pickStemsDirectory:()=>native?invoke<string|null>('pick_stems_directory'):Promise.reject(new Error('Attach stems in the desktop app.')),
   attachStems:(referenceToken:string,path:string,operationId:string)=>native?invoke<StemsSnapshot>('attach_stems',{referenceToken,path,operationId}):Promise.reject(new Error('Attach stems in the desktop app.')),
@@ -42,7 +50,7 @@ export const bridge = {
   importSong:(path:string)=>native?invoke<Snapshot>('import_song',{path}):Promise.reject(new Error('Import songs in the desktop app.')),
   deleteLibrarySong:(songKey:string)=>native?invoke<Snapshot>('delete_library_song',{songKey}):Promise.reject(new Error('Delete songs in the desktop app.')),
   onImportProgress:(handler:(progress:ImportProgress)=>void)=>native?listen<ImportProgress>('import-progress',event=>handler(event.payload)):Promise.resolve(()=>{}),
-  onExitRequested:(handler:()=>void)=>native?listen('prepare-exit',handler):Promise.resolve(()=>{}),
+  onExitRequested:(handler:(activeProcessing?:boolean)=>void)=>native?listen<{active_processing:boolean}>('prepare-exit',event=>handler(event.payload?.active_processing)):Promise.resolve(()=>{}),
   finishExit:()=>native?invoke<void>('finish_exit'):Promise.resolve(),
   readLibrary:()=>native?invoke<Catalogue>('read_library'):Promise.resolve({version:1,songs:[]}),
   openLibrarySong:(songKey:string)=>native?invoke<Snapshot>('open_library_song',{songKey}):Promise.reject(new Error('Open library songs in the desktop app.')),

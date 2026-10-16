@@ -41,6 +41,7 @@ pub struct JobStatus {
 }
 struct Inner {
     state: Mutex<JobStatus>,
+    gate: crate::heavy_work::HeavyWork,
     cancel: AtomicBool,
     child: Mutex<Option<Child>>,
     models: PathBuf,
@@ -51,11 +52,19 @@ struct Inner {
 pub struct AnalysisManager(Arc<Inner>);
 impl AnalysisManager {
     pub fn new(models: PathBuf, cache: PathBuf) -> Result<Self> {
+        Self::with_gate(models, cache, crate::heavy_work::HeavyWork::default())
+    }
+    pub fn with_gate(
+        models: PathBuf,
+        cache: PathBuf,
+        gate: crate::heavy_work::HeavyWork,
+    ) -> Result<Self> {
         fs::create_dir_all(&cache)?;
         let models = std::path::absolute(models)?;
         let model_path = models.to_string_lossy().into_owned();
         let model_ready = models::present(&models);
         Ok(Self(Arc::new(Inner {
+            gate,
             started: Mutex::new(Instant::now()),
             state: Mutex::new(JobStatus {
                 id: 0,
@@ -203,6 +212,7 @@ impl AnalysisManager {
             models::present(&self.0.models),
             "Install the analysis model first. Manual mapping remains available."
         );
+        let permit = self.0.gate.acquire("Timing analysis")?;
         let id = self.begin("analysis", Some(key.clone()), revision)?;
         let manager = self.clone();
         if let Err(e) = thread::Builder::new()
@@ -359,6 +369,7 @@ impl AnalysisManager {
                     let _ = fs::remove_file(output);
                     let _ = fs::remove_dir(&directory);
                 }
+                drop(permit);
                 manager.finish(result);
             })
         {

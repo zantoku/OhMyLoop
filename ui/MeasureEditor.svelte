@@ -16,8 +16,8 @@
   import type { Keymap } from './keymap';
   import type { ButtonId, MappingActionId } from './actions';
   import { zoom } from './model';
-  let { song, map, mapView, transport, keymap, active, clickEnabled=$bindable(true), clickLevel=$bindable(50), onreview, playback, oncommit, onseek, run, available }:
-    { song: Song; map: MeasureMap | null; mapView: MapView | null; transport: Transport; keymap: Keymap; active: boolean; clickEnabled?:boolean; clickLevel?:number; onreview:(map:MeasureMap|null)=>void; playback?:Snippet;
+  let { playbackFrozen=false,song, map, mapView, transport, keymap, active, clickEnabled=$bindable(true), clickLevel=$bindable(50), onreview, playback, oncommit, onseek, run, available }:
+    { playbackFrozen?:boolean;song: Song; map: MeasureMap | null; mapView: MapView | null; transport: Transport; keymap: Keymap; active: boolean; clickEnabled?:boolean; clickLevel?:number; onreview:(map:MeasureMap|null)=>void; playback?:Snippet;
       oncommit: (value: MapPreview, songKey:string) => Promise<void>; onseek: (seconds:number)=>void; run:(id:ButtonId)=>void; available:(id:ButtonId)=>boolean } = $props();
   let editState = $state<MappingState>({pending:false,error:'',preview:null,undo:0,redo:0});
   let analysis = $state<AnalysisState>({status:null,candidates:null,requesting:false,error:''});
@@ -124,7 +124,7 @@
       <button class="text-button" disabled={disabled('map_whole')} title={title('map_whole')} onclick={()=>run('map_whole')}>{label('map_whole','Whole song')}</button>
     </div>
     <div class="review-listening" role="group" aria-label="Map review listening">
-      {#if active}<MetronomeControls enabled={clickEnabled} bind:level={clickLevel} {keymap} button="map_metronome" available={!disabled('map_metronome')} run={()=>run('map_metronome')} {native}/>{/if}
+      {#if active}<MetronomeControls enabled={clickEnabled} bind:level={clickLevel} {keymap} button="map_metronome" disabled={playbackFrozen} available={!disabled('map_metronome')} run={()=>run('map_metronome')} {native}/>{/if}
       <button class="text-button" aria-pressed={followingPlayhead} disabled={disabled('map_follow')} title={title('map_follow')} onclick={()=>run('map_follow')}>{label('map_follow',followingPlayhead?'Follow playhead on':'Follow playhead off')}</button>
     </div>
     {#if editState.error||formError}<p class="mapping-error" role="alert">{formError||editState.error}</p>{/if}

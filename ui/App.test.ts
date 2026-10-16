@@ -4,15 +4,20 @@ import App from './App.svelte';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 import type {StemProgress} from './stems';
+import type {SeparationStatus} from './separation';
 
-const mock = vi.hoisted(() => ({ stemsStatus:vi.fn(),setStemMix:vi.fn(),attachStems:vi.fn(),removeStems:vi.fn(),pickStemsDirectory:vi.fn(),onStemProgress:vi.fn(), libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ separationEstimate:vi.fn(),separationStatus:vi.fn(),installSeparationModel:vi.fn(),removeSeparationModel:vi.fn(),refreshSeparationRuntime:vi.fn(),startSeparation:vi.fn(),cancelSeparation:vi.fn(), stemsStatus:vi.fn(),setStemMix:vi.fn(),attachStems:vi.fn(),removeStems:vi.fn(),pickStemsDirectory:vi.fn(),onStemProgress:vi.fn(), libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 let document: PracticeDocument;
 let transport: Transport;
 const response = (): Snapshot => ({ song: null, document: structuredClone(document), transport: { ...transport } });
 
+function separationStatus():SeparationStatus {const attempt={id:'',running:false,phase:'Idle',reference_token:null,progress:null,error:null,details:'',elapsed_seconds:0,cancellable:false,result:null};return {package_id:'roformer-sw-v1',profile_id:'roformer-sw-cpu2-v1',model_ready:false,model_path:'/models',package_bytes:699416805,runtime:{ready:true,message:'Ready',path:'/python'},heavy_work:null,install:{...attempt},job:{...attempt}};}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.separationEstimate.mockResolvedValue(1950628864);mock.separationStatus.mockResolvedValue(separationStatus());
+  mock.installSeparationModel.mockResolvedValue(separationStatus());mock.removeSeparationModel.mockResolvedValue(separationStatus());mock.refreshSeparationRuntime.mockResolvedValue(separationStatus());mock.startSeparation.mockResolvedValue(separationStatus());mock.cancelSeparation.mockResolvedValue(separationStatus());
   mock.stemsStatus.mockImplementation(async(reference:string)=>({reference_token:reference,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null}));mock.onStemProgress.mockResolvedValue(()=>{});
   mock.libraryStatus.mockResolvedValue({selected:{id:'library',root:'/library'},available:true,error:null,import_notice_seen:true});mock.onImportProgress.mockResolvedValue(()=>{});mock.pickImportSong.mockResolvedValue({path:'/song.wav',candidates:[]});mock.importSong.mockImplementation(()=>mock.openSong());
   mock.metronome.mockResolvedValue({});
@@ -1325,4 +1330,46 @@ it('shows attachment work without filenames and retains the completed checklist'
  // The attach reply can beat the final progress event; publication still completes the list.
  finish(attachedStems());
  await screen.findByText('Stems ready');expect(screen.getByRole('list',{name:'Processing steps'})).toBeTruthy();expect(screen.getByRole('progressbar',{name:'Overall stem processing'}).getAttribute('value')).toBe('1');
+});
+
+
+describe('integrated separation workflow',()=>{
+ it('downloads explicitly, waits at Ready, freezes playback during separation and keeps note edits available',async()=>{
+  let value=separationStatus();mock.separationStatus.mockImplementation(async()=>structuredClone(value));
+  mock.installSeparationModel.mockImplementation(async()=>{value.install={...value.install,id:'install',running:true,phase:'Downloading model',cancellable:true};return structuredClone(value);});
+  mock.startSeparation.mockImplementation(async()=>{transport.playing=false;value.job={...value.job,id:'job',running:true,phase:'Separating instruments',reference_token:'test',cancellable:true};return structuredClone(value);});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  expect(mock.installSeparationModel).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Download model'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
+  value.model_ready=true;value.install={...value.install,running:false,phase:'Complete',cancellable:false};const separate=await screen.findByRole('button',{name:'Separate song'});await waitFor(()=>expect((separate as HTMLButtonElement).disabled).toBe(false));expect(mock.startSeparation).not.toHaveBeenCalled();
+  await fireEvent.click(separate);await waitFor(()=>expect(mock.startSeparation).toHaveBeenCalledWith('test'));await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
+  expect((screen.getByRole('button',{name:'Play'}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByLabelText('Pitch semitones') as HTMLInputElement).disabled).toBe(true);expect((screen.getByRole('button',{name:'Library'}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByRole('button',{name:/Chorus 0:03/}) as HTMLButtonElement).disabled).toBe(true);const before=structuredClone(document);await fireEvent.click(screen.getByRole('button',{name:/Chorus 0:03/}));expect(document.loop_selection).toEqual(before.loop_selection);
+  await fireEvent.click(screen.getByRole('button',{name:'Notes'}));await fireEvent.input(screen.getByRole('textbox',{name:'Notes for this song'}),{target:{value:'notes during separation'}});await waitFor(()=>expect(document.notes).toBe('notes during separation'));expect(mock.cancelSeparation).not.toHaveBeenCalled();
+  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await fireEvent.click(screen.getByRole('button',{name:'View stem processing'}));await screen.findByRole('button',{name:'Cancel'});
+  mock.cancelSeparation.mockImplementation(async()=>{value.job={...value.job,phase:'Stopping',cancellable:false};return structuredClone(value);});expect((screen.getByRole('button',{name:'Cancel'}) as HTMLButtonElement).disabled).toBe(false);await fireEvent.click(screen.getByRole('button',{name:'Cancel'}));await waitFor(()=>expect(mock.cancelSeparation).toHaveBeenCalledWith('job'));expect((await screen.findByRole('button',{name:'Stopping…'}) as HTMLButtonElement).disabled).toBe(true);
+  value.job={...value.job,running:false,phase:'Cancelled'};await waitFor(()=>expect((screen.getByRole('button',{name:'Retry separation'}) as HTMLButtonElement).disabled).toBe(false));
+ });
+ it('asks about active-work quit and only cancels through confirmed native exit',async()=>{
+  const value=separationStatus();value.install={...value.install,id:'download',running:true,phase:'Downloading model',cancellable:true};mock.separationStatus.mockResolvedValue(value);let exit!:()=>void;mock.onExitRequested.mockImplementation(async(handler:()=>void)=>{exit=handler;return ()=>{};});
+  await ready();exit();await screen.findByRole('dialog',{name:'Quit and cancel processing'});expect(mock.finishExit).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Keep app open'}));expect(mock.cancelSeparation).not.toHaveBeenCalled();exit();await fireEvent.click(await screen.findByRole('button',{name:'Quit and cancel'}));await waitFor(()=>expect(mock.finishExit).toHaveBeenCalledOnce());
+ });
+ it('uses native active-work quit state before the first frontend job poll',async()=>{
+  let exit!:(activeProcessing?:boolean)=>void;mock.onExitRequested.mockImplementation(async(handler:(activeProcessing?:boolean)=>void)=>{exit=handler;return ()=>{};});await ready();exit(true);await screen.findByRole('dialog',{name:'Quit and cancel processing'});expect(mock.finishExit).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Keep app open'}));expect(mock.finishExit).not.toHaveBeenCalled();
+ });
+
+ it('confirms quit while download admission is pending even when native work was still inactive',async()=>{
+  let exit!:(activeProcessing?:boolean)=>void;mock.onExitRequested.mockImplementation(async(handler:(activeProcessing?:boolean)=>void)=>{exit=handler;return ()=>{};});
+  let resolve!:(status:SeparationStatus)=>void;mock.installSeparationModel.mockReturnValue(new Promise<SeparationStatus>(r=>resolve=r));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Download model'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
+  exit(false);await screen.findByRole('dialog',{name:'Quit and cancel processing'});expect(mock.finishExit).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Keep app open'}));
+  const admitted=separationStatus();admitted.install={...admitted.install,id:'download',running:true,phase:'Downloading model',cancellable:true};resolve(admitted);await screen.findByRole('button',{name:'Cancel'});expect(mock.finishExit).not.toHaveBeenCalled();
+ });
+ it('does not ask about a pending runtime readiness check',async()=>{
+  const missing=separationStatus();missing.runtime.ready=false;mock.separationStatus.mockResolvedValue(missing);let exit!:(activeProcessing?:boolean)=>void;mock.onExitRequested.mockImplementation(async(handler:(activeProcessing?:boolean)=>void)=>{exit=handler;return ()=>{};});let resolve!:(status:SeparationStatus)=>void;mock.refreshSeparationRuntime.mockReturnValue(new Promise<SeparationStatus>(r=>resolve=r));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Check again'}));await waitFor(()=>expect(mock.refreshSeparationRuntime).toHaveBeenCalledOnce());exit(false);await waitFor(()=>expect(mock.finishExit).toHaveBeenCalledOnce());expect(screen.queryByRole('dialog',{name:'Quit and cancel processing'})).toBeNull();resolve(separationStatus());
+ });
+ it('keeps one exit handshake while confirmed native cleanup is still pending',async()=>{
+  const active=separationStatus();active.install={...active.install,id:'download',running:true,phase:'Downloading model',cancellable:true};mock.separationStatus.mockResolvedValue(active);let exit!:(activeProcessing?:boolean)=>void;mock.onExitRequested.mockImplementation(async(handler:(activeProcessing?:boolean)=>void)=>{exit=handler;return ()=>{};});let complete!:()=>void;mock.finishExit.mockReturnValue(new Promise<void>(resolve=>complete=resolve));
+  await ready();exit(true);await fireEvent.click(await screen.findByRole('button',{name:'Quit and cancel'}));await waitFor(()=>expect(mock.finishExit).toHaveBeenCalledOnce());exit(true);exit(false);await new Promise(resolve=>setTimeout(resolve,20));expect(mock.finishExit).toHaveBeenCalledOnce();expect(screen.queryByRole('dialog',{name:'Quit and cancel processing'})).toBeNull();complete();
+ });
+
 });

@@ -650,17 +650,36 @@ fn attachment_requires_known_preprocessing_coordinate_policy_and_model_artifacts
     );
     roformer["identity"]["settings"]["roformer_short_input"] =
         json!("right-zero-pad-to-config-chunk; crop-declared-padding");
-    write_manifest(&f.sets[0], roformer);
-    assert!(
-        attach(
-            &f.reference,
-            &f.sets[0],
-            &f.root.join(uuid::Uuid::new_v4().to_string()),
-            f.rate,
-            |_| {}
-        )
-        .is_ok()
+    let n = roformer["identity"]["preparation"]["prepared_frames"]
+        .as_u64()
+        .unwrap();
+    roformer["corrections"] = json!([{"kind":"roformer-short-input-right-zero-pad-and-crop","input_frames":n,"padded_frames":409600,"right_padding_frames":409600-n,"crop_start":0,"crop_end_exclusive":n}]);
+    write_manifest(&f.sets[0], roformer.clone());
+    let record = attach(
+        &f.reference,
+        &f.sets[0],
+        &f.root.join(uuid::Uuid::new_v4().to_string()),
+        f.rate,
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        record.provenance["alignment_corrections"],
+        roformer["corrections"]
     );
+    let restored: ohmyloop::stems::library::StoredStemSet =
+        serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+    restored.validate().unwrap();
+    let mut bad = restored.clone();
+    bad.provenance["alignment_corrections"][0]["crop_start"] = json!(1);
+    assert!(bad.validate().is_err());
+    let mut legacy = restored;
+    legacy
+        .provenance
+        .as_object_mut()
+        .unwrap()
+        .remove("alignment_corrections");
+    legacy.validate().unwrap();
 }
 
 #[test]
@@ -1090,4 +1109,202 @@ fn all_near_silent_replacement_keeps_existing_managed_association_and_playback()
     assert!(old_directory.join("bass.wav").exists());
     reader.read_frames(100, &mut samples).unwrap();
     assert_eq!(samples, before_audio);
+}
+
+#[test]
+fn generated_owned_outputs_validate_without_wav_copy_and_cancel_at_native_stage() {
+    use ohmyloop::stems::{
+        WorkControl,
+        library::{attach_generated, prepare},
+    };
+    let f = fixture(&Role::ALL, false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir(&owned).unwrap();
+    for entry in fs::read_dir(&f.sets[0]).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), owned.join(entry.file_name())).unwrap();
+    }
+    #[cfg(unix)]
+    let inode = {
+        use std::os::unix::fs::MetadataExt;
+        fs::metadata(owned.join("bass.wav")).unwrap().ino()
+    };
+    let mut events = Vec::new();
+    let (record, prepared) =
+        attach_generated(&f.reference, &owned, f.rate, &WorkControl::default(), |p| {
+            events.push(p)
+        })
+        .unwrap();
+    assert_eq!(record.tracks.len(), 6);
+    assert!(events.iter().all(|p| !p.phase.starts_with("Copy")));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(fs::metadata(owned.join("bass.wav")).unwrap().ino(), inode);
+    }
+    let mut reuse = Vec::new();
+    let cached = prepare(
+        &record,
+        &f.reference,
+        &owned,
+        &owned.join("playback-cache"),
+        f.rate,
+        |p| reuse.push(p),
+    )
+    .unwrap();
+    assert!(
+        reuse
+            .iter()
+            .all(|p| p.step.as_deref() == Some("cache.reuse"))
+    );
+    drop((prepared, cached));
+    let cancelled = f.root.join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir(&cancelled).unwrap();
+    for entry in fs::read_dir(&f.sets[0]).unwrap() {
+        let entry = entry.unwrap();
+        fs::copy(entry.path(), cancelled.join(entry.file_name())).unwrap();
+    }
+    let control = WorkControl::default();
+    let result = attach_generated(&f.reference, &cancelled, f.rate, &control, |p| {
+        if p.step.as_deref() == Some("validation.bass.decode") {
+            control.cancel();
+        }
+    });
+    assert!(result.is_err());
+    assert!(!cancelled.join("playback-cache/cache.json").exists());
+}
+
+#[test]
+fn all_role_validation_follows_checklist_without_reopening_completed_rows() {
+    use ohmyloop::stems::library::{WorkflowTracker, attach};
+    let f = fixture(&Role::ALL, false);
+    let owned = f.root.join(uuid::Uuid::new_v4().to_string());
+    let mut tracker = WorkflowTracker::attachment(&f.sets[0]).unwrap();
+    let mut previous = tracker.begin_first().workflow.unwrap();
+    let mut decoded = Vec::new();
+    let mut separation = WorkflowTracker::separation();
+    let mut separation_previous = separation.begin("result.validate").workflow.unwrap();
+    attach(&f.reference, &f.sets[0], &owned, 48000, |p| {
+        if let Some(id) = &p.step
+            && id.starts_with("validation.")
+            && id.ends_with(".decode")
+            && !id.contains("reference")
+            && !id.contains("prepared")
+            && decoded.last() != Some(id)
+        {
+            decoded.push(id.clone());
+        }
+        let separation_next = separation.update(p.clone()).workflow.unwrap();
+        if let Some(id) = &p.step
+            && let Some(step) = separation_next.steps.iter().find(|s| &s.id == id)
+        {
+            assert_eq!(
+                step.state, "active",
+                "Actual stage {id} was prematurely completed"
+            );
+        }
+        for old in &separation_previous.steps {
+            if old.state == "complete" || old.state == "skipped" {
+                let state = separation_next
+                    .steps
+                    .iter()
+                    .find(|s| s.id == old.id)
+                    .unwrap()
+                    .state;
+                assert!(
+                    state == "complete" || state == "skipped",
+                    "Separation reopened {}",
+                    old.id
+                );
+            }
+        }
+        separation_previous = separation_next;
+        let next = tracker.update(p).workflow.unwrap();
+        for old in &previous.steps {
+            if old.state == "complete" || old.state == "skipped" {
+                let state = next.steps.iter().find(|s| s.id == old.id).unwrap().state;
+                assert!(
+                    state == "complete" || state == "skipped",
+                    "Reopened {}",
+                    old.id
+                );
+            }
+        }
+        assert!(next.completed >= previous.completed);
+        assert_eq!(next.total, previous.total);
+        previous = next;
+    })
+    .unwrap();
+    let mut expected = Role::ALL.map(|r| format!("validation.{}.decode", r.name()));
+    expected.sort();
+    assert_eq!(decoded, expected);
+    assert_eq!(previous.total, previous.steps.len()); // attachment retains task units
+}
+
+#[test]
+fn separation_weights_measured_chunks_hold_unknowns_and_require_publication_confirmation() {
+    use ohmyloop::stems::{PreparationProgress, library::WorkflowTracker};
+    fn update(
+        tracker: &mut WorkflowTracker,
+        step: &str,
+        completed: u64,
+        total: Option<u64>,
+    ) -> ohmyloop::stems::library::WorkflowProgress {
+        tracker
+            .update(PreparationProgress {
+                phase: "Processing".into(),
+                step: Some(step.into()),
+                completed,
+                total,
+                workflow: None,
+            })
+            .workflow
+            .unwrap()
+    }
+    let mut tracker = WorkflowTracker::separation();
+    let start = tracker.begin_first().workflow.unwrap();
+    let before = update(&mut tracker, "worker.infer", 0, Some(40));
+    let half = update(&mut tracker, "worker.infer", 20, Some(40));
+    let end = update(&mut tracker, "worker.infer", 40, Some(40));
+    assert_eq!(start.total, half.total);
+    assert!((half.completed - before.completed) > half.total as f64 * 0.3);
+    assert!((half.completed - before.completed - (end.completed - half.completed)).abs() < 1e-6);
+    let unknown = update(&mut tracker, "worker.write", 0, None);
+    let held = update(&mut tracker, "worker.write", 0, None);
+    assert_eq!(unknown.completed, held.completed);
+    assert_eq!(
+        held.steps
+            .iter()
+            .find(|s| s.id == "worker.write")
+            .unwrap()
+            .total,
+        None
+    );
+    let stale = update(&mut tracker, "worker.load", 0, None);
+    assert_eq!(stale.completed, held.completed);
+    assert_eq!(
+        stale
+            .steps
+            .iter()
+            .find(|s| s.id == "worker.load")
+            .unwrap()
+            .state,
+        "complete"
+    );
+    let skipped = update(&mut tracker, "skip.piano", 1, Some(1));
+    assert_eq!(
+        skipped
+            .steps
+            .iter()
+            .find(|s| s.id == "validation.piano.resample")
+            .unwrap()
+            .state,
+        "skipped"
+    );
+    let prepublish = update(&mut tracker, "attachment.publish", 1, Some(1));
+    assert!(prepublish.completed < prepublish.total as f64);
+    let complete = tracker.finish().workflow.unwrap();
+    assert_eq!(complete.completed, complete.total as f64);
+    let mut retry = WorkflowTracker::separation();
+    assert_eq!(retry.begin_first().workflow.unwrap().completed, 0.);
 }

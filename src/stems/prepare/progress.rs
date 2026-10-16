@@ -13,13 +13,17 @@ pub struct WorkflowStep {
 #[derive(Clone, Debug, Serialize)]
 pub struct WorkflowProgress {
     pub steps: Vec<WorkflowStep>,
-    /// Completed task units, including the active task's measured fraction.
+    /// Completed task units (attachment/cache) or normalized time weights
+    /// (separation), including the active step's genuine measured fraction.
     pub completed: f64,
     pub total: usize,
 }
 pub struct WorkflowTracker {
     steps: Vec<WorkflowStep>,
     current: Option<usize>,
+    weights: Option<Vec<f64>>,
+    high_water: f64,
+    finished: bool,
 }
 impl WorkflowTracker {
     fn new(plan: Vec<(String, String)>) -> Self {
@@ -35,7 +39,67 @@ impl WorkflowTracker {
                 })
                 .collect(),
             current: None,
+            weights: None,
+            high_water: 0.,
+            finished: false,
         }
+    }
+    pub fn separation() -> Self {
+        let mut plan = vec![
+            ("model.verify".into(), "Verify separation model".into()),
+            ("source.hash".into(), "Check reference recording".into()),
+            ("source.decode".into(), "Read reference recording".into()),
+            ("source.check".into(), "Confirm reference identity".into()),
+            ("source.resample".into(), "Align separation input".into()),
+            ("source.write".into(), "Prepare separation input".into()),
+            ("source.pcm".into(), "Verify separation input".into()),
+            ("worker.start".into(), "Start separation worker".into()),
+            ("worker.input".into(), "Prepare worker input".into()),
+            ("worker.load".into(), "Load separation model".into()),
+            ("worker.infer".into(), "Separate instruments".into()),
+            ("worker.write".into(), "Write separated tracks".into()),
+            ("worker.finish".into(), "Finish separation worker".into()),
+            ("result.validate".into(), "Check separated outputs".into()),
+        ];
+        for (id, label) in [
+            ("validation.reference.hash", "Verify reference recording"),
+            ("validation.reference.decode", "Read original playback"),
+            ("validation.reference.resample", "Align original playback"),
+            ("validation.prepared.hash", "Verify separation source"),
+            ("validation.prepared.decode", "Read separation source"),
+        ] {
+            plan.push((id.into(), label.into()));
+        }
+        // Manifest traversal and cached bank order are alphabetical. Match them
+        // here without changing audio/cache role association.
+        let mut roles = Role::ALL.map(|role| role.name());
+        roles.sort_unstable();
+        for role in roles {
+            for (stage, action) in [("hash", "Check"), ("decode", "Read"), ("resample", "Align")] {
+                plan.push((
+                    format!("validation.{}.{}", role, stage),
+                    format!("{action} {} audio", role),
+                ));
+            }
+        }
+        plan.extend([
+            (
+                "validation.headroom".into(),
+                "Measure safe playback levels".into(),
+            ),
+            ("cache.adopt".into(), "Keep validated playback audio".into()),
+            ("cache.save".into(), "Save prepared playback".into()),
+            ("attachment.publish".into(), "Save attached stems".into()),
+        ]);
+        let mut tracker = Self::new(plan);
+        let raw = tracker
+            .steps
+            .iter()
+            .map(|s| super::separation_weights::weight(&s.id))
+            .collect::<Vec<_>>();
+        let total: f64 = raw.iter().sum();
+        tracker.weights = Some(raw.into_iter().map(|w| w / total * 10000.).collect());
+        tracker
     }
     pub fn attachment(prototype: &Path) -> Result<Self> {
         let path = safe_file(prototype, "manifest.json")?;
@@ -43,7 +107,8 @@ impl WorkflowTracker {
             fs::metadata(&path)?.len() <= 4 * 1024 * 1024,
             "Oversized prototype manifest"
         );
-        let manifest: Manifest = serde_json::from_slice(&fs::read(path)?)?;
+        let manifest: Manifest =
+            serde_json::from_slice(&crate::storage::read_limited(&path, 4 * 1024 * 1024)?)?;
         let roles = manifest.stems.keys().cloned().collect::<Vec<_>>();
         for role in &roles {
             Role::parse(role)?;
@@ -139,6 +204,7 @@ impl WorkflowTracker {
         })
     }
     pub fn finish(&mut self) -> PreparationProgress {
+        self.finished = true;
         for step in &mut self.steps {
             if step.state != "skipped" {
                 step.state = "complete";
@@ -157,6 +223,10 @@ impl WorkflowTracker {
         p
     }
     pub fn update(&mut self, mut progress: PreparationProgress) -> PreparationProgress {
+        if self.finished {
+            progress.workflow = Some(self.snapshot());
+            return progress;
+        }
         if let Some(role) = progress
             .step
             .as_deref()
@@ -167,6 +237,10 @@ impl WorkflowTracker {
                 .iter()
                 .position(|s| s.id == format!("validation.{role}.resample"))
         {
+            if self.current.is_some_and(|current| index < current) {
+                progress.workflow = Some(self.snapshot());
+                return progress;
+            }
             for step in &mut self.steps[..index] {
                 if step.state != "skipped" {
                     step.state = "complete";
@@ -188,6 +262,10 @@ impl WorkflowTracker {
             .as_ref()
             .and_then(|id| self.steps.iter().position(|s| &s.id == id))
         {
+            if self.current.is_some_and(|current| index < current) {
+                progress.workflow = Some(self.snapshot());
+                return progress;
+            }
             if self.current != Some(index) {
                 // Only successful sequential handoffs complete earlier work.
                 for step in &mut self.steps[..index] {
@@ -200,6 +278,10 @@ impl WorkflowTracker {
                 self.current = Some(index);
             }
             let step = &mut self.steps[index];
+            if step.state == "skipped" {
+                progress.workflow = Some(self.snapshot());
+                return progress;
+            }
             step.state = "active";
             step.completed = progress.completed;
             step.total = progress.total;
@@ -207,24 +289,39 @@ impl WorkflowTracker {
         progress.workflow = Some(self.snapshot());
         progress
     }
-    fn snapshot(&self) -> WorkflowProgress {
-        let completed = self
+    fn snapshot(&mut self) -> WorkflowProgress {
+        let completed: f64 = self
             .steps
             .iter()
-            .map(|step| match step.state {
-                "complete" | "skipped" => 1.0,
-                "active" => step
-                    .total
-                    .filter(|n| *n > 0)
-                    .map(|n| (step.completed as f64 / n as f64).clamp(0.0, 1.0))
-                    .unwrap_or(0.0),
-                _ => 0.0,
+            .enumerate()
+            .map(|(index, step)| {
+                (match step.state {
+                    "complete" | "skipped" => 1.0,
+                    "active" => step
+                        .total
+                        .filter(|n| *n > 0)
+                        .map(|n| (step.completed as f64 / n as f64).clamp(0.0, 1.0))
+                        .unwrap_or(0.0),
+                    _ => 0.0,
+                }) * self.weights.as_ref().map_or(1., |weights| weights[index])
             })
             .sum();
+        let total = if self.weights.is_some() {
+            10000
+        } else {
+            self.steps.len()
+        };
+        // Publication confirmation owns the final completion, including unit workflows.
+        let completed = if self.finished {
+            total as f64
+        } else {
+            completed.min((total as f64 - 1e-9).max(0.))
+        };
+        self.high_water = self.high_water.max(completed);
         WorkflowProgress {
             steps: self.steps.clone(),
-            completed,
-            total: self.steps.len(),
+            completed: self.high_water,
+            total,
         }
     }
 }

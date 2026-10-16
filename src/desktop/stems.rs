@@ -43,13 +43,73 @@ pub struct Status {
     pub model: Option<String>,
 }
 #[derive(Clone)]
-pub(super) struct Operation {
-    library: crate::managed::ManagedLibrary,
+pub struct Operation {
+    pub(crate) library: crate::managed::ManagedLibrary,
     generation: u64,
     token: String,
-    record: crate::managed::ManagedSong,
+    reference_freshness: crate::stems::source::Freshness,
+    pub(crate) record: crate::managed::ManagedSong,
+}
+impl Operation {
+    pub fn reference(&self) -> Result<PathBuf> {
+        self.library.asset_path(&self.record.record)
+    }
+    pub fn rate(&self) -> u32 {
+        self.record.record.asset.rate
+    }
+    pub fn frames(&self) -> u64 {
+        self.record.record.asset.frames
+    }
+    pub fn digest(&self) -> &str {
+        &self.record.record.asset.digest
+    }
+    pub fn owned(&self, id: &str) -> Result<PathBuf> {
+        self.library
+            .stem_directory(&self.record.record.id.to_string(), id)
+    }
+    pub fn cleanup(&self, id: &str) -> Result<()> {
+        self.library
+            .cleanup_stem_directory(&self.record.record.id.to_string(), id)
+    }
 }
 impl Desktop {
+    pub fn separation_context(&self, token: String) -> Result<Operation> {
+        match self.request(Command::SeparationContext(token))? {
+            Response::StemOperation(op) => Ok(*op),
+            _ => unreachable!(),
+        }
+    }
+    pub fn begin_separation(&self, token: String) -> Result<Operation> {
+        match self.request(Command::BeginSeparation(token))? {
+            Response::StemOperation(op) => Ok(*op),
+            _ => unreachable!(),
+        }
+    }
+    pub fn finish_separation(&self) -> Result<()> {
+        self.request(Command::FinishSeparation)?;
+        Ok(())
+    }
+    pub fn publish_separation(
+        &self,
+        operation: Operation,
+        mut record: StoredStemSet,
+        prepared: PreparedComparison,
+    ) -> Result<Status> {
+        record.inherit_saved_mix(operation.record.stems.as_ref());
+        let mix = record.mix.to_mix();
+        match self.request(Command::CommitStems(
+            operation,
+            Activation {
+                record,
+                prepared: Some(Arc::new(prepared)),
+                mix,
+                warning: None,
+            },
+        ))? {
+            Response::StemStatus(s) => Ok(s),
+            _ => unreachable!(),
+        }
+    }
     pub fn stems_status(&self, token: String) -> Result<Status> {
         match self.request(Command::StemStatus(token))? {
             Response::StemStatus(s) => Ok(s),
@@ -110,13 +170,7 @@ impl Desktop {
                     &mut report,
                 )?;
                 record.id = id.clone();
-                if let Some(old) = &operation.record.stems {
-                    for role in record.roles() {
-                        if old.roles().contains(&role) {
-                            record.mix.tracks[role.index()] = old.mix.tracks[role.index()].clone();
-                        }
-                    }
-                }
+                record.inherit_saved_mix(operation.record.stems.as_ref());
                 // Keep the prior set alive until publication succeeds.
                 let prepared = crate::stems::library::prepare(
                     &record,
@@ -308,7 +362,26 @@ impl Controller {
             Command::StemStatus(token) => {
                 self.check_reference(token)?;
             }
-            Command::BeginStems(token) | Command::BeginStemRefresh(token) => {
+            Command::SeparationContext(token) => {
+                self.check_reference(token)?;
+                let library = self
+                    .managed
+                    .clone()
+                    .context("Separate a managed library song")?;
+                let record = library.record(&self.song.as_ref().unwrap().key)?;
+                let reference_freshness =
+                    crate::stems::source::freshness(&library.asset_path(&record.record)?)?;
+                return Ok(Some(Response::StemOperation(Box::new(Operation {
+                    reference_freshness,
+                    library,
+                    generation: self.managed_generation,
+                    token: token.clone(),
+                    record,
+                }))));
+            }
+            Command::BeginStems(token)
+            | Command::BeginStemRefresh(token)
+            | Command::BeginSeparation(token) => {
                 self.check_reference(token)?;
                 let library = self
                     .managed
@@ -323,6 +396,8 @@ impl Controller {
                     "Practice settings could not be saved"
                 );
                 let record = library.record(&self.song.as_ref().unwrap().key)?;
+                let reference_freshness =
+                    crate::stems::source::freshness(&library.asset_path(&record.record)?)?;
                 if matches!(command, Command::BeginStemRefresh(_)) {
                     self.player = None;
                     if let Some(stems) = &mut self.stems {
@@ -330,8 +405,13 @@ impl Controller {
                     }
                 }
                 self.activation_generation = self.activation_generation.wrapping_add(1);
-                self.stems_busy = true;
+                if matches!(command, Command::BeginSeparation(_)) {
+                    self.separation_busy = true;
+                } else {
+                    self.stems_busy = true;
+                }
                 return Ok(Some(Response::StemOperation(Box::new(Operation {
+                    reference_freshness,
                     library,
                     generation: self.managed_generation,
                     token: token.clone(),
@@ -339,6 +419,7 @@ impl Controller {
                 }))));
             }
             Command::FinishStems => self.stems_busy = false,
+            Command::FinishSeparation => self.separation_busy = false,
             Command::RefreshStems(operation, activation) => {
                 self.check_reference(&operation.token)?;
                 ensure!(
@@ -360,11 +441,20 @@ impl Controller {
                     "Library changed; discard stale stems"
                 );
                 let key = self.song.as_ref().unwrap().key.clone();
+                ensure!(
+                    crate::stems::source::freshness(&operation.reference()?)?
+                        == operation.reference_freshness,
+                    "Reference changed before publication"
+                );
                 let current = operation.library.record(&key)?;
                 ensure!(
                     current.stems.as_ref().map(|s| &s.id)
                         == operation.record.stems.as_ref().map(|s| &s.id),
                     "Stem set changed; discard stale attachment"
+                );
+                ensure!(
+                    current.record.reference_revision == operation.record.record.reference_revision,
+                    "Reference changed; discard stale stems"
                 );
                 operation.library.save_stems(
                     &key,
@@ -594,6 +684,7 @@ mod tests {
                 warning: None,
             }),
             stems_busy: false,
+            separation_busy: false,
         };
         Fixture { root, controller }
     }
@@ -863,5 +954,132 @@ mod tests {
         assert!(unavailable.warning.unwrap().contains("Original"));
         assert_eq!(unavailable.mix.tracks[0].gain, 0.3);
         assert!(unavailable.mix.tracks[0].mute);
+    }
+    #[test]
+    fn separation_freezes_transport_but_preserves_note_map_updates_and_rechecks_reference() {
+        let mut f = fixture();
+        let c = &mut f.controller;
+        let token = c.song.as_ref().unwrap().reference_token.clone();
+        let operation = match c.request(Command::BeginSeparation(token.clone())).unwrap() {
+            Response::StemOperation(op) => *op,
+            _ => unreachable!(),
+        };
+        assert!(
+            c.request(Command::Act(Action::Seek { seconds: 1. }, token.clone()))
+                .is_err()
+        );
+        assert!(
+            c.request(Command::MixStems(
+                token.clone(),
+                c.stems.as_ref().unwrap().record.id.clone(),
+                vec![],
+                false
+            ))
+            .is_err()
+        );
+        assert!(c.request(Command::BeginManagedOpen).is_err());
+        let mut document = c.document.clone().unwrap();
+        document.notes = "written during separation".into();
+        c.request(Command::Update(document.clone())).unwrap();
+        document.controls.speed = 0.5;
+        assert!(c.request(Command::Update(document)).is_err());
+        let activation = c.stems.clone().unwrap();
+        let reference = operation.reference().unwrap();
+        let mut bytes = fs::read(&reference).unwrap();
+        bytes.push(0);
+        fs::write(reference, bytes).unwrap();
+        assert!(
+            c.request(Command::CommitStems(operation, activation))
+                .is_err()
+        );
+        assert_eq!(
+            c.document.as_ref().unwrap().notes,
+            "written during separation"
+        );
+        c.request(Command::FinishSeparation).unwrap();
+        assert!(!c.separation_busy);
+    }
+    #[test]
+    fn successful_generated_publication_keeps_authored_map_notes_position_and_controls() {
+        let mut f = fixture();
+        update(&mut f, 0.4, true, true, true).unwrap();
+        let c = &mut f.controller;
+        let token = c.song.as_ref().unwrap().reference_token.clone();
+        let mut document = c.document.clone().unwrap();
+        document.controls.speed = 0.75;
+        document.controls.semitones = -2.;
+        c.request(Command::Update(document)).unwrap();
+        c.action(Action::Seek { seconds: 0.3 }).unwrap();
+        let operation = match c.request(Command::BeginSeparation(token.clone())).unwrap() {
+            Response::StemOperation(op) => *op,
+            _ => unreachable!(),
+        };
+        let mut document = c.document.clone().unwrap();
+        let map = crate::timing::MeasureMap::empty(44100, 44100)
+            .edit(crate::timing::Edit::Build {
+                start: 0,
+                end: 44100,
+                count: 2,
+                meter: crate::timing::Meter::common(),
+            })
+            .unwrap()
+            .map;
+        document.measure_map = Some(map.clone());
+        document.notes = "authored while separating".into();
+        c.request(Command::Update(document)).unwrap();
+        let owned = operation.owned(&uuid::Uuid::new_v4().to_string()).unwrap();
+        fs::create_dir_all(&owned).unwrap();
+        let reference = operation.reference().unwrap();
+        fs::copy(&reference, owned.join("prepared.wav")).unwrap();
+        let identity = operation.record.stems.as_ref().unwrap().provenance.clone();
+        let stems=crate::stems::Role::ALL.into_iter().map(|role|{let name=role.name();fs::copy(&reference,owned.join(format!("{name}.wav"))).unwrap();(name.to_owned(),serde_json::json!({"file":format!("{name}.wav"),"sha256":operation.digest(),"frames":44100,"rate":44100,"channels":2}))}).collect::<serde_json::Map<_,_>>();
+        use sha2::Digest;
+        let manifest = serde_json::json!({"version":1,"status":"complete","job_key":format!("{:x}",sha2::Sha256::digest(serde_json::to_vec(&identity).unwrap())),"identity":identity,"corrections":[],"stems":stems});
+        fs::write(
+            owned.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let (mut record, prepared) = crate::stems::library::attach_generated(
+            &reference,
+            &owned,
+            44100,
+            &crate::stems::WorkControl::default(),
+            |_| {},
+        )
+        .unwrap();
+        for role in record.roles() {
+            if let Some(old) = &operation.record.stems
+                && old.roles().contains(&role)
+            {
+                record.mix.tracks[role.index()] = old.mix.tracks[role.index()].clone();
+            }
+        }
+        let mix = record.mix.to_mix();
+        c.request(Command::CommitStems(
+            operation.clone(),
+            Activation {
+                record: record.clone(),
+                prepared: Some(Arc::new(prepared)),
+                mix,
+                warning: None,
+            },
+        ))
+        .unwrap();
+        c.request(Command::FinishSeparation).unwrap();
+        let current = operation.library.record(&record_key(&operation)).unwrap();
+        assert_eq!(current.record.notes, "authored while separating");
+        assert_eq!(current.record.timeline.measure_map, Some(map));
+        assert_eq!(current.record.controls.speed, 0.75);
+        assert_eq!(current.record.controls.semitones, -2.);
+        assert!((c.transport().position - 0.3).abs() < 0.001);
+        assert!(!c.transport().playing);
+        assert_eq!(current.stems.as_ref().unwrap().mix.tracks[0].gain, 0.4);
+        assert!(current.stems.as_ref().unwrap().mix.tracks[0].mute);
+        assert!(!c.stems.as_ref().unwrap().mix.tracks[0].solo);
+        assert_eq!(current.stems.unwrap().mix.tracks[1].gain, 1.);
+    }
+    fn record_key(operation: &Operation) -> String {
+        operation.record.record.id.to_string()
     }
 }

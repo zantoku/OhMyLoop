@@ -66,6 +66,9 @@ pub struct LibraryStatus {
 enum Command {
     StemStatus(String),
     BeginStems(String),
+    SeparationContext(String),
+    BeginSeparation(String),
+    FinishSeparation,
     BeginStemRefresh(String),
     FinishStems,
     CommitStems(stems::Operation, stems::Activation),
@@ -179,6 +182,7 @@ impl Desktop {
                     count_in: CountInSettings::default(),
                     stems: None,
                     stems_busy: false,
+                    separation_busy: false,
                 };
                 while let Ok(request) = receiver.recv() {
                     if matches!(request.command, Command::Shutdown) {
@@ -438,10 +442,29 @@ struct Controller {
     count_in: CountInSettings,
     stems: Option<stems::Activation>,
     stems_busy: bool,
+    separation_busy: bool,
 }
 
 impl Controller {
     fn request(&mut self, command: Command) -> Result<Response> {
+        if self.separation_busy {
+            ensure!(
+                matches!(
+                    command,
+                    Command::Status
+                        | Command::SeparationContext(_)
+                        | Command::Source(_)
+                        | Command::ManagedStatus
+                        | Command::StemStatus(_)
+                        | Command::Update(_)
+                        | Command::FinishSeparation
+                        | Command::CommitStems(..)
+                        | Command::Library
+                        | Command::ManagedSnapshot
+                ),
+                "Stem separation is running; recording and playback changes are disabled"
+            );
+        }
         if self.stems_busy {
             ensure!(
                 matches!(
@@ -478,6 +501,9 @@ impl Controller {
             Command::StemStatus(_)
             | Command::BeginStems(_)
             | Command::BeginStemRefresh(_)
+            | Command::SeparationContext(_)
+            | Command::BeginSeparation(_)
+            | Command::FinishSeparation
             | Command::FinishStems
             | Command::CommitStems(..)
             | Command::RefreshStems(..)
@@ -781,6 +807,15 @@ impl Controller {
                     "Recording session changed; discard stale practice update"
                 );
                 document.validate(&song.key, song.duration)?;
+                if self.separation_busy {
+                    let previous = self.document.as_ref().unwrap();
+                    ensure!(
+                        document.controls == previous.controls
+                            && document.loop_enabled == previous.loop_enabled
+                            && document.loop_selection == previous.loop_selection,
+                        "Playback controls are frozen during stem separation"
+                    );
+                }
                 if let Some(map) = &document.measure_map {
                     let audio = self.audio.as_ref().unwrap();
                     ensure!(

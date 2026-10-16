@@ -45,3 +45,11 @@ separate from the user's accepted measure map.
 **Managed library**:
 The user-selected collection that holds imported recordings, song data and
 generated stems under the application's management.
+
+**Model package**:
+The installable material needed to use a particular separation model, shared
+across songs and independent of their completed stem sets.
+
+**Separation job**:
+One attempt to produce a stem set from a particular reference recording using
+a separation model.

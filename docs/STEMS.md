@@ -1,13 +1,18 @@
 # Managed songs, stem separation and practice mixing
 
-Updated: 2026-10-13. Status: UUID identity/reset/replacement, managed storage and
+Integrated #6 implementation and current usage/runtime/storage contracts are in
+[STEM_SEPARATION.md](STEM_SEPARATION.md). Earlier proposed backends, journalled
+publication, history and recovery below are superseded by the confirmed #6 plan.
+
+
+Updated: 2026-10-14. Status: UUID identity/reset/replacement, managed storage and
 the bounded native DSP proof are implemented. Shared pre-mix DSP is accepted
 following automated measurements and the maintainer's successful listening trial.
-Desktop stem integration and local inference remain planned. The maintainer
+Desktop stem attachment/mixing is implemented (#5); integrated local inference
+is implemented for the pinned development runtime (#6). The maintainer
 selected **Roformer-SW** after comparing full-song outputs through the harness;
 Demucs remains an evaluation backend, not the selected production model. The
-player and stem-set domain remain independent of the model. Separation runtime
-and packaging decisions remain proposals. The user has authorized this work
+player and stem-set domain remain independent of the model. Production runtime packaging and installed-app platform proof remain #7. The user has authorized this work
 beyond the previous deferred-stems scope.
 
 Planning update: the sole user has no valuable existing app data and explicitly
@@ -39,6 +44,18 @@ without stem rehashing on ordinary open. Preparation waits with visible progress
 unavailable stems fall back visibly, and runtime read errors stop playback. Retain
 only current-output-rate preparation. See the plan for all accepted decisions and
 [UI design](UI_DESIGN.md) for the selected mockup.
+
+## Agreed integrated separation scope for issue #6
+
+The 2026-10-14 [implementation interview](STEM_SEPARATION_IMPLEMENTATION_PLAN.md)
+and [agent handoff](STEM_SEPARATION_AGENT_HANDOFF.md) supersede older #6 proposals
+below, confirmed and authorized for implementation by the maintainer. Roformer-SW only,
+explicit app-owned model download, a separately prepared development runtime,
+one fixed-song job and shared heavy-work gate, paused/frozen transport during
+separation and automatic single-set publication. No prototype-weight import,
+journal, restart recovery, job history, resume, GPU/quality UI or live playback
+during separation. Production runtime packaging is #7. Manual obsolete-data
+instructions are in [STEM_DATA_CLEANUP.md](STEM_DATA_CLEANUP.md); no files were removed.
 
 ## Outcome and first release
 

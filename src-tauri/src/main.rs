@@ -447,6 +447,60 @@ async fn start_analysis(
     .await
 }
 
+#[tauri::command]
+async fn separation_estimate(
+    reference_token: String,
+    desktop: State<'_, Desktop>,
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<u64, String> {
+    let manager = state.inner().clone();
+    let desktop = desktop.inner().clone();
+    work(move || manager.processing_estimate(&desktop, reference_token)).await
+}
+#[tauri::command]
+async fn separation_status(
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    Ok(state.status())
+}
+#[tauri::command]
+async fn refresh_separation_runtime(
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    let manager = state.inner().clone();
+    work(move || Ok(manager.refresh_runtime())).await
+}
+#[tauri::command]
+async fn install_separation_model(
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    state.install().map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn remove_separation_model(
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    let manager = state.inner().clone();
+    work(move || manager.remove_model()).await
+}
+#[tauri::command]
+async fn start_separation(
+    reference_token: String,
+    desktop: State<'_, Desktop>,
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    let manager = state.inner().clone();
+    let desktop = desktop.inner().clone();
+    work(move || manager.start(desktop, reference_token)).await
+}
+#[tauri::command]
+async fn cancel_separation(
+    id: String,
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    Ok(state.cancel(&id))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "--analysis-worker") {
@@ -472,7 +526,16 @@ fn main() {
                 .unwrap_or(app.path().app_data_dir()?.join("models/beat-this-v1"));
             let cache = directory.parent().unwrap_or(&directory).join("analysis");
             let desktop = Desktop::start(directory)?;
-            app.manage(ohmyloop::analysis::AnalysisManager::new(models, cache)?);
+            let gate = ohmyloop::heavy_work::HeavyWork::default();
+            app.manage(ohmyloop::analysis::AnalysisManager::with_gate(
+                models,
+                cache,
+                gate.clone(),
+            )?);
+            app.manage(ohmyloop::separation::SeparationManager::new(
+                app.path().app_data_dir()?.join("models/separation"),
+                gate,
+            ));
             if std::env::args().any(|arg| arg == "--demo") {
                 desktop.load(None)?;
             }
@@ -481,6 +544,13 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             lifecycle::finish_exit,
+            separation_status,
+            separation_estimate,
+            refresh_separation_runtime,
+            install_separation_model,
+            remove_separation_model,
+            start_separation,
+            cancel_separation,
             read_keymap,
             analysis_status,
             read_cached_analysis,
@@ -545,6 +615,8 @@ fn main() {
                 }
             }
             tauri::RunEvent::Exit => {
+                app.state::<ohmyloop::separation::SeparationManager>()
+                    .shutdown();
                 app.state::<ohmyloop::analysis::AnalysisManager>()
                     .shutdown();
                 app.state::<Desktop>().shutdown();

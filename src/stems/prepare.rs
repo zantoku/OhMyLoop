@@ -1,5 +1,6 @@
 pub mod library;
 mod progress;
+mod separation_weights;
 use super::{MixState, Pcm, PcmReader, Role, SourceFactory, StemSource, TemporaryDirectory};
 use anyhow::{Context, Result, ensure};
 pub use progress::{WorkflowProgress, WorkflowStep, WorkflowTracker, throttled_progress};
@@ -58,6 +59,7 @@ impl PreparedComparison {
             None,
             output_rate,
             &mut Vec::new(),
+            None,
             progress,
         )
     }
@@ -78,17 +80,41 @@ impl PreparedComparison {
             Some(owned_paths),
             output_rate,
             &mut excluded,
+            None,
             progress,
         )?;
         Ok((prepared, excluded))
     }
 
+    fn prepare_owned_control(
+        reference: &Path,
+        owned: &Path,
+        paths: &BTreeMap<String, PathBuf>,
+        output_rate: u32,
+        control: &super::WorkControl,
+        progress: impl FnMut(PreparationProgress),
+    ) -> Result<(Self, Vec<String>)> {
+        let mut excluded = Vec::new();
+        let value = Self::prepare_inputs(
+            reference,
+            &[owned.to_path_buf()],
+            Some(paths),
+            output_rate,
+            &mut excluded,
+            Some((owned, control)),
+            progress,
+        )?;
+        Ok((value, excluded))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn prepare_inputs(
         reference: &Path,
         sets: &[PathBuf],
         owned_paths: Option<&BTreeMap<String, PathBuf>>,
         output_rate: u32,
         excluded: &mut Vec<String>,
+        work: Option<(&Path, &super::WorkControl)>,
         mut progress: impl FnMut(PreparationProgress),
     ) -> Result<Self> {
         ensure!(sets.len() <= 2, "At most two stem sets are supported");
@@ -97,8 +123,9 @@ impl PreparedComparison {
             "Unsupported output rate"
         );
         let started = Instant::now();
-        let directory =
-            std::env::temp_dir().join(format!("ohmyloop-stems-{}", uuid::Uuid::new_v4()));
+        let directory = work
+            .map_or_else(std::env::temp_dir, |(root, _)| root.to_path_buf())
+            .join(format!("ohmyloop-stems-{}", uuid::Uuid::new_v4()));
         let mut builder = fs::DirBuilder::new();
         #[cfg(unix)]
         {
@@ -113,6 +140,7 @@ impl PreparedComparison {
             progress: &mut progress,
             step: None,
             decoded_peak: 0.,
+            control: work.map(|(_, c)| c.clone()),
         };
         preparer.stage("validation.reference.hash");
         let reference_hash = preparer.digest(reference)?;
@@ -130,7 +158,7 @@ impl PreparedComparison {
                 fs::metadata(&manifest_path)?.len() <= 4 * 1024 * 1024,
                 "Manifest exceeds 4 MiB limit"
             );
-            let bytes = fs::read(&manifest_path)?;
+            let bytes = crate::storage::read_limited(&manifest_path, 4 * 1024 * 1024)?;
             let manifest: Manifest =
                 serde_json::from_slice(&bytes).context("Invalid prototype manifest")?;
             let raw: serde_json::Value = serde_json::from_slice(&bytes)?;
@@ -424,8 +452,15 @@ struct Preparer<'a, F: FnMut(PreparationProgress)> {
     progress: &'a mut F,
     step: Option<String>,
     decoded_peak: f32,
+    control: Option<super::WorkControl>,
 }
 impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
+    fn check(&self) -> Result<()> {
+        if let Some(c) = &self.control {
+            c.check()?;
+        }
+        Ok(())
+    }
     fn stage(&mut self, id: impl Into<String>) {
         self.step = Some(id.into());
         self.notify("Starting processing step", 0, None);
@@ -451,6 +486,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
         let mut buffer = vec![0; 256 * 1024];
         let mut read = 0;
         loop {
+            self.check()?;
             let n = file.read(&mut buffer)?;
             if n == 0 {
                 break;
@@ -487,6 +523,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
         let mut rate = None;
         let mut input_channels = None;
         loop {
+            self.check()?;
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
                 Err(Error::IoError(e)) if e.kind() == ErrorKind::UnexpectedEof => break,
@@ -593,6 +630,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
         let mut cursor = 0u64;
         let mut written = 0u64;
         while written < count {
+            self.check()?;
             interleaved.fill([0.0; 2]);
             let leading = pre_roll.saturating_sub(cursor).min(1024) as usize;
             reader.read(cursor.saturating_sub(pre_roll), &mut interleaved[leading..])?;
@@ -637,6 +675,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
         let mut reader = PcmReader::new(reference.clone())?;
         let mut pos = 0;
         while pos < reference.frames {
+            self.check()?;
             let n = reader.read(pos, &mut buffer)?;
             for x in buffer[..n].iter().flatten() {
                 peak = peak.max(x.abs() as f64)
@@ -656,6 +695,7 @@ impl<F: FnMut(PreparationProgress)> Preparer<'_, F> {
             let mut sums = vec![[0.0f64; 2]; 8192];
             let mut pos = 0;
             while pos < reference.frames {
+                self.check()?;
                 let n = reference.frames.saturating_sub(pos).min(8192) as usize;
                 sums[..n].fill([0.0; 2]);
                 for reader in &mut readers {

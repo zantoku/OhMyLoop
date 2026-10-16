@@ -94,6 +94,12 @@ selection and section navigation. A single waveform workspace, two prominent
 independent practice controls, and restrained section colors serve the guitar
 practice workflow without turning the screen into a DAW mixer.
 
+## Progress indicators
+
+Determinate circular progress indicators, including pie-style checklist bullets,
+start at **12 o'clock** and fill clockwise. At completion the fill returns to that
+same top position. Apply this orientation consistently across the app.
+
 ## Close controls and dialog spacing
 
 Close controls should practically always be an **X icon button in the top
@@ -237,6 +243,65 @@ For #5, a Stems button beside Notes and Measure map opens attachment/replacement
 current-set details and errors. Integrated model installation/separation extends
 that same screen in #6.
 
+## Integrated separation flow
+
+The maintainer approved the interactive flow prototype on 2026-10-14. Open a
+Library song into Practice, then use the existing Stems button. Roformer-SW is
+the selected model; show a compact installation card rather than a model chooser.
+Opening the screen starts no work. If missing, offer explicit Download model with
+actual package size/storage requirements. Show download, verification and setup
+progress, Cancel and useful failure/Retry states. Installation is shared across
+songs, independently of completed stem sets.
+
+Successful model setup stops at Ready. A separate Separate song action starts
+processing. For an existing set, first confirm replacement; ordinary failures and
+cancellation preserve that set. Separation uses short semantic checklist labels,
+measured progress where available and elapsed time; unknown work is indeterminate,
+without a fabricated percentage or ETA. Cancel is available before publication;
+once publication starts show Finishing save instead.
+
+The separation progress bar has the static title **Splitting song into stems**.
+Show the current phase title below the bar as its subtitle; individual step names
+remain in the checklist. Completion and stopped status also appear in the subtitle.
+
+Completion automatically attaches the validated set, displays retained/skipped
+tracks, and offers Go to Practice. It changes neither reference recording nor
+measure map. Playback stays paused after publication. Model removal leaves stems
+intact. Attach existing outputs remains secondary, as does installed-model
+management. The top-leading X returns to Practice without cancelling active work;
+the Stems button shows a compact ongoing-work indicator.
+
+The [approved primary-source demo](https://github.com/zantoku/OhMyLoop/blob/prototype/stem-separation-flow-2026-10-14/ui/StemSeparation.prototype.html) is archived on
+`prototype/stem-separation-flow-2026-10-14` and can be opened directly in a browser. It uses in-memory state, simulated audio/progress and illustrative
+package sizes. Its current-song lock and always-paused audio were demonstration
+assumptions; the confirmed guard/playback policies below and
+[the implementation interview](STEM_SEPARATION_IMPLEMENTATION_PLAN.md) now govern
+implementation. The demo is kept off the implementation branch; do not ship its
+shell or reducer as production code.
+
+Implementation decisions confirmed 2026-10-14: separation pauses playback and
+disables Play until its terminal outcome, preserving position and leaving playback
+paused. Users can leave Stems and edit notes/measure maps for the current song,
+but cannot switch song/library or mutate recording/stems while separation runs.
+Automatic timing analysis and separation share one execution slot without a queue.
+The selected CPU profile is fixed; no device/quality chooser in #6. Normal app quit
+confirms cancellation of active work, or finishes an already-started final save.
+Playback remains available during download-only model installation. Model files
+are app-wide; generated audio stays in the song's library. Download retry restarts
+partial files, preserving verified files. Cancellation shows Stopping until work
+and cleanup finish. No RAM monitor or duration cap in #6; show a concise notice
+about several gigabytes of memory use. Short recordings use validated known padding
+and cropping, with no extra user controls.
+
+The 2026-10-14 refinement also freezes seeking, speed/pitch, loop/count-in and mixer
+controls during separation, while preserving waveform browsing and manual note/map
+editing. Show one-time estimated disk requirements and explain insufficient space.
+Check model integrity when installing and starting inference, without blocking
+ordinary Stems-screen status on a full scan. Failures show a short explanation,
+Retry and expandable Copy details; diagnostics are current-attempt/in-memory only.
+No model-folder import or prototype-weight reuse. Inference has elapsed time and
+Cancel, without an automatic overall deadline.
+
 ## Stem processing transparency
 
 During attachment, show a prominent overall progress bar near the top of Stems,
@@ -252,8 +317,19 @@ steps as “Skip near-silent <instrument>”, with a green bullet and “Skipped
 count them toward overall completion and retain that status after publication.
 
 Overall progress represents completed task units plus the measured fraction of the
-active task, not a time estimate. Keep the full attachment denominator stable
+active task for manual attachment, not a time estimate. Keep the full attachment denominator stable
 through copying, validation, playback preparation and final song-association save;
 show 100% only after successful publication. Unknown work is indeterminate. Reused
 playback preparation can show a single completed reuse step. Throttle visual updates
 while preserving stage transitions and completion events.
+
+The separation overall bar uses fixed stage weights calibrated from two
+full-song development timings, retaining actual
+within-stage units and no ETA. Manual attachment keeps task-unit weighting.
+For both workflows, follow the active checklist step automatically, pausing when
+the user scrolls away and resuming when they return to the active step. Reopening
+the screen during processing reveals the active step. No follow button is added.
+During unknown-duration separation stages, hold overall progress while the active
+step remains indeterminate; advance when it completes. Keep timing breakdowns in
+maintainer verification evidence rather than adding them to the app.
+Full refinement contract: [STEM_PROGRESS_REFINEMENTS.md](STEM_PROGRESS_REFINEMENTS.md).

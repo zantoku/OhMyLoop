@@ -4,6 +4,8 @@
   import {mixerPrototypeSnapshot} from './track-mixer-prototype';
   const mixerPrototype = import.meta.env.DEV && !('__TAURI_INTERNALS__' in window) && new URLSearchParams(location.search).has('mixer-prototype');
   import StemsScreen from './StemsScreen.svelte';
+  import {SeparationSession} from './separation-session';
+  import {separationFrozen,type SeparationState} from './separation';
   import TrackMixer from './TrackMixer.svelte';
   import {StemsSession,type StemsState} from './stems-session';
   import {completedProcessing,processingLabel,type StemRole,type StemProgress} from './stems';
@@ -46,11 +48,26 @@
   let keymapWarning = $state<string | null>(null);
   let keymapLoading = $state(false);
   let screen = $state<'practice' | 'mapping' | 'library' | 'notes' | 'stems'>('practice');
+  let separationState=$state<SeparationState>({status:null,pending:false,error:''});
+  let quitConfirmation=$state(false);
+  let exiting=$state(false);
+  let quitDialog:HTMLDialogElement;
+  $effect(()=>{if(quitConfirmation)quitDialog?.showModal();else quitDialog?.close();});
+  let separationAdmission=$state(false);
+  let separationEstimate=$state<number|null>(null);
+  const separationActive=$derived(separationAdmission||(separationState.status?.job.running??false));
+  const separationSession=new SeparationSession(bridge,state=>{separationState=state;},async status=>{if(song?.reference_token===status.job.reference_token&&status.job.result){stemsSession.reset(status.job.result);const value=await bridge.status();if(value.reference_token===song.reference_token)transport=value;}});
+  async function startSeparation(){if(separationAdmission)return;separationAdmission=true;try{await transportActions;flushControls();await saves;await stemsSession.flush();await countInSession.flush();await clickSession.flush();if(song){await separationSession.separate(song.reference_token);const status=await bridge.status();if(status.reference_token===song.reference_token)transport=status;}}finally{separationAdmission=false;}}
+  async function finishExit(){
+    if(exiting)return;exiting=true;quitConfirmation=false;
+    try{flushControls();if(await notesSession.flush()){await stemsSession.flush();await saves;await bridge.finishExit();}}
+    catch(e){error=String(e);}finally{exiting=false;}
+  }
   let stemsState=$state<StemsState>({snapshot:null,pending:false,error:''});
   let stemProgress=$state<StemProgress|null>(null),stemProgressFailed=$state(false),stemsLoading=$state(false);
   let stemEpoch=0,stemOperationId:string|null=null;
   const stemsSession=new StemsSession(bridge.setStemMix,state=>{stemsState=state;});
-  async function reloadStems(reference:string){const epoch=++stemEpoch;stemsLoading=true;stemsSession.reset(null);try{const value=await bridge.stemsStatus(reference);if(mounted&&epoch===stemEpoch&&song?.reference_token===reference)stemsSession.reset(value);}catch(e){if(mounted&&epoch===stemEpoch)error=String(e);}finally{if(epoch===stemEpoch)stemsLoading=false;}}
+  async function reloadStems(reference:string){const epoch=++stemEpoch;separationEstimate=null;void bridge.separationEstimate(reference).then(value=>{if(epoch===stemEpoch)separationEstimate=value;}).catch(()=>{});stemsLoading=true;stemsSession.reset(null);try{const value=await bridge.stemsStatus(reference);if(mounted&&epoch===stemEpoch&&song?.reference_token===reference)stemsSession.reset(value);}catch(e){if(mounted&&epoch===stemEpoch)error=String(e);}finally{if(epoch===stemEpoch)stemsLoading=false;}}
   function soloRole(role:StemRole){const track=stemsState.snapshot?.tracks.find(track=>track.role===role);if(track)stemsSession.change(role,{solo:!track.solo});}
   function muteRole(role:StemRole){const track=stemsState.snapshot?.tracks.find(track=>track.role===role);if(track)stemsSession.change(role,{mute:!track.mute});}
   async function stemsWork(remove=false){
@@ -87,7 +104,7 @@
   const hasMeasureMap = $derived(!!project?.measure_map?.measures.length);
   const countInActive = $derived(countInEnabled && hasMeasureMap);
   $effect(()=>{
-    if(native&&song)countInSession.set({key:song.reference_token,enabled:screen!=='mapping'&&countInActive&&!transport.audio_error,repeat:repeatCountIn,volume:clickLevel/100});
+    if(native&&song&&!separationActive)countInSession.set({key:song.reference_token,enabled:screen!=='mapping'&&countInActive&&!transport.audio_error,repeat:repeatCountIn,volume:clickLevel/100});
   });
   let clickEnabled = $state(true), clickLevel = $state(50);
   let clickState = $state<MetronomeState>({pending:false,error:''});
@@ -95,7 +112,7 @@
   const clickSession = new MetronomeSession(value=>{clickState=value;});
   const audibleMap = $derived(screen==='mapping'&&reviewMap?.key===song?.reference_token ? reviewMap!.map : project?.measure_map??null);
   $effect(()=>{
-    if(native&&song)clickSession.set({key:song.reference_token,enabled:clickEnabled&&!!audibleMap?.measures.length&&!transport.audio_error,volume:clickLevel/100,map:audibleMap?$state.snapshot(audibleMap):null});
+    if(native&&song&&!separationActive)clickSession.set({key:song.reference_token,enabled:clickEnabled&&!!audibleMap?.measures.length&&!transport.audio_error,volume:clickLevel/100,map:audibleMap?$state.snapshot(audibleMap):null});
   });
   let mapView = $state<MapView | null>(null);
   let measureEditor = $state<MeasureEditor>();
@@ -202,7 +219,7 @@
   let transportActions=Promise.resolve();
   function action(value:Action):Promise<void>{const reference=song?.reference_token;transportActions=transportActions.catch(()=>{}).then(async()=>{if(song?.reference_token===reference)await performAction(value);});return transportActions;}
   async function performAction(action: Action) {
-    if (!song || busy) return;
+    if (!song || busy || separationActive) return;
     const referenceToken=song.reference_token;
     const preparingStems=action.type==='retry_audio'&&!!stemsState.snapshot?.set_id;
     if(preparingStems){busy='Preparing stem playback…';stemProgress=null;}
@@ -223,14 +240,14 @@
     finally{if(preparingStems){busy='';stemProgress=null;}}
   }
   function controls(nextSpeed: number, nextPitch: number) {
-    if (!project || !Number.isFinite(nextSpeed) || !Number.isFinite(nextPitch)) return;
+    if (separationActive || !project || !Number.isFinite(nextSpeed) || !Number.isFinite(nextPitch)) return;
     project = { ...project, controls: { speed: clamp(nextSpeed, .25, 2), semitones: clamp(nextPitch, -12, 12) } };
     revision++;
     clearTimeout(controlTimer);
     saved = false;
     controlTimer = setTimeout(() => { controlTimer = undefined; void update({ controls: project!.controls }); }, 90);
   }
-  async function chooseLoop(loop: Loop) { await update({ loop_selection: loop, loop_enabled: true }); }
+  async function chooseLoop(loop: Loop) { if(separationActive)return;await update({ loop_selection: loop, loop_enabled: true }); }
   function clearLoop() { repeatCountIn=false;return update({ loop_selection: null, loop_enabled: false }); }
   async function toggleLoop() {
     if(project?.loop_enabled&&hasMeasureMap&&!repeatCountIn){countInEnabled=true;repeatCountIn=true;return;}
@@ -245,6 +262,7 @@
     } else await update({ loop_enabled: !project.loop_enabled });
   }
   async function selectSection(section: Section) {
+    if(separationActive)return;
     const loop = { start: section.start, end: section.end, fade_ms: 5 };
     await update({ selected_section: section.id, loop_selection: loop });
     await action({ type: 'seek', seconds: section.start });
@@ -322,7 +340,7 @@
     if(target){if(screen==='mapping')measureEditor?.selectMeasure(target.id);return action({type:'seek',seconds:target.start/song.rate});}
   }
   const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
-  async function closeNotes(){if(await notesSession.flush())screen='practice';}
+  async function closeNotes(){const reference=song?.reference_token;if(await notesSession.flush()&&screen==='notes'&&song?.reference_token===reference)screen='practice';}
   async function showLibrary(){
     await transportActions;
     if(!await notesSession.flush())return;
@@ -330,8 +348,12 @@
     screen='library';
   }
   const dispatcher = new ActionDispatcher({
+    separation_install:()=>separationSession.install(),separation_start:startSeparation,
+    separation_cancel:()=>{const s=separationState.status;return separationSession.cancel(s?.job.running?s.job.id:s?.install.id??'');},
+    separation_remove_model:()=>separationSession.remove(),separation_refresh_runtime:()=>separationSession.runtime(),
+    separation_practice:()=>{screen='practice';},separation_open:()=>{screen='stems';},
     retry_stem_mix:()=>stemsSession.retry(),
-    show_stems:()=>{screen='stems';},close_stems:()=>{screen='practice';},attach_stems:()=>stemsWork(),remove_stems:()=>stemsWork(true),
+    show_stems:()=>{screen='stems';},close_stems:()=>{screen=song?'practice':'library';},attach_stems:()=>stemsWork(),remove_stems:()=>stemsWork(true),
     stem_gain:({role,gain})=>{if(role&&Number.isFinite(gain))stemsSession.change(role,{gain});},
     solo_bass:()=>soloRole('bass'),
     solo_drums:()=>soloRole('drums'),
@@ -393,6 +415,8 @@
   function runButton(id: ButtonId, payload: ActionPayload = {}) { return runAction(keymap.actionFor(id), payload); }
   function actionAvailable(id:ActionId) {
     if(!dispatcher.available(id))return false;
+    if(separationActive&&separationFrozen(id))return false;
+    if(id.startsWith('separation_')){const s=separationState.status;const occupied=!!s?.install.running||!!s?.job.running;if(id==='separation_cancel')return !separationState.pending&&!!(s?.job.running?s.job.cancellable:s?.install.cancellable);if(id==='separation_install')return native&&!occupied&&!separationState.pending;if(id==='separation_start')return native&&!!song?.path&&!!s?.model_ready&&!!s.runtime.ready&&!occupied&&!s.heavy_work&&!separationState.pending;if(id==='separation_remove_model')return !!s?.model_ready&&!occupied&&!separationState.pending;if(id==='separation_refresh_runtime')return native&&!occupied&&!separationState.pending;if(id==='separation_open')return native&&(occupied||!!song);return !!song;}
     if(id==='retry_stem_mix')return !!stemsState.error&&!!stemsState.snapshot?.set_id;
     if(id==='stem_gain')return !!stemsState.snapshot?.available&&!transport.audio_error;
     if(id.startsWith('mute_')||id.startsWith('solo_'))return !!stemsState.snapshot?.available&&!transport.audio_error&&stemsState.snapshot.tracks.some(track=>track.role===id.slice(5));
@@ -426,13 +450,14 @@
   function keyboard(event: KeyboardEvent) {
     if (['Enter',' '].includes(event.key) && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
     if(event.target instanceof Element&&event.target.closest('[role=slider]'))return;
-    if (editing(event.target) || busy || sectionDialog?.open || helpDialog?.open || replacementDialog?.isOpen() || managedState.dialog) return;
+    if (editing(event.target) || quitConfirmation || busy || sectionDialog?.open || helpDialog?.open || replacementDialog?.isOpen() || managedState.dialog) return;
     const id = keymap.match(event,screen);
     if (!id || !actionAvailable(id)) return;
     event.preventDefault(); void runAction(id);
   }
   onMount(() => {
     mounted = true; busy = 'Restoring practice…';
+    if(native)separationSession.start();
 
     const restore = (mixerPrototype ? Promise.resolve(mixerPrototypeSnapshot(transport)) : bridge.initialize()).then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
     Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
@@ -441,13 +466,11 @@
     let unlistenProgress:(()=>void)|undefined;
     void bridge.onImportProgress(progress=>{if(mounted&&busy.startsWith('Import'))busy=progress.total&&progress.copied>=progress.total?'Loading recording…':progress.total?`Importing song… ${Math.round(progress.copied/progress.total*100)}%`:'Importing song…';}).then(unlisten=>{if(mounted)unlistenProgress=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
     void managed.refresh().catch(e=>{if(mounted)error=String(e);});
-    let unlistenExit:(()=>void)|undefined,exiting=false;
-    void bridge.onExitRequested(async()=>{
-      if(exiting)return;exiting=true;
-      try{
-        flushControls();
-        if(await notesSession.flush()){await stemsSession.flush();await saves;await bridge.finishExit();}
-      }catch(e){error=String(e);}finally{exiting=false;}
+    let unlistenExit:(()=>void)|undefined;
+    void bridge.onExitRequested(async(nativeProcessing=false)=>{
+      if(exiting||quitConfirmation)return;
+      if(nativeProcessing||separationState.pendingInstall||separationState.status?.install.running||separationActive){quitConfirmation=true;return;}
+      await finishExit();
     }).then(unlisten=>{if(mounted)unlistenExit=unlisten;else unlisten();}).catch(e=>{error=String(e);});
     let polling = false;
     const timer = setInterval(async () => {
@@ -456,11 +479,12 @@
       try { const statusRevision=revision;const status = await bridge.status(); if (mounted && statusRevision===revision && status.reference_token === song?.reference_token) transport = status; }
       catch (e) { if (mounted) error = String(e); } finally { polling = false; }
     }, 50);
-    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();unlistenProgress?.();unlistenStems?.();stemsSession.dispose();managed.dispose();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
+    return () => { mounted = false; clearInterval(timer); clearTimeout(controlTimer); unlistenExit?.();unlistenProgress?.();unlistenStems?.();stemsSession.dispose();separationSession.dispose();managed.dispose();notesSession.dispose();clickSession.dispose();countInSession.dispose(); };
   });
 </script>
 
 <ManagedLibraryDialog {error} busy={!!busy} kind={managedState.dialog} {keymap} candidates={managedState.selection?.candidates??[]} songTitle={managedState.deleteTitle} run={(id,songKey)=>{void runButton(id,{songKey});}}/>
+<dialog bind:this={quitDialog} class="quit-confirmation" aria-label="Quit and cancel processing" oncancel={event=>{event.preventDefault();quitConfirmation=false;}}><div class="screen-title"><button class="icon-button" aria-label="Close quit confirmation" onclick={()=>quitConfirmation=false}><Icon name="close"/></button><h2>Processing is still running</h2></div><p>Quit and cancel waits for processing to stop and cleans unfinished outputs. A save already in progress will finish.</p><div class="actions"><button class="button" onclick={()=>quitConfirmation=false}>Keep app open</button><button class="button" disabled={exiting} onclick={finishExit}>Quit and cancel</button></div></dialog>
 <svelte:window onkeydown={keyboard}/>
 <div class="app-shell">
   <header class="app-header">
@@ -474,6 +498,7 @@
 
   {#if startupNotice}<div class="notice" role="status">{startupNotice}</div>{/if}
   {#if error&&!managedState.dialog}<div class="notice error" role="alert"><span>{error}</span><button class="text-button" title={keymap.title('dismiss_error')} onclick={() => runButton('dismiss_error')}>Dismiss</button></div>{/if}
+  {#if screen!=='stems'&&(separationActive||separationState.status?.install.running)}<div class="notice" role="status"><span>{separationActive?separationState.status?.job.phase:separationState.status?.install.phase}…</span><button class="text-button" onclick={()=>runButton('separation_open')}>View stem processing</button></div>{/if}
   {#if screen!=='stems'&&(stemsLoading||!!busy&&stemProgress)}<div class="notice" role="status">{processingLabel(stemProgress)}…</div>{/if}
   {#if stemsState.error}<div class="notice error" role="alert"><span>{stemsState.error}</span><button class="text-button" disabled={!buttonAvailable('retry_stem_mix')} title={keymap.title('retry_stem_mix')} onclick={()=>runButton('retry_stem_mix')}>Retry save</button></div>{/if}
   {#if stemsState.snapshot?.warning&&screen!=='stems'}<div class="notice" role="status">{stemsState.snapshot.warning}{#if !stemsState.snapshot.available} Using Original playback.{/if}</div>{/if}
@@ -487,7 +512,7 @@
   <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} status={managedState.status} epoch={libraryEpoch} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
   {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
   <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
-  <StemsScreen active={screen==='stems'} state={stemsState} progress={stemProgress} busy={!!busy||stemsLoading} operation={busy||'Processing stems'} failed={stemProgressFailed} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}/>
+  <StemsScreen active={screen==='stems'} state={stemsState} separation={separationState} processingBytes={separationEstimate} progress={stemProgress} busy={!!busy||stemsLoading} operation={busy||'Processing stems'} failed={stemProgressFailed} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}/>
   <main class="practice-layout" hidden={screen!=='practice'} aria-busy={!!busy}>
     <aside class="sections-panel">
       <div class="panel-title"><h2>Sections</h2><span>{sections.length || ''}</span></div>
@@ -496,7 +521,7 @@
         <div class="section-list">
           {#each sections as section (section.id)}
             <div class:selected={project?.selected_section === section.id} class="section-row" style:--section-color={sectionColor(section.id)}>
-              <button class="section-select" title={keymap.title('select_section')} onclick={() => runButton('select_section', { section })} aria-pressed={project?.selected_section === section.id}>
+              <button class="section-select" disabled={!buttonAvailable('select_section')} title={keymap.title('select_section')} onclick={() => runButton('select_section', { section })} aria-pressed={project?.selected_section === section.id}>
                 <span class="section-dot"></span><span class="section-text"><strong>{section.name}</strong><span>{time(section.start)} – {time(section.end)}</span></span><span class="section-duration">{time(section.end - section.start, 0)}</span>
               </button>
               <div class="section-actions"><button class="icon-button" aria-label={`Edit ${section.name}`} title={keymap.title('edit_section')} onclick={() => runButton('edit_section', { section })}><Icon name="edit" size={15}/></button><button class="icon-button" aria-label={`Delete ${section.name}`} title={keymap.title('delete_section')} onclick={() => runButton('delete_section', { section })}><Icon name="trash" size={15}/></button></div>
@@ -514,11 +539,11 @@
         <Waveform {mapView} {snapToMeasures} rate={song.rate} peaks={song.peaks} duration={song.duration} {sections} {selection} position={transport.position} {view} onseek={seconds => action({ type: 'seek', seconds })} onselection={chooseLoop} onsection={section => runButton('select_section', { section })} onview={next => { view = next; }}/>
         <div class="practice-listening">
           {#if mapView?.measures.length}<label class="snap-control" title={keymap.title('loop_snap')}><input type="checkbox" checked={snapToMeasures} disabled={!buttonAvailable('loop_snap')} onchange={()=>runButton('loop_snap')}/>{keymap.buttonLabel('loop_snap','Snap to measures')}</label>{/if}
-          {#if screen==='practice'}<button class="text-button practice-follow" aria-pressed={practiceFollowing} disabled={!buttonAvailable('practice_follow')} title={keymap.title('practice_follow')} onclick={()=>runButton('practice_follow')}>{keymap.buttonLabel('practice_follow',practiceFollowing?'Follow playhead on':'Follow playhead off')}</button><MetronomeControls enabled={clickEnabled} bind:level={clickLevel} {keymap} button="practice_metronome" available={buttonAvailable('practice_metronome')} run={()=>{void runButton('practice_metronome');}} {native}/>{/if}
+          {#if screen==='practice'}<button class="text-button practice-follow" aria-pressed={practiceFollowing} disabled={!buttonAvailable('practice_follow')} title={keymap.title('practice_follow')} onclick={()=>runButton('practice_follow')}>{keymap.buttonLabel('practice_follow',practiceFollowing?'Follow playhead on':'Follow playhead off')}</button><MetronomeControls enabled={clickEnabled} bind:level={clickLevel} {keymap} button="practice_metronome" available={buttonAvailable('practice_metronome')} disabled={separationActive} run={()=>{void runButton('practice_metronome');}} {native}/>{/if}
         </div>
         <div class="selection-bar">
           {#if selection}
-            <div class="loop-times"><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_start'))} title={keymap.title('jump_loop_start')} onclick={() => runButton('jump_loop_start')}>A</button><input aria-label="Loop start seconds" type="number" min="0" max={selection.end - .1} step="any" value={selection.start.toFixed(2)} onchange={e => { const r = range(Number(e.currentTarget.value), selection.end, song!.duration); if (r) void chooseLoop(r); }}/><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_end'))} title={keymap.title('jump_loop_end')} onclick={() => runButton('jump_loop_end')}>B</button><input aria-label="Loop end seconds" type="number" min={selection.start + .1} max={song.duration} step="any" value={selection.end.toFixed(2)} onchange={e => { const r = range(selection.start, Number(e.currentTarget.value), song!.duration); if (r) void chooseLoop(r); }}/><span class="unit">seconds</span><span class="loop-length">{(selection.end - selection.start).toFixed(2)}s passage</span></div>
+            <div class="loop-times"><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_start'))} title={keymap.title('jump_loop_start')} onclick={() => runButton('jump_loop_start')}>A</button><input aria-label="Loop start seconds" disabled={separationActive} type="number" min="0" max={selection.end - .1} step="any" value={selection.start.toFixed(2)} onchange={e => { const r = range(Number(e.currentTarget.value), selection.end, song!.duration); if (r) void chooseLoop(r); }}/><button class="endpoint endpoint-button" aria-label={keymap.description(keymap.actionFor('jump_loop_end'))} title={keymap.title('jump_loop_end')} onclick={() => runButton('jump_loop_end')}>B</button><input aria-label="Loop end seconds" disabled={separationActive} type="number" min={selection.start + .1} max={song.duration} step="any" value={selection.end.toFixed(2)} onchange={e => { const r = range(selection.start, Number(e.currentTarget.value), song!.duration); if (r) void chooseLoop(r); }}/><span class="unit">seconds</span><span class="loop-length">{(selection.end - selection.start).toFixed(2)}s passage</span></div>
             <div class="selection-actions"><button class="text-button" title={keymap.title('fit_loop')} onclick={() => runButton('fit_loop')}>Fit passage</button><button class="text-button" title={keymap.title('save_selection')} onclick={() => runButton('save_selection')}>Save as section</button><button class="icon-button" aria-label={keymap.buttonLabel('clear_loop', 'Clear loop selection')} title={keymap.title('clear_loop')} onclick={() => runButton('clear_loop')}><Icon name="close" size={16}/></button></div>
           {:else}<span class="selection-hint">Choose any passage to loop, or save it as a named section.</span><span class="selection-shortcut"><span class="keycap">{keymap.shortcut('set_loop_start')}</span><span class="keycap">{keymap.shortcut('set_loop_end')}</span>Set boundaries at the playhead</span>{/if}
         </div>
@@ -536,10 +561,10 @@
               <button class="transport-mode" disabled={!buttonAvailable('loop')} aria-label={project.loop_enabled?(repeatCountIn?'Loop with count-in':'Loop on'):'Loop off'} aria-pressed={project.loop_enabled} title={keymap.title('loop')} onclick={()=>runButton('loop')}><span class:lit={project.loop_enabled}><Icon name="loop" size={19}/></span><span class:lit={project.loop_enabled&&repeatCountIn}><Icon name="hourglass" size={19}/></span></button>
             </div>
           </div>
-          {#if stemsState.snapshot?.set_id}<TrackMixer tracks={stemsState.snapshot.tracks} disabled={!!busy||stemsLoading||!stemsState.snapshot.available||!!transport.audio_error} {keymap} ongain={(role,gain)=>runAction('stem_gain',{role,gain})} onmute={role=>runButton(`mute_${role}`)} onsolo={role=>runButton(`solo_${role}`)}/>{/if}
+          {#if stemsState.snapshot?.set_id}<TrackMixer tracks={stemsState.snapshot.tracks} disabled={separationActive||!!busy||stemsLoading||!stemsState.snapshot.available||!!transport.audio_error} {keymap} ongain={(role,gain)=>runAction('stem_gain',{role,gain})} onmute={role=>runButton(`mute_${role}`)} onsolo={role=>runButton(`solo_${role}`)}/>{/if}
         </div>
 
-        <PlaybackSettings disabled={!!busy} {speed} {pitch} {keymap} {controls} {runButton}/>
+        <PlaybackSettings disabled={!!busy||separationActive} {speed} {pitch} {keymap} {controls} {runButton}/>
         {/if}
 
       {:else}
@@ -549,8 +574,8 @@
   </main>
   {#if song}
     {#key song.reference_token}
-      {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls(value,pitch)} disabled={!!busy}/>{/snippet}
-      <MeasureEditor bind:this={measureEditor} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.reference_token,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
+      {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls(value,pitch)} disabled={!!busy||separationActive}/>{/snippet}
+      <MeasureEditor bind:this={measureEditor} playbackFrozen={separationActive} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.reference_token,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
     {/key}
     <div class="musical-navigation" hidden={screen==='library'||screen==='notes'||screen==='stems'||!mapView?.measures.length}>
       <span>{transport.musical_position?`Measure ${transport.musical_position.label}, beat ${transport.musical_position.beat.toFixed(2)}`:'Unmapped position'}</span>
@@ -577,3 +602,7 @@
     {:else}<p>Configuration files are available in the desktop app.</p>{/if}
   </details>
 </dialog>
+
+<style>
+.quit-confirmation{background:var(--surface);border:1px solid var(--border);border-radius:9px;max-width:520px;padding:24px}.quit-confirmation[open]{display:grid;gap:20px}.quit-confirmation::backdrop{background:#0008}.quit-confirmation p{line-height:1.5}.quit-confirmation .actions{display:flex;gap:12px}
+</style>

@@ -4,12 +4,17 @@ import StemProcessingProgress from './StemProcessingProgress.svelte';
 import {completedProcessing,type StemProgress} from './stems';
 const progress:StemProgress={reference_token:'song',phase:'Decode /private/secret/reference.wav',completed:25,total:100,workflow:{completed:1.25,total:3,steps:[{id:'check',label:'Check reference recording',state:'complete',completed:1,total:1},{id:'bass',label:'Prepare bass playback',state:'active',completed:25,total:100},{id:'save',label:'Save attached stems',state:'pending',completed:0,total:null}]}};
 describe('transparent stem processing',()=>{
- it('shows overall task progress and distinct complete, partial and pending steps without paths',()=>{
-  render(StemProcessingProgress,{progress,busy:true,operation:'Attaching stems…'});
+ it('shows overall task progress and distinct complete, partial and pending steps without paths',async()=>{
+  const {rerender}=render(StemProcessingProgress,{progress,busy:true,operation:'Separating instruments',title:'Splitting song into stems'});
+  expect(screen.getByText('Splitting song into stems').tagName).toBe('STRONG');
+  expect(screen.getByRole('status').textContent).toBe('Separating instruments');
   expect(screen.getByRole('progressbar',{name:'Overall stem processing'}).getAttribute('value')).toBe(String(1.25/3));
   const list=screen.getByRole('list',{name:'Processing steps'});expect(list.tabIndex).toBe(0);
   const items=list.querySelectorAll('li');expect(items[0].classList.contains('complete')).toBe(true);expect(items[1].getAttribute('aria-current')).toBe('step');expect(items[1].querySelector('.step-circle')!.getAttribute('style')).toContain('90deg');expect(items[2].textContent).toContain('Pending');
   expect(screen.queryByText(/private|reference.wav/)).toBeNull();
+  await rerender({progress,busy:true,operation:'Writing separated tracks',title:'Splitting song into stems'});
+  expect(screen.getByText('Splitting song into stems').tagName).toBe('STRONG');
+  expect(screen.getByRole('status').textContent).toBe('Writing separated tracks');
  });
  it('keeps an unknown step indeterminate and a failed workflow incomplete',async()=>{
   const unknown={...progress,workflow:{...progress.workflow!,completed:1,steps:progress.workflow!.steps.map(step=>step.id==='bass'?{...step,total:null}:step)}};

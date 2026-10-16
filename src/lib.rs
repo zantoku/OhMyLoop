@@ -18,3 +18,7 @@ pub mod count_in;
 pub mod metronome;
 
 pub mod stems;
+
+pub mod heavy_work;
+#[cfg(feature = "stem-separation")]
+pub mod separation;

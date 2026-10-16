@@ -2550,12 +2550,14 @@ dependencies = [
  "crossbeam-queue",
  "crossterm",
  "hound",
+ "libc",
  "reqwest 0.12.28",
  "rubato 0.16.2",
  "serde",
  "serde_json",
  "sha2",
  "symphonia",
+ "tokio",
  "uuid",
 ]
 
