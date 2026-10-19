@@ -67,16 +67,6 @@ impl Runtime {
             path: self.python.as_ref().map(|p| p.display().to_string()),
         }
     }
-    pub fn probe(&self) -> RuntimeStatus {
-        let mut status = self.status();
-        if status.ready
-            && let Err(error) = self.native_check(&Control::default())
-        {
-            status.ready = false;
-            status.message = format!("Separation tools need repair: {error:#}");
-        }
-        status
-    }
     pub(super) fn configure(&self, command: &mut Command) {
         if let Some(managed) = &self.managed {
             super::managed::controlled_environment(command, &managed.ffmpeg(), &managed.root);

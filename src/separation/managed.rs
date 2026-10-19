@@ -364,6 +364,13 @@ impl Managed {
         }
         Ok(())
     }
+    /// A user-requested repair must reacquire a damaged interpreter too. uv's
+    /// ordinary install command otherwise reuses its existing managed Python.
+    pub fn prepare_reinstall(&self) -> Result<()> {
+        self.ensure_owned_root()?;
+        self.remove_environment()?;
+        remove_owned(&self.root, &self.python_root())
+    }
     fn retire_previous(&self) -> Result<()> {
         for sub in ["runtimes", "python", "cache"] {
             for entry in fs::read_dir(self.root.join(sub))? {
@@ -742,6 +749,33 @@ esac
             "Post-publication cleanup failure removed the verified new runtime"
         );
         assert!(outside.join("song").is_file());
+        fs::remove_dir_all(scratch).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn explicit_reinstall_reacquires_damaged_interpreter_and_keeps_downloads() {
+        let (managed, runtime, scratch) = fixture();
+        managed
+            .install(&runtime, &Control::default(), |_| {})
+            .unwrap();
+        fs::write(managed.python(), b"corrupted executable").unwrap();
+        fs::write(
+            managed.python_root().join("cpython-fixture/bin/python3"),
+            b"corrupted interpreter",
+        )
+        .unwrap();
+        assert!(runtime.native_check(&Control::default()).is_err());
+        fs::create_dir_all(managed.cache()).unwrap();
+        fs::write(managed.cache().join("verified-download"), b"cached").unwrap();
+        managed.prepare_reinstall().unwrap();
+        assert!(!managed.environment().exists());
+        assert!(!managed.python_root().exists());
+        assert!(managed.cache().join("verified-download").exists());
+        managed
+            .install(&runtime, &Control::default(), |_| {})
+            .unwrap();
+        assert!(managed.ready());
+        runtime.native_check(&Control::default()).unwrap();
         fs::remove_dir_all(scratch).unwrap();
     }
 }

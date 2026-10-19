@@ -40,7 +40,7 @@ impl SeparationManager {
     ) -> Result<()> {
         if let Some(managed) = &self.0.runtime.managed {
             if reinstall_runtime {
-                managed.invalidate()?;
+                managed.prepare_reinstall()?;
             }
             managed.install(&self.0.runtime, control, |stage| {
                 self.setup_progress(id, stage, 0, None)

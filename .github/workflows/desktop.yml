@@ -2,6 +2,8 @@ name: Desktop app
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
+env:
+  PYTHONUTF8: "1"
 jobs:
   desktop:
     strategy:

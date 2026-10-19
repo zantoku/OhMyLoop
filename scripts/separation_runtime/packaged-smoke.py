@@ -14,6 +14,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -112,7 +113,18 @@ def main() -> None:
             if mode == "check" and hidden_uv is None:
                 # Only mutate the isolated installed copy. A missing bundled uv
                 # makes any accidental dependency synchronization fail outright.
-                original_uv = only(list(destination.rglob("uv.exe" if platform.system() == "Windows" else "uv")), "bundled uv")
+                original_uv = only(
+                    [
+                        path
+                        for path in destination.rglob(
+                            "uv.exe" if platform.system() == "Windows" else "uv"
+                        )
+                        if path.is_file()
+                        and path.parent.name == "tools"
+                        and "separation" in path.parts
+                    ],
+                    "bundled uv",
+                )
                 original_mode = original_uv.parent.stat().st_mode
                 original_uv.parent.chmod(original_mode | 0o200)
                 hidden_uv = original_uv.with_name(original_uv.name + ".disabled-for-offline-proof")
@@ -126,13 +138,21 @@ def main() -> None:
             result = subprocess.run(
                 [binary, "--stem-runtime-smoke", mode, profile],
                 env=env,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 timeout=1800,
             )
             (destination / f"{mode}.log").write_text(result.stdout, encoding="utf-8")
-            results.append({"mode": mode, "exit_code": result.returncode, "seconds": round(time.monotonic() - start, 3), "acquisition_disabled": hidden_uv is not None})
+            results.append(
+                {
+                    "mode": mode,
+                    "exit_code": result.returncode,
+                    "seconds": round(time.monotonic() - start, 3),
+                    "acquisition_disabled": hidden_uv is not None,
+                }
+            )
             (destination / "results.json").write_text(json.dumps(results, indent=2) + "\n")
             print(result.stdout, flush=True)
             if result.returncode:
@@ -146,4 +166,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     main()

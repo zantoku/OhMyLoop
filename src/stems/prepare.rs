@@ -126,7 +126,7 @@ impl PreparedComparison {
         let directory = work
             .map_or_else(std::env::temp_dir, |(root, _)| root.to_path_buf())
             .join(format!("ohmyloop-stems-{}", uuid::Uuid::new_v4()));
-        let mut builder = fs::DirBuilder::new();
+        let builder = &mut fs::DirBuilder::new();
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;
