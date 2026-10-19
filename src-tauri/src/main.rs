@@ -484,6 +484,25 @@ async fn remove_separation_model(
     work(move || manager.remove_model()).await
 }
 #[tauri::command]
+async fn reinstall_separation_model(
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    state.reinstall_model().map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn reinstall_separation_runtime(
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    state.reinstall_runtime().map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn remove_separation_runtime(
+    state: State<'_, ohmyloop::separation::SeparationManager>,
+) -> Result<ohmyloop::separation::Status, String> {
+    let manager = state.inner().clone();
+    work(move || manager.remove_runtime()).await
+}
+#[tauri::command]
 async fn start_separation(
     reference_token: String,
     desktop: State<'_, Desktop>,
@@ -505,6 +524,23 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "--analysis-worker") {
         if let Err(error) = ohmyloop::analysis::worker(&args[1..]) {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if args
+        .first()
+        .is_some_and(|arg| arg == "--stem-runtime-smoke")
+    {
+        let result = (|| -> anyhow::Result<()> {
+            let app = tauri::Builder::default().build(tauri::generate_context!())?;
+            ohmyloop::separation::smoke::run(
+                &args[1..],
+                &app.path().resource_dir()?.join("separation"),
+            )
+        })();
+        if let Err(error) = result {
             eprintln!("{error:#}");
             std::process::exit(1);
         }
@@ -532,8 +568,10 @@ fn main() {
                 cache,
                 gate.clone(),
             )?);
-            app.manage(ohmyloop::separation::SeparationManager::new(
+            app.manage(ohmyloop::separation::SeparationManager::managed(
                 app.path().app_data_dir()?.join("models/separation"),
+                app.path().app_data_dir()?.join("separation-tools"),
+                &app.path().resource_dir()?.join("separation"),
                 gate,
             ));
             if std::env::args().any(|arg| arg == "--demo") {
@@ -549,6 +587,9 @@ fn main() {
             refresh_separation_runtime,
             install_separation_model,
             remove_separation_model,
+            reinstall_separation_model,
+            reinstall_separation_runtime,
+            remove_separation_runtime,
             start_separation,
             cancel_separation,
             read_keymap,

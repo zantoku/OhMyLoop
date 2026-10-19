@@ -1,5 +1,5 @@
 import type {SeparationState,SeparationStatus} from './separation';
-type API={separationStatus:()=>Promise<SeparationStatus>;installSeparationModel:()=>Promise<SeparationStatus>;removeSeparationModel:()=>Promise<SeparationStatus>;refreshSeparationRuntime:()=>Promise<SeparationStatus>;startSeparation:(reference:string)=>Promise<SeparationStatus>;cancelSeparation:(id:string)=>Promise<SeparationStatus>};
+type API={separationStatus:()=>Promise<SeparationStatus>;installSeparationModel:()=>Promise<SeparationStatus>;removeSeparationModel:()=>Promise<SeparationStatus>;reinstallSeparationModel:()=>Promise<SeparationStatus>;reinstallSeparationRuntime:()=>Promise<SeparationStatus>;removeSeparationRuntime:()=>Promise<SeparationStatus>;refreshSeparationRuntime:()=>Promise<SeparationStatus>;startSeparation:(reference:string)=>Promise<SeparationStatus>;cancelSeparation:(id:string)=>Promise<SeparationStatus>};
 // Owned by App, not StemsScreen. Poll replies cannot replace a newer command.
 export class SeparationSession {
  private value:SeparationStatus|null=null;private pending=false;private pendingInstall=false;private error='';private disposed=false;private epoch=0;private poll:ReturnType<typeof setInterval>|undefined;private polling=false;private completed='';
@@ -10,6 +10,9 @@ export class SeparationSession {
  start(){void this.refresh();this.poll=setInterval(()=>{void this.refresh();},250);}
  private async command(work:()=>Promise<SeparationStatus>,install=false){if(this.pending||this.disposed)return;this.pending=true;this.pendingInstall=install;this.error='';const epoch=++this.epoch;this.emit();try{await this.accept(await work(),epoch);}catch(e){if(epoch===this.epoch&&!this.disposed){this.error=String(e);}}finally{if(epoch===this.epoch){this.pending=false;this.pendingInstall=false;this.emit();}}}
  install(){return this.command(this.api.installSeparationModel,true);}
+ reinstallModel(){return this.command(this.api.reinstallSeparationModel,true);}
+ reinstallRuntime(){return this.command(this.api.reinstallSeparationRuntime,true);}
+ removeRuntime(){return this.command(this.api.removeSeparationRuntime);}
  remove(){return this.command(this.api.removeSeparationModel);}
  runtime(){return this.command(this.api.refreshSeparationRuntime);}
  separate(reference:string){return this.command(()=>this.api.startSeparation(reference));}

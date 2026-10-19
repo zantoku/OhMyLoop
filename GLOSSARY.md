@@ -53,3 +53,7 @@ across songs and independent of their completed stem sets.
 **Separation job**:
 One attempt to produce a stem set from a particular reference recording using
 a separation model.
+
+**Runtime package**:
+A versioned execution environment for separation jobs, separate from model
+packages and song audio, whether assembled locally or distributed ready to use.

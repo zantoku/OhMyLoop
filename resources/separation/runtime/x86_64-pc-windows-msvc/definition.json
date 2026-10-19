@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "roformer-sw-cpu2-v1-x86_64-pc-windows-msvc",
+  "target": "x86_64-pc-windows-msvc",
+  "python_version": "3.12.13",
+  "python_key": "cpython-3.12.13-windows-x86_64-none",
+  "python_build": "20260807",
+  "python_executable": "python.exe",
+  "python_downloads": "python-downloads.json",
+  "requirements": "requirements.lock",
+  "uv": "tools/uv.exe",
+  "ffmpeg": "tools/ffmpeg.exe",
+  "uv_version": "0.12.16",
+  "ffmpeg_version": "7.1",
+  "artifact_manifest": "artifacts.json",
+  "minimum_os": {
+    "family": "windows",
+    "version": "10.0"
+  },
+  "download_bytes": 805101592,
+  "installed_bytes": 3000000000,
+  "temporary_bytes": 5000000000,
+  "python_installation": "cpython-3.12.13-windows-x86_64-none"
+}

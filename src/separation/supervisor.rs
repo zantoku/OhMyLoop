@@ -35,6 +35,7 @@ pub fn run(
         .as_ref()
         .context("Development runtime unavailable")?;
     let mut command = Command::new(python);
+    runtime.configure(&mut command);
     command
         .arg("-I")
         .arg(&runtime.worker)
@@ -132,13 +133,7 @@ mod tests {
         let executable = root.join("worker");
         fs::write(&executable, format!("#!/bin/sh\n{body}\n")).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
-        (
-            Runtime {
-                python: Some(executable),
-                worker: root.join("unused"),
-            },
-            root,
-        )
+        (Runtime::fixture(executable, root.join("unused")), root)
     }
     #[test]
     fn crashes_protocol_failures_and_forked_pipe_holders_are_reaped() {

@@ -48,11 +48,14 @@ export type MappingActionId = keyof typeof MAPPING_ACTIONS;
 
 const library = (...args: Parameters<typeof define>) => ({ ...define(...args), scope: 'library' as ActionScope });
 export const ACTIONS = {
-  separation_install:define('Download the Roformer separation model',[],'none'),
+  separation_install:define('Set up stem separation',[],'none'),
   separation_start:define('Separate the full reference recording'),
   separation_cancel:define('Cancel current stem processing',[],'none'),
+  separation_reinstall_model:define('Reinstall separation model',[],'none'),
+  separation_reinstall_runtime:define('Reinstall separation tools',[],'none'),
+  separation_remove_runtime:define('Remove separation tools',[],'none'),
   separation_remove_model:define('Remove installed separation model',[],'none'),
-  separation_refresh_runtime:define('Check development inference runtime',[],'none'),
+  separation_refresh_runtime:define('Check separation tools',[],'none'),
   separation_practice:define('Return to practice with completed stems'),
   separation_open:define('Open current stem processing',[],'none'),
   retry_stem_mix:define('Retry saving stem controls'),
@@ -154,7 +157,7 @@ export const ACTIONS = {
 
 export type ActionId = keyof typeof ACTIONS;
 export const BUTTONS = {
-  separation_install:'separation_install',separation_start:'separation_start',separation_cancel:'separation_cancel',separation_remove_model:'separation_remove_model',separation_refresh_runtime:'separation_refresh_runtime',separation_practice:'separation_practice',separation_open:'separation_open',
+  separation_install:'separation_install',separation_reinstall_model:'separation_reinstall_model',separation_reinstall_runtime:'separation_reinstall_runtime',separation_remove_runtime:'separation_remove_runtime',separation_start:'separation_start',separation_cancel:'separation_cancel',separation_remove_model:'separation_remove_model',separation_refresh_runtime:'separation_refresh_runtime',separation_practice:'separation_practice',separation_open:'separation_open',
   retry_stem_mix:'retry_stem_mix',show_stems:'show_stems',close_stems:'close_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',
   solo_bass:'solo_bass',  solo_drums:'solo_drums',  solo_guitar:'solo_guitar',  solo_piano:'solo_piano',  solo_vocals:'solo_vocals',  solo_other:'solo_other',
   mute_bass:'mute_bass',mute_drums:'mute_drums',mute_guitar:'mute_guitar',mute_piano:'mute_piano',mute_vocals:'mute_vocals',mute_other:'mute_other',

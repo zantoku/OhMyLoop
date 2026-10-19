@@ -100,6 +100,18 @@ impl SeparationManager {
         } = job;
         self.measured(id, "model.verify", "Verifying model", 0, None);
         control.check()?;
+        if let Err(error) = self.0.runtime.native_check(control) {
+            if control.cancelled() {
+                return Err(error);
+            }
+            if let Some(managed) = &self.0.runtime.managed {
+                managed.invalidate()?;
+            }
+            let mut state = self.0.state.lock().unwrap();
+            state.runtime.ready = false;
+            state.runtime.message = format!("Separation tools need repair: {error:#}");
+            return Err(error);
+        }
         ensure!(!owned.exists(), "Generated destination already exists");
         std::fs::create_dir(owned)?;
         let package_before = package::snapshot(&self.0.models)?;
@@ -178,6 +190,20 @@ impl SeparationManager {
             "Model changed during inference; discard results"
         );
         let result = protocol::read_result(&owned.join("result.json"), id, &preparation)?;
+        {
+            let mut state = self.0.state.lock().unwrap();
+            if state.job.id == *id {
+                state.job.details = bounded_details(&format!(
+                    "{}\nWorker measurements: {}",
+                    state.job.details, result["resources"]
+                ));
+            }
+        }
+        ensure!(
+            result["runtime_id"]
+                == serde_json::to_value(self.0.runtime.managed.as_ref().map(|m| &m.definition.id))?,
+            "Worker runtime definition mismatch"
+        );
         let manifest = protocol::manifest(&preparation, &result)?;
         std::fs::write(owned.join("manifest.json"), serde_json::to_vec(&manifest)?)?;
         let (record, prepared) = crate::stems::library::attach_generated(
@@ -229,6 +255,6 @@ impl SeparationManager {
         );
     }
     fn worker_request(&self, job: &Job, preparation: &Value) -> Value {
-        json!({"version":1,"job_id":job.id,"package_id":package::ID,"profile_id":package::PROFILE,"model_dir":self.0.models,"prepared_path":job.owned.join("prepared.wav"),"preparation":preparation,"settings":protocol::settings(),"output_dir":job.owned,"outputs":crate::stems::Role::ALL.into_iter().map(|role|(role.name().to_owned(),json!(format!("{}.wav",role.name())))).collect::<serde_json::Map<_,_>>()})
+        json!({"version":1,"job_id":job.id,"package_id":package::ID,"profile_id":package::PROFILE,"runtime_id":self.0.runtime.managed.as_ref().map(|m| &m.definition.id),"model_dir":self.0.models,"prepared_path":job.owned.join("prepared.wav"),"preparation":preparation,"settings":protocol::settings(),"output_dir":job.owned,"outputs":crate::stems::Role::ALL.into_iter().map(|role|(role.name().to_owned(),json!(format!("{}.wav",role.name())))).collect::<serde_json::Map<_,_>>()})
     }
 }

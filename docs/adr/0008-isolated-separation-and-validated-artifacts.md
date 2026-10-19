@@ -63,11 +63,54 @@ reporting cancellation.
   separation job. Preserve values and source position, then restore availability
   without resuming playback. This avoids snapshot/control races while allowing
   the accepted note/map editing workflow.
-- A production Python runtime must be packaged and tested per platform. Do not
-  run workspace setup scripts, depend on system Python or install packages through
-  a package manager in the shipped application. The maintainer selected
-  Roformer-SW on 2026-10-13 after comparing full-song outputs through the shared
-  DSP harness. Production runtime packaging remains a delivery gate.
+- On 2026-10-19 the maintainer replaced the 2026-10-16 preassembled-runtime
+  decision with managed assembly on the user's machine. Do not host OhMyLoop
+  runtime archives or require the app to fetch its setup recipe/worker from the
+  OhMyLoop repository. Accept more setup complexity in exchange for repository
+  independence and no project-operated runtime distribution. This explicitly
+  replaces the earlier prohibition on package-manager setup in the shipped app;
+  it does not authorize arbitrary dependencies or reliance on system Python.
+  Bundle pinned uv, FFmpeg, the worker and setup manifests with the app; acquire
+  an app-private managed Python and locked CPU dependencies from approved upstream
+  providers after explicit consent. Require neither system Python nor a compiler,
+  developer tools or administrator setup. A small set of missing dependency wheels
+  may be bundled with the installer if needed, with compatibility verification.
+  Verify exact acquired artifacts; unavailable or invalid artifacts fail with
+  diagnostics rather than selecting newer versions, alternate indexes or source
+  compilation. Fresh setup still depends on upstream availability; repository
+  independence is not an offline-installation guarantee. See the
+  [implementation plan](../STEM_RUNTIME_IMPLEMENTATION_PLAN.md).
+- Keep runtime acquisition explicit and separate from inference. After successful
+  setup, inference remains offline. Each app release selects an exact compatible
+  runtime definition; reuse compatible installations without an independent
+  update channel or version chooser. Verify the installed app and managed runtime
+  without workspace/system-Python dependencies, beginning with macOS arm64, then
+  Windows x64 and Linux x64. Intel Mac and Windows/Linux ARM inference remain
+  deferred. Certificate provisioning, public app release publication and app
+  auto-updates remain outside #7. Completion requires actual installed-app setup,
+  native readiness, separation, offline reuse and cancellation on all three
+  selected targets. CI configuration alone is not passing evidence; report
+  hardware playback/listening checks separately.
+  Roformer-SW remains selected after the maintainer's 2026-10-13 full-song comparison.
+- Present one explicit Set up stem separation action for missing tools/model
+  components, with visible download/install/verification steps and playback
+  available during setup. Ready does not start separation automatically. Store
+  tools in shared app data without a folder picker; explicit reinstall/removal
+  preserves model weights and all library data. Block management of assets in use.
+  Ordinary app launch never installs dependencies. Interrupted/incomplete setup
+  is not Ready and requires explicit retry, without a journal, dependency-install
+  resume or automatic recovery. Stop/reap owned setup processes before cleanup.
+  Keep reusable downloads after unsuccessful attempts; clear disposable download
+  caches after success while preserving the managed interpreter. Replacements
+  are verified before retiring old tools, with no history/rollback UI. Check
+  estimated free space once, including temporary runtime overlap.
+- Use quick runtime compatibility/presence checks for ordinary status and bounded
+  real native/FFmpeg/CPU probes after setup and before separation. No full runtime
+  inventory hash scan on launch or background watcher. Model checksum policy is
+  unchanged; failed native probes require explicit repair. Measure setup bytes,
+  time and disk footprint, and full-song Mac separation time/peak memory. Verify
+  the existing closed-app library move/copy/reopen workflow without adding recovery
+  features or a resource dashboard.
 - #6 development uses an explicitly prepared workspace-managed Python runtime,
   with readiness/version checks and useful setup instructions. The app acquires
   model weights/configuration, not Python/packages; production packaging belongs

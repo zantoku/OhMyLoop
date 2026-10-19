@@ -33,9 +33,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../licenses/beat-this-MIT.txt",
-      "../config/beat-model.json"
-    ]
+    "resources": {
+      "../licenses/beat-this-MIT.txt": "_up_/licenses/beat-this-MIT.txt",
+      "../config/beat-model.json": "_up_/config/beat-model.json",
+      "../resources/separation/": "separation/"
+    }
   }
 }

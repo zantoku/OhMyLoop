@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "roformer-sw-cpu2-v1-x86_64-unknown-linux-gnu",
+  "target": "x86_64-unknown-linux-gnu",
+  "python_version": "3.12.13",
+  "python_key": "cpython-3.12.13-linux-x86_64-gnu",
+  "python_build": "20260807",
+  "python_executable": "bin/python3",
+  "python_downloads": "python-downloads.json",
+  "requirements": "requirements.lock",
+  "uv": "tools/uv",
+  "ffmpeg": "tools/ffmpeg",
+  "uv_version": "0.12.16",
+  "ffmpeg_version": "7.0.2",
+  "artifact_manifest": "artifacts.json",
+  "minimum_os": {
+    "family": "glibc",
+    "version": "2.28"
+  },
+  "download_bytes": 415360436,
+  "installed_bytes": 1500000000,
+  "temporary_bytes": 2500000000,
+  "python_installation": "cpython-3.12.13-linux-x86_64-gnu"
+}

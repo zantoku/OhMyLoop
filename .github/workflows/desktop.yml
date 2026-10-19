@@ -7,7 +7,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundle: appimage
+          - os: macos-14
+            target: aarch64-apple-darwin
+            bundle: app,dmg
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -18,21 +27,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      # Maintainer-side wheel assembly only. The installed app must acquire its
+      # own exact interpreter; packaged-smoke hides this Python from PATH.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: Linux build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2 patchelf xvfb
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - run: npm run build
       - run: cargo fmt --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo test --locked --release -p ohmyloop --features beat-analysis
-      - name: Native app build
-        run: npm run desktop:build -- --no-bundle
+      - run: cargo test --locked --release -p ohmyloop --features beat-analysis,stem-separation
+      - name: Prepare pinned separation bootstrap resources
+        run: python scripts/separation_runtime/prepare.py --build-python python
+      - name: Build installable desktop artifact
+        run: npm run desktop:build -- --bundles ${{ matrix.bundle }}
+      - name: Installed runtime verification (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python scripts/separation_runtime/packaged-smoke.py --root '${{ runner.temp }}/OhMyLoop packaged proof 雪'
+      - name: Installed runtime verification
+        if: runner.os != 'Linux'
+        run: python scripts/separation_runtime/packaged-smoke.py --root '${{ runner.temp }}/OhMyLoop packaged proof 雪'
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: desktop-${{ matrix.os }}
+          name: desktop-${{ matrix.target }}
+          retention-days: 1
+          if-no-files-found: warn
           path: |
-            target/release/ohmyloop-desktop
-            target/release/ohmyloop-desktop.exe
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/appimage/*.AppImage
+            ${{ runner.temp }}/OhMyLoop packaged proof 雪/*.log
+            ${{ runner.temp }}/OhMyLoop packaged proof 雪/results.json

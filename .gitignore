@@ -10,3 +10,11 @@ node_modules/
 /src-tauri/gen/
 
 /scripts/stem_prototype/__pycache__/
+
+# Maintainer-generated separation bootstrap binaries and native wheels.
+/resources/separation/runtime/*/tools/
+/resources/separation/runtime/*/wheels/
+/resources/separation/runtime/*/notices/
+/resources/separation/runtime/*/requirements.lock
+/resources/separation/runtime/*/bundled-artifacts.json
+/scripts/separation_runtime/__pycache__/

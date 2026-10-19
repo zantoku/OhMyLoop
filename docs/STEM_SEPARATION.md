@@ -1,9 +1,9 @@
 # Integrated stem separation
 
-Open a managed-library song, choose **Stems**, and explicitly **Download model**.
-The download is shared across songs and leaves playback available. Once the model
-shows **Ready**, choose **Separate song**. Download completion never starts
-separation automatically. Replacing an existing set requires confirmation.
+Open a managed-library song, choose **Stems**, and explicitly **Set up stem separation**.
+Setup installs private tools and downloads the model, shared across songs and libraries,
+while playback remains available. Tools and model readiness are shown separately. Once
+both show **Ready**, choose **Separate song**. Setup never starts separation automatically. Replacing an existing set requires confirmation.
 
 Separation pauses at the current source position. Playback, seeking, speed, pitch,
 loop/count-in and mixer edits stay disabled until processing ends. Close Stems
@@ -35,14 +35,14 @@ reason and expandable **Processing details / Copy details**. A checksum mismatch
 requires explicit **Model management → Reinstall model**. Removing the model leaves
 completed stems playable; removing stems leaves the reference, notes and map intact.
 
-## Development setup
+## Setup and testing
 
 ### Quick manual test
 
-1. Launch with `CARGO_HOME="$PWD/.cargo-home" npm run desktop`. Keep the existing
-   development runtime; setup below is only needed if it is missing.
-2. Open a song (M4A is supported), open **Stems**, and choose **Download model**.
-   Check that progress updates and playback remains available. Download completion
+1. Launch an installed app, or prepare the development build resources as described below
+   and launch with `CARGO_HOME="$PWD/.cargo-home" npm run desktop`.
+2. Open a song (M4A is supported), open **Stems**, and choose **Set up stem separation**.
+   Check the tools/model checklist and that playback remains available. Setup completion
    should show **Ready** without starting separation.
 3. Pause at a recognizable position, then choose **Separate song**. Playback and
    mixer controls should stay disabled while the checklist progresses. Close Stems,
@@ -61,30 +61,48 @@ For old prototype weights/cache cleanup, see [the cleanup script](STEM_DATA_CLEA
 
 ### Runtime setup
 
-Issue #6 uses an explicitly prepared workspace runtime. It does not install Python
-or packages from the app, search for arbitrary system Python, import prototype
-weights, or automatically acquire anything on opening Stems.
+The desktop app bundles pinned uv, FFmpeg, worker code and exact per-target setup
+recipes. Explicit setup acquires its managed Python 3.12.13 and hash-locked binary
+packages from upstream providers. No system Python, FFmpeg, compiler, administrator
+setup or OhMyLoop repository access is required on the user's machine. Fresh setup
+and later repair need upstream downloads; inference after setup is offline.
+
+Tools live in `<Tauri app-data>/separation-tools`, independently of the managed
+music library and model storage. Runtime identities include the exact recipe hash;
+a required replacement is verified in its final versioned path before older tools
+are retired. Failed/cancelled setup needs explicit retry, which recreates the
+incomplete environment and reuses verified downloads. Download caches are cleared
+after success; the managed interpreter remains. There is no background installation,
+journal, dependency-install resume or automatic repair.
+
+**Model management** provides **Reinstall separation tools**, **Remove separation
+tools**, and separate model controls. Removing/repairing tools preserves model weights
+and every song. Removing either tools or model leaves completed stems playable.
+Native checks run after setup and before separation; ordinary status checks are quick.
+A failed check requires explicit repair. Supported inference targets are macOS arm64
+(macOS 14+), Windows x64 (Windows 10+), and Linux x64 (glibc 2.28+; packaged desktop
+verification targets Ubuntu 22.04). See actual evidence and limits before interpreting
+these artifact requirements as tested platform coverage.
+
+Maintainer/development builds must first prepare the installer resources on each
+native target. This build step may use a compiler; it builds only the narrowly missing
+wheels and bundles tools, not an end-user environment:
 
 ```sh
-scripts/stem_prototype/setup.sh
-npm install
+# Select an existing Python 3.12 as the maintainer build interpreter:
+python3 scripts/separation_runtime/prepare.py --build-python /absolute/path/to/python3.12
+npm ci
 CARGO_HOME="$PWD/.cargo-home" npm run desktop
 ```
 
-The pinned adapter also requires FFmpeg on PATH. Setup prepares Python 3.12.13 and
-`scripts/stem_prototype/requirements.lock` under `.tools/stems`; the app probes the
-pinned Python and key package versions and reports useful setup instructions if
-missing. The selected execution profile is CPU, two intra-op threads, one inter-op
-thread, float32, seed 0, autocast off and no per-stem normalization. There is no
-accelerator/quality chooser. Processing can use several GiB of memory. Existing
-reference-decoder safety limits remain; there is no additional inference duration
-cap, RAM gate or overall inference timeout.
-
-A release build deliberately reports that an installed inference runtime is not
-packaged yet. Production packaging and Linux/macOS/Windows release proof are #7.
-The development app reads `resources/separation/worker.py` from its compiled-in
-workspace root. Moving a built development executable away from that workspace
-is not an installed-runtime delivery method.
+The retained CLI prototype and `separation_probe` explicitly use the separate
+workspace `.tools/stems` runtime prepared by `scripts/stem_prototype/setup.sh`.
+The desktop never falls back to it. Detailed build recipes, source inventories and
+notices are in [the packaging guide](../scripts/separation_runtime/README.md).
+The CPU profile remains two intra-op threads, one inter-op thread, float32, seed 0,
+autocast off and no per-stem normalization. There is no accelerator/quality chooser.
+Existing reference-decoder safety limits remain; no extra inference duration cap,
+RAM gate or overall inference timeout is introduced.
 
 Model storage is `<Tauri app-data>/models/separation/roformer-sw-v1`. The usual
 macOS default is `~/Library/Application Support/org.ohmyloop.desktop/models/separation/roformer-sw-v1`.
@@ -163,7 +181,8 @@ CARGO_HOME="$PWD/.cargo-home" cargo run --locked --offline --features stem-separ
 CARGO_HOME="$PWD/.cargo-home" cargo run --locked --offline --features stem-separation --example separation_probe -- run /path/song.m4a /tmp/ohmyloop-separation-qa worker.infer
 ```
 
-Use a debug build because release builds intentionally lack a packaged runtime.
+This retained maintainer example explicitly uses the prepared workspace runtime;
+installed-app verification instead uses the packaged binary smoke command below.
 The probe checks frozen seeking, saves a note during inference, reads persisted
 notes/maps without rewriting them, and verifies cancellation retains the previous
 set. It logs stage transitions rather than every UI tick. Local recordings/runtime/
@@ -176,7 +195,8 @@ per-stage monotonic timings on success, error or cancellation; it writes no timi
 history to user app data. Full commands, calibration tables and their development
 build/cache limitations are in the verification notes.
 
-Measured evidence and its limits: [STEM_SEPARATION_VERIFICATION.md](STEM_SEPARATION_VERIFICATION.md).
+Managed-runtime packaging and actual installed evidence: [STEM_RUNTIME_VERIFICATION.md](STEM_RUNTIME_VERIFICATION.md).
+Earlier separation measurements: [STEM_SEPARATION_VERIFICATION.md](STEM_SEPARATION_VERIFICATION.md).
 
 ## Testing follow-ups
 

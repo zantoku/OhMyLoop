@@ -122,8 +122,22 @@ pub fn read_result(path: &Path, job: &str, prep: &Value) -> Result<Value> {
     );
     for (name, version) in [
         ("audio-separator", "0.41.1"),
-        ("torch", "2.8.0"),
-        ("torchaudio", "2.8.0"),
+        (
+            "torch",
+            if cfg!(target_os = "macos") {
+                "2.8.0"
+            } else {
+                "2.8.0+cpu"
+            },
+        ),
+        (
+            "torchaudio",
+            if cfg!(target_os = "macos") {
+                "2.8.0"
+            } else {
+                "2.8.0+cpu"
+            },
+        ),
         ("numpy", "2.2.6"),
         ("soundfile", "0.13.1"),
         ("librosa", "0.11.0"),
@@ -152,7 +166,7 @@ pub fn read_result(path: &Path, job: &str, prep: &Value) -> Result<Value> {
 }
 pub fn manifest(prep: &Value, result: &Value) -> Result<Value> {
     let settings = settings();
-    let identity = json!({"preparation":prep,"model_lock":package::descriptor().lock(),"settings":settings,"runtime":{"python":result["python"],"packages":result["packages"],"actual_device":result["actual_device"]},"model_package":{"id":package::ID,"profile":package::PROFILE,"descriptor_version":1,"worker_protocol":1,"runtime_lock_sha256":package::descriptor().runtime_lock_sha256}});
+    let identity = json!({"preparation":prep,"model_lock":package::descriptor().lock(),"settings":settings,"runtime":{"definition_id":result["runtime_id"],"python":result["python"],"packages":result["packages"],"actual_device":result["actual_device"]},"model_package":{"id":package::ID,"profile":package::PROFILE,"descriptor_version":1,"worker_protocol":1,"runtime_lock_sha256":package::descriptor().runtime_lock_sha256}});
     let key = format!("{:x}", Sha256::digest(serde_json::to_vec(&identity)?));
     let manifest = json!({"version":1,"status":"complete","job_key":key,"identity":identity,"stems":result["stems"],"corrections":result["corrections"]});
     crate::stems::library::validate_corrections(&manifest)?;

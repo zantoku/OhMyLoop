@@ -350,6 +350,7 @@
   const dispatcher = new ActionDispatcher({
     separation_install:()=>separationSession.install(),separation_start:startSeparation,
     separation_cancel:()=>{const s=separationState.status;return separationSession.cancel(s?.job.running?s.job.id:s?.install.id??'');},
+    separation_reinstall_model:()=>separationSession.reinstallModel(),separation_reinstall_runtime:()=>separationSession.reinstallRuntime(),separation_remove_runtime:()=>separationSession.removeRuntime(),
     separation_remove_model:()=>separationSession.remove(),separation_refresh_runtime:()=>separationSession.runtime(),
     separation_practice:()=>{screen='practice';},separation_open:()=>{screen='stems';},
     retry_stem_mix:()=>stemsSession.retry(),
@@ -416,7 +417,7 @@
   function actionAvailable(id:ActionId) {
     if(!dispatcher.available(id))return false;
     if(separationActive&&separationFrozen(id))return false;
-    if(id.startsWith('separation_')){const s=separationState.status;const occupied=!!s?.install.running||!!s?.job.running;if(id==='separation_cancel')return !separationState.pending&&!!(s?.job.running?s.job.cancellable:s?.install.cancellable);if(id==='separation_install')return native&&!occupied&&!separationState.pending;if(id==='separation_start')return native&&!!song?.path&&!!s?.model_ready&&!!s.runtime.ready&&!occupied&&!s.heavy_work&&!separationState.pending;if(id==='separation_remove_model')return !!s?.model_ready&&!occupied&&!separationState.pending;if(id==='separation_refresh_runtime')return native&&!occupied&&!separationState.pending;if(id==='separation_open')return native&&(occupied||!!song);return !!song;}
+    if(id.startsWith('separation_')){const s=separationState.status;const occupied=!!s?.install.running||!!s?.job.running;if(id==='separation_cancel')return !separationState.pending&&!!(s?.job.running?s.job.cancellable:s?.install.cancellable);if(id==='separation_install'||id==='separation_reinstall_runtime'||id==='separation_reinstall_model')return native&&!!s&&s.runtime.supported!==false&&!occupied&&!separationState.pending;if(id==='separation_remove_runtime')return native&&!!s?.runtime.path&&!occupied&&!separationState.pending;if(id==='separation_start')return native&&!!song?.path&&!!s?.model_ready&&!!s.runtime.ready&&!occupied&&!s.heavy_work&&!separationState.pending;if(id==='separation_remove_model')return !!s?.model_ready&&!occupied&&!separationState.pending;if(id==='separation_refresh_runtime')return native&&!occupied&&!separationState.pending;if(id==='separation_open')return native&&(occupied||!!song);return !!song;}
     if(id==='retry_stem_mix')return !!stemsState.error&&!!stemsState.snapshot?.set_id;
     if(id==='stem_gain')return !!stemsState.snapshot?.available&&!transport.audio_error;
     if(id.startsWith('mute_')||id.startsWith('solo_'))return !!stemsState.snapshot?.available&&!transport.audio_error&&stemsState.snapshot.tracks.some(track=>track.role===id.slice(5));

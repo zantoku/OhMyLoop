@@ -2,12 +2,12 @@
  import {tick,untrack} from 'svelte';
  import {ChecklistFollow} from './checklist-follow';
  import type {StemProgress,StemProcessingStep} from './stems';
- let {progress,busy,failed=false,operation='Processing stems',title}:{progress:StemProgress|null;busy:boolean;failed?:boolean;operation?:string;title?:string}=$props();
+ let {progress,busy,failed=false,operation='Processing stems',title,completionTitle='Stems ready'}:{progress:StemProgress|null;busy:boolean;failed?:boolean;operation?:string;title?:string;completionTitle?:string}=$props();
  const workflow=$derived(progress?.workflow);
  const known=$derived(!!workflow&&workflow.total>0);
  const fraction=$derived(known?Math.max(0,Math.min(1,workflow!.completed/workflow!.total)):0);
  const finished=$derived(known&&fraction===1&&!failed);
- const phaseTitle=$derived(failed?'Processing stopped':finished?'Stems ready':operation.replace(/…$/,''));
+ const phaseTitle=$derived(failed?'Processing stopped':finished?completionTitle:operation.replace(/…$/,''));
  const current=$derived(workflow?.steps.find(step=>step.state==='active'));
  const activeId=$derived(current?.id);
  let list:HTMLUListElement|undefined=$state();

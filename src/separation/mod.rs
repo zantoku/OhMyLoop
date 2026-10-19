@@ -1,12 +1,16 @@
 //! App-lifetime model acquisition and supervised, owned stem generation.
+mod command;
 pub mod control;
 mod disk;
 mod jobs;
+mod managed;
 pub mod package;
 mod prepare;
 mod process_tree;
 pub mod protocol;
 pub mod runtime;
+mod setup;
+pub mod smoke;
 mod supervisor;
 pub mod timing;
 use crate::{
@@ -98,7 +102,18 @@ pub struct SeparationManager(Arc<Inner>);
 impl SeparationManager {
     pub fn new(models: PathBuf, gate: HeavyWork) -> Self {
         let runtime = runtime::Runtime::development();
-        let ready = runtime.probe();
+        Self::with_runtime(models, gate, runtime)
+    }
+    pub fn managed(
+        models: PathBuf,
+        tools: PathBuf,
+        resources: &std::path::Path,
+        gate: HeavyWork,
+    ) -> Self {
+        Self::with_runtime(models, gate, runtime::Runtime::managed(resources, tools))
+    }
+    fn with_runtime(models: PathBuf, gate: HeavyWork, runtime: runtime::Runtime) -> Self {
+        let ready = runtime.status();
         Self(Arc::new(Inner {
             state: Mutex::new(State {
                 shutting_down: false,
@@ -154,7 +169,7 @@ impl SeparationManager {
         }
     }
     pub fn refresh_runtime(&self) -> Status {
-        let runtime = self.0.runtime.probe();
+        let runtime = self.0.runtime.status();
         self.0.state.lock().unwrap().runtime = runtime;
         self.status()
     }
@@ -324,32 +339,6 @@ impl SeparationManager {
         workers.push(thread::Builder::new().name(name.into()).spawn(work)?);
         Ok(())
     }
-    pub fn install(&self) -> Result<Status> {
-        let (id, control) = self.begin(true, None)?;
-        let manager = self.clone();
-        let failid = id.clone();
-        let failcontrol = control.clone();
-        if let Err(e) = self.spawn("ohmyloop-stem-model", move || {
-            let result = package::install(&manager.0.models, &control, |n, t| {
-                manager.progress(
-                    true,
-                    &id,
-                    "Downloading model",
-                    Some(Progress {
-                        stage: "model.download".into(),
-                        completed: n,
-                        total: Some(t),
-                        workflow: None,
-                    }),
-                )
-            })
-            .map(|()| None);
-            manager.finish(true, &id, &control, result);
-        }) {
-            self.finish(true, &failid, &failcontrol, Err(e));
-        }
-        Ok(self.status())
-    }
     pub fn remove_model(&self) -> Result<Status> {
         let s = self.0.state.lock().unwrap();
         ensure!(!s.install.running && !s.job.running, "Model is in use");
@@ -425,6 +414,8 @@ mod shutdown_tests {
                 job_control: Control::default(),
                 runtime: runtime::RuntimeStatus {
                     ready: false,
+                    supported: true,
+                    id: None,
                     message: "Fixture needs no Python or model".into(),
                     path: None,
                 },

@@ -14,12 +14,14 @@ PACKAGE = "roformer-sw-v1"
 PROFILE = "roformer-sw-cpu2-v1"
 ROLES = {"bass", "drums", "guitar", "piano", "vocals", "other"}
 VERSIONS = {"audio-separator": "0.41.1", "torch": "2.8.0", "torchaudio": "2.8.0", "numpy": "2.2.6", "soundfile": "0.13.1", "librosa": "0.11.0"}
+if sys.platform != "darwin":
+    VERSIONS.update(torch="2.8.0+cpu", torchaudio="2.8.0+cpu")
 
 
 def runtime():
     actual = {name: importlib.metadata.version(name) for name in VERSIONS}
     if platform.python_version() != "3.12.13" or actual != VERSIONS:
-        raise ValueError("Runtime versions differ from the pinned development runtime")
+        raise ValueError("Runtime versions differ from the pinned CPU runtime")
     return actual
 
 
@@ -45,9 +47,37 @@ def progress(stream, job, stage, completed=None, total=None, unit=None):
 def main():
     if sys.argv[1:] == ["--probe"]:
         packages = runtime()
+        import io
         import shutil
+        import subprocess
         if not shutil.which("ffmpeg"):
             raise ValueError("FFmpeg is required on PATH by the pinned adapter")
+        subprocess.run([shutil.which("ffmpeg"), "-version"], check=True, timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Real imports/operations catch missing native libraries, CPU and ABI faults.
+        def deny_network(*args, **kwargs):
+            raise RuntimeError("Runtime checks are offline")
+        socket.socket.connect = deny_network
+        socket.create_connection = deny_network
+        with contextlib.redirect_stdout(sys.stderr):
+            import numpy as np
+            import soundfile as sf
+            import torch
+            import torchaudio
+            import onnxruntime
+            onnxruntime.disable_telemetry_events()
+            from audio_separator.separator import Separator
+            torch.set_num_threads(2)
+            torch.set_num_interop_threads(1)
+            sample = torch.arange(512, dtype=torch.float32).reshape(1, -1) / 512
+            value = torchaudio.functional.resample(sample, 44100, 48000)
+            if not torch.isfinite(value).all() or not torch.isfinite(sample @ sample.T).all():
+                raise ValueError("Native CPU operation failed")
+            stream = io.BytesIO()
+            sf.write(stream, np.zeros((128, 2), dtype=np.float32), 44100, format="WAV", subtype="FLOAT")
+            stream.seek(0)
+            decoded, rate = sf.read(stream, dtype="float32", always_2d=True)
+            if decoded.shape != (128, 2) or rate != 44100:
+                raise ValueError("Native audio operation failed")
         print(json.dumps({"python": platform.python_version(), "packages": packages}))
         return
     request = bounded_json(sys.argv[1])
@@ -137,7 +167,7 @@ def main():
             resources = {"peak_rss": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, "peak_rss_unit": "bytes" if sys.platform == "darwin" else "KiB"}
         except ImportError:
             pass
-        result = {"version": 1, "job_id": job, "package_id": PACKAGE, "profile_id": PROFILE, "preparation": prep, "actual_device": "cpu", "python": platform.python_version(), "packages": versions, "stems": stems, "corrections": corrections, "elapsed_seconds": time.perf_counter()-began, "resources": resources}
+        result = {"version": 1, "job_id": job, "package_id": PACKAGE, "profile_id": PROFILE, "runtime_id": request.get("runtime_id"), "preparation": prep, "actual_device": "cpu", "python": platform.python_version(), "packages": versions, "stems": stems, "corrections": corrections, "elapsed_seconds": time.perf_counter()-began, "resources": resources}
         target = output / "result.json"
         temporary = target.with_suffix(".tmp")
         temporary.write_text(json.dumps(result, sort_keys=True))

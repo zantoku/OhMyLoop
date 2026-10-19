@@ -108,3 +108,22 @@ its current `stems.id` directory. Remove only a separately identified unassociat
 attempt directory; never remove the whole `songs`, `stems`, or `playback-cache` tree
 by assuming every UUID directory is scratch. The active set owns its WAVs and PCM
 cache. Diagnostic cleanup errors include the exact uncommitted path when available.
+
+## Managed separation tools after #7
+
+The desktop's private tools are separate from the retained prototype. Use
+**Stems → Model management → Remove separation tools** while idle. This removes
+its environment, managed interpreter and owned download cache; model weights and
+all library data remain. **Reinstall separation tools** repairs tools explicitly
+without redownloading a verified model. Closing Stems does not stop setup: cancel
+and wait for Stopping to finish before manual filesystem work.
+
+The usual macOS tools root is
+`~/Library/Application Support/org.ohmyloop.desktop/separation-tools`.
+Windows/Linux use the same `separation-tools` suffix under Tauri app data. The
+screen shows the selected environment's exact Python path. After quitting, the
+entire app-owned `separation-tools` directory can be removed to force fresh setup;
+do not remove its app-data parent, `models`, or any music-library directory.
+Recreating tools requires upstream downloads. Nothing here removes prototype
+`.tools/stems` files. Successful setup clears disposable downloads automatically;
+failed/cancelled setup keeps reusable downloads for explicit retry.
