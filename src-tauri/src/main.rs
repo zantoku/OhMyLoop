@@ -529,12 +529,15 @@ fn main() {
         }
         return;
     }
+    // Expand the context exactly once: each expansion embeds the macOS Info.plist
+    // under a fixed symbol, so a second expansion fails to link test builds.
+    let context = tauri::generate_context!();
     if args
         .first()
         .is_some_and(|arg| arg == "--stem-runtime-smoke")
     {
         let result = (|| -> anyhow::Result<()> {
-            let app = tauri::Builder::default().build(tauri::generate_context!())?;
+            let app = tauri::Builder::default().build(context)?;
             ohmyloop::separation::smoke::run(
                 &args[1..],
                 &app.path().resource_dir()?.join("separation"),
@@ -632,7 +635,7 @@ fn main() {
                 lifecycle::request(window.app_handle());
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Could not start OhMyLoop")
         .run(|app, event| match event {
             tauri::RunEvent::Ready => {

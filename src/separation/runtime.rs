@@ -80,7 +80,14 @@ impl Runtime {
             .env("OMP_NUM_THREADS", "2")
             .env("MKL_NUM_THREADS", "2");
     }
+    pub(super) fn check_owned_paths(&self) -> anyhow::Result<()> {
+        if let Some(managed) = &self.managed {
+            managed.check_owned_paths()?;
+        }
+        Ok(())
+    }
     pub(super) fn native_check(&self, control: &Control) -> anyhow::Result<String> {
+        self.check_owned_paths()?;
         let python = self
             .python
             .as_ref()

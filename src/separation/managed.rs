@@ -345,6 +345,20 @@ impl Managed {
             ensure_no_symlinks(&path)?;
             fs::create_dir_all(path)?;
         }
+        self.check_owned_paths()?;
+        Ok(())
+    }
+    pub fn check_owned_paths(&self) -> Result<()> {
+        for path in [
+            self.environment(),
+            self.python_root(),
+            self.cache(),
+            self.root.join("native-cache"),
+            self.root.join("native-cache/numba"),
+            self.root.join("native-cache/matplotlib"),
+        ] {
+            ensure_no_symlinks(&path)?;
+        }
         Ok(())
     }
     fn remove_environment(&self) -> Result<()> {
@@ -777,5 +791,31 @@ esac
         assert!(managed.ready());
         runtime.native_check(&Control::default()).unwrap();
         fs::remove_dir_all(scratch).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn selected_owned_roots_cannot_redirect_setup_to_external_directories() {
+        use std::os::unix::fs::symlink;
+        for selected in ["python", "cache", "native-cache"] {
+            let (managed, runtime, scratch) = fixture();
+            let outside = scratch.join("external");
+            fs::create_dir(&outside).unwrap();
+            fs::write(outside.join("preserve"), b"recording").unwrap();
+            let destination = match selected {
+                "python" => managed.python_root(),
+                "cache" => managed.cache(),
+                _ => managed.root.join("native-cache"),
+            };
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            symlink(&outside, &destination).unwrap();
+            assert!(
+                managed
+                    .install(&runtime, &Control::default(), |_| {})
+                    .is_err()
+            );
+            assert_eq!(fs::read(outside.join("preserve")).unwrap(), b"recording");
+            assert!(!managed.environment().exists());
+            fs::remove_dir_all(scratch).unwrap();
+        }
     }
 }

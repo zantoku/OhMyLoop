@@ -30,6 +30,7 @@ pub fn run(
     control: &Control,
     publish: impl FnMut(protocol::Update) + Send + 'static,
 ) -> Result<String> {
+    runtime.check_owned_paths()?;
     let python = runtime
         .python
         .as_ref()
