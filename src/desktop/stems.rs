@@ -914,8 +914,13 @@ mod tests {
     }
     #[test]
     fn unavailable_stems_preserve_requested_settings_and_stale_publication_preserves_record() {
+        // TEMPORARY: locate a Windows STATUS_ACCESS_VIOLATION in this test.
+        let checkpoint = |n: u32| eprintln!("windows-crash-checkpoint {n}");
+        checkpoint(0);
         let mut f = fixture();
+        checkpoint(1);
         update(&mut f, 0.3, true, false, true).unwrap();
+        checkpoint(2);
         let c = &mut f.controller;
         let token = c.song.as_ref().unwrap().reference_token.clone();
         let operation = match c.request(Command::BeginStems(token)).unwrap() {
@@ -935,9 +940,13 @@ mod tests {
             before,
             fs::read(library.root().join(format!("songs/{key}/song.json"))).unwrap()
         );
+        checkpoint(3);
         c.request(Command::FinishStems).unwrap();
+        checkpoint(4);
         c.player = None;
+        checkpoint(5);
         c.stems.as_mut().unwrap().prepared = None;
+        checkpoint(6);
         let stored = library.record(&key).unwrap().stems.unwrap();
         fs::remove_file(
             library
@@ -946,14 +955,22 @@ mod tests {
                 .join(&stored.tracks[0].file),
         )
         .unwrap();
+        checkpoint(7);
         let prepared = library.open_song(&key).unwrap();
+        checkpoint(8);
+        let rate = Player::output_rate();
+        eprintln!("windows-crash-checkpoint 9 output_rate={rate:?}");
         let unavailable = Desktop::prepare_stem_open(&library, prepared, |_| {})
             .stems
             .unwrap();
+        checkpoint(10);
         assert!(unavailable.prepared.is_none());
         assert!(unavailable.warning.unwrap().contains("Original"));
         assert_eq!(unavailable.mix.tracks[0].gain, 0.3);
         assert!(unavailable.mix.tracks[0].mute);
+        checkpoint(11);
+        drop(f);
+        checkpoint(12);
     }
     #[test]
     fn separation_freezes_transport_but_preserves_note_map_updates_and_rechecks_reference() {
