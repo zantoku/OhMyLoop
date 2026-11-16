@@ -18,3 +18,7 @@ node_modules/
 /resources/separation/runtime/*/requirements.lock
 /resources/separation/runtime/*/bundled-artifacts.json
 /scripts/separation_runtime/__pycache__/
+
+# Locally installed agent skills (not part of the project)
+/.agents/
+/skills-lock.json
