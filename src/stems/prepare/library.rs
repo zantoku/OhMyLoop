@@ -261,6 +261,12 @@ fn directory_safe(path: &Path) -> Result<()> {
             !matches!(part, Component::ParentDir),
             "Owned paths must not traverse parents"
         );
+        // A drive prefix alone, e.g. canonicalized `\\?\C:`, names the Windows
+        // volume device, not a directory; querying it fails with "Incorrect
+        // function". Prefixes and roots cannot be symlinks, so check only below.
+        if matches!(part, Component::Prefix(_) | Component::RootDir) {
+            continue;
+        }
         match fs::symlink_metadata(&cursor) {
             Ok(metadata) => ensure!(
                 !metadata.file_type().is_symlink(),
@@ -581,6 +587,30 @@ pub fn attach_generated(
     control.check()?;
     Ok((record, prepared))
 }
+#[cfg(test)]
+mod directory_safe_tests {
+    use super::*;
+    #[test]
+    fn canonical_absolute_paths_are_accepted_and_symlinks_rejected() {
+        // On Windows, canonicalize() yields a verbatim `\\?\C:\...` path.
+        let root = std::env::temp_dir()
+            .join(format!("ohmyloop-directory-safe-{}", uuid::Uuid::new_v4()))
+            .join("owned");
+        fs::create_dir_all(&root).unwrap();
+        let canonical = root.canonicalize().unwrap();
+        directory_safe(&canonical).unwrap();
+        directory_safe(&canonical.join("not-yet-created")).unwrap();
+        assert!(directory_safe(&canonical.join("..").join("owned")).is_err());
+        #[cfg(unix)]
+        {
+            let link = canonical.with_file_name("linked");
+            std::os::unix::fs::symlink(&canonical, &link).unwrap();
+            assert!(directory_safe(&link.join("inside")).is_err());
+        }
+        fs::remove_dir_all(canonical.parent().unwrap()).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod correction_tests {
     use super::*;
