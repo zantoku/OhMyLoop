@@ -39,16 +39,31 @@ inference must still work. The worker additionally forbids socket connections.
 This tests no dependency synchronization/download during reuse; it is not a claim
 of an operating-system network sandbox. The uv filename is restored on exit.
 
+`--source FILE` passes a real recording to the song modes instead of generated
+audio; select modes with repeated `--mode`. The full-song resource measurement:
+
+```sh
+python3 scripts/separation_runtime/packaged-smoke.py --root '/absolute/fresh/full song 雪' \
+  --mode setup --mode check --mode run-normal --source '/absolute/song.m4a'
+```
+
+Each `results.json` entry records `peak_single_process_rss_bytes` from the mode
+process's `wait4` rusage: the largest resident set of any **single** process in
+the reaped tree, including the inference worker (verified on macOS with an
+800 MB grandchild). It is not the sum of concurrently running processes, and it
+is `null` on Windows, which has no `wait4`. Keep `--root` outside `/tmp` so the
+logs survive a reboot.
+
 Tests invoke the same production shutdown used after the desktop's confirmed quit;
 frontend tests separately verify confirmation and setup/separation availability.
 No journal, resume, recovery UI or persistent diagnostics were added.
 
 ## Local evidence
 
-Host: Apple M5 Pro, 48 GiB RAM, macOS 26.6.2, arm64. Native/bootstrap checks and
-installed smoke logs are under `/tmp/managed-runtime-bootstrap-proof.log` and
-`/tmp/ohmyloop-installed-smoke.log`; per-mode logs and `results.json` are in
-`/private/tmp/OhMyLoop installed proof 雪 20261019/`.
+### 2026-10-19 (superseded by the 2026-11-16 complete run below)
+
+Host: Apple M5 Pro, 48 GiB RAM, macOS 26.6.2, arm64. The logs were written under
+`/tmp` and no longer exist; the figures below are as recorded at the time.
 
 - Maintainer preparation built only missing Demucs and diffq wheels; the user-side
   setup installed 68 exact hash-locked binary distributions without a compiler.
@@ -75,14 +90,45 @@ installed smoke logs are under `/tmp/managed-runtime-bootstrap-proof.log` and
 - With bundled uv renamed and dead acquisition proxies, restarted native readiness
   passed (1.951 s); the 1-second real separation with authored data passed (42.656 s).
 
-The strengthened shutdown/offline/portability suite and full-song resource results
-are recorded as they complete. Do not infer their success from earlier smoke modes.
+### 2026-11-16 complete macOS installed-app run
+
+Host: Apple M5 Pro, 48 GiB RAM, macOS 27.2.1, arm64. Release `.app`/`.dmg` rebuilt
+from the symlink-hardening commit plus the corrected smoke usage text; the `.app`
+is still ad-hoc signed (no TeamIdentifier, no sealed resources). Driver logs,
+per-mode logs and `results.json` are kept outside the repository in
+`~/ohmyloop-evidence/2026-11-16-macos-suite 雪/` and
+`~/ohmyloop-evidence/2026-11-16-macos-full-song 雪/`.
+
+All twelve default modes passed in one fresh relocated read-only root (seconds
+include app startup; modes from `check` on ran with uv renamed and dead proxies):
+
+| Mode | s | Mode | s | Mode | s |
+| --- | --- | --- | --- | --- | --- |
+| cancel-setup | 2.793 | run-short | 24.809 | portable | 0.655 |
+| shutdown-setup | 0.323 | run-normal | 28.456 | remove-tools | 2.117 |
+| setup | 71.052 | cancel-run | 3.802 | remove-model | 0.142 |
+| check | 0.750 | shutdown-run | 3.612 | verify-completed | 0.197 |
+
+Setup (after the cancelled attempts, reusing their verified downloads) took
+70.520 s inside the app; app data 1,597,119,111 bytes, sampled peak 1,707,835,755
+bytes. uv's cache and interpreter directories are app-owned inside the fresh root,
+so no outside cache contributed. This suite ran before peak-RSS recording existed.
+
+Full-song measurement, separate fresh root: `01 - Enter The Loop.m4a` (474.2 s,
+AAC) from the maintainer's local test collection; the recording is not committed.
+Setup 81.903 s (no prior cancelled attempt); app data 1,597,123,935 bytes, sampled
+peak 1,707,653,294 bytes. Offline `check` passed (0.842 s). Separation produced
+six validated stems (bass, drums, guitar, other, piano, vocals) in 504.052 s inside
+the app (504.710 s including startup), of which `worker.infer` was 478.7 s, about
+1.01× real time with the fixed CPU two-thread profile. Peak single-process RSS was
+5,543,067,648 bytes (5.16 GiB). These are one run on one host, not a performance
+range; slower CPUs and machines with less memory are untested.
 
 ## Platform evidence matrix
 
 | Target | Runtime requirement / selected baseline | Evidence currently recorded | Remaining gate |
 | --- | --- | --- | --- |
-| macOS arm64 | macOS 14+, selected ONNX Runtime wheel | macOS 26.6.2 bootstrap, installer build, relocated setup, native checks, short inference above | Strengthened complete suite and full-song measurements |
+| macOS arm64 | macOS 14+, selected ONNX Runtime wheel | macOS 27.2.1: complete twelve-mode installed-app suite and full-song resource measurement (2026-11-16) | None for #7 on the tested host; macOS 14–26 and other Apple Silicon hosts untested |
 | Windows x64 | Selected Windows 10+ check; whole-app minimum not established | Pinned recipe and Windows `NOMINMAX` build repair configured | Actual NSIS installed setup/inference/offline/cancellation run |
 | Linux x64 | glibc 2.28+; desktop tested on Ubuntu 22.04 | Pinned recipe and AppImage workflow configured | Actual extracted AppImage setup/inference/offline/cancellation run |
 
@@ -92,8 +138,8 @@ inference remain unsupported; existing playback and completed stems remain usabl
 The existing `desktop_stems_hardware_smoke` and `native_count_in_smoke` both passed
 on this Mac (0.98 s and 2.05 s test durations), exercising generated native device
 output. These are automated device checks; no subjective listening result or
-Windows/Linux physical-device evidence is claimed. Logs:
-`/tmp/ohmyloop-managed-hardware-tests.log`.
+Windows/Linux physical-device evidence is claimed. Their 2026-10-19 log was
+written under `/tmp` and no longer exists; they were not rerun on 2026-11-16.
 
 ## Checks and review
 

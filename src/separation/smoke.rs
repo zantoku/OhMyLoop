@@ -17,7 +17,7 @@ use std::{
 pub fn run(args: &[String], resources: &Path) -> Result<()> {
     ensure!(
         args.len() >= 2,
-        "Usage: --stem-runtime-smoke setup|cancel-setup|check|run-short|run-normal|cancel-run|remove-tools|remove-model|portable ISOLATED_ROOT [SOURCE]"
+        "Usage: --stem-runtime-smoke setup|cancel-setup|shutdown-setup|check|run-short|run-normal|cancel-run|shutdown-run|portable|remove-tools|remove-model|verify-completed ISOLATED_ROOT [SOURCE]"
     );
     let mode = args[0].as_str();
     let root = std::path::absolute(&args[1])?;

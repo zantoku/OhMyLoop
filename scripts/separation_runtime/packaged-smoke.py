@@ -15,9 +15,56 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+TIMEOUT_SECONDS = 1800
+
+
+def launch(command: list, env: dict) -> tuple[int, str, int | None]:
+    """Run one smoke mode; return exit code, output and peak process RSS in bytes.
+
+    The peak is the largest resident set of any single process in the reaped tree
+    (the app or a descendant such as the inference worker), read from this child's
+    wait4 rusage. It is not the combined memory of concurrently running processes.
+    Unavailable (None) where the platform has no wait4, e.g. Windows.
+    """
+    process = subprocess.Popen(
+        command,
+        env=env,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    chunks: list[str] = []
+    reader = threading.Thread(target=lambda: chunks.extend(process.stdout), daemon=True)
+    reader.start()
+    if not hasattr(os, "wait4"):
+        try:
+            code = process.wait(timeout=TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            raise
+        reader.join()
+        return code, "".join(chunks), None
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    while True:
+        pid, status, usage = os.wait4(process.pid, os.WNOHANG)
+        if pid:
+            break
+        if time.monotonic() > deadline:
+            process.kill()
+            os.wait4(process.pid, 0)
+            raise subprocess.TimeoutExpired(command, TIMEOUT_SECONDS)
+        time.sleep(0.1)
+    # Popen did not reap the child itself; record its status so it is not reused.
+    process.returncode = os.waitstatus_to_exitcode(status)
+    reader.join()
+    scale = 1 if platform.system() == "Darwin" else 1024  # Linux reports KiB.
+    return process.returncode, "".join(chunks), usage.ru_maxrss * scale
 
 
 def only(paths: list[Path], description: str) -> Path:
@@ -76,7 +123,18 @@ def main() -> None:
         action="append",
         help="Run a selected mode; default executes the complete suite",
     )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        help="Audio file for song modes instead of generated 1 s/20 s audio "
+        "(e.g. a full song for resource measurement)",
+    )
     args = parser.parse_args()
+    source = None
+    if args.source is not None:
+        source = args.source.resolve()
+        if not source.is_file():
+            parser.error(f"--source is not a file: {source}")
     destination = args.root.resolve()
     if destination.exists():
         parser.error("--root must be a fresh directory; existing data is never removed")
@@ -134,29 +192,26 @@ def main() -> None:
                 env["HTTP_PROXY"] = "http://127.0.0.1:9"
                 env["ALL_PROXY"] = "http://127.0.0.1:9"
                 env["NO_PROXY"] = ""
+            command = [binary, "--stem-runtime-smoke", mode, profile]
+            if source is not None:
+                command.append(source)
             start = time.monotonic()
-            result = subprocess.run(
-                [binary, "--stem-runtime-smoke", mode, profile],
-                env=env,
-                encoding="utf-8",
-                errors="replace",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=1800,
-            )
-            (destination / f"{mode}.log").write_text(result.stdout, encoding="utf-8")
+            code, output, peak_rss = launch(command, env)
+            (destination / f"{mode}.log").write_text(output, encoding="utf-8")
             results.append(
                 {
                     "mode": mode,
-                    "exit_code": result.returncode,
+                    "exit_code": code,
                     "seconds": round(time.monotonic() - start, 3),
                     "acquisition_disabled": hidden_uv is not None,
+                    "source": str(source) if source is not None else None,
+                    "peak_single_process_rss_bytes": peak_rss,
                 }
             )
             (destination / "results.json").write_text(json.dumps(results, indent=2) + "\n")
-            print(result.stdout, flush=True)
-            if result.returncode:
-                raise SystemExit(f"Packaged runtime smoke failed in {mode}: {result.returncode}")
+            print(output, flush=True)
+            if code:
+                raise SystemExit(f"Packaged runtime smoke failed in {mode}: {code}")
     finally:
         if hidden_uv is not None and original_uv is not None:
             original_uv.parent.chmod(original_mode | 0o200)
