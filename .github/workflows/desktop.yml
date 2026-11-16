@@ -62,14 +62,14 @@ jobs:
             (Get-Command cdb.exe -ErrorAction SilentlyContinue).Source,
             'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
           ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-          if ($cdb) {
-            Write-Output "cdb: $cdb"
-            & $cdb -g -G -lines -c '.ecxr; kn 60; ~*kn 25; q' $exe --exact $test --test-threads=1 --nocapture
-          } else {
-            Write-Output 'cdb not available; checkpoints only'
-            & $exe --exact $test --test-threads=1 --nocapture
+          Write-Output "cdb: $cdb"
+          # Alone the test passes, so reproduce with the tests that precede it.
+          $symbols = "$(Split-Path $exe);srv*$env:RUNNER_TEMP\symbols*https://msdl.microsoft.com/download/symbols"
+          foreach ($filter in @('desktop::stems::tests', '')) {
+            Write-Output "=== cdb run, filter '$filter'"
+            & $cdb -g -G -lines -y $symbols -c '.lastevent; .ecxr; kn 60; ~*kn 25; q' $exe $filter --test-threads=1 --nocapture
+            Write-Output "exit code: $LASTEXITCODE"
           }
-          Write-Output "exit code: $LASTEXITCODE"
       # TEMPORARY: the Windows lib tests abort with STATUS_ACCESS_VIOLATION and no
       # test name. Serial execution prints each test name before it runs.
       - run: cargo test --locked --release -p ohmyloop --features beat-analysis,stem-separation -- --test-threads=1
