@@ -13,7 +13,7 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             bundle: appimage
-          - os: macos-14
+          - os: macos-26
             target: aarch64-apple-darwin
             bundle: app,dmg
           - os: windows-2022
@@ -43,6 +43,11 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --release -p ohmyloop --features beat-analysis,stem-separation
+        if: runner.os != 'Windows'
+      # TEMPORARY: the Windows lib tests abort with STATUS_ACCESS_VIOLATION and no
+      # test name. Serial execution prints each test name before it runs.
+      - run: cargo test --locked --release -p ohmyloop --features beat-analysis,stem-separation -- --test-threads=1
+        if: runner.os == 'Windows'
       - name: Prepare pinned separation bootstrap resources
         run: python scripts/separation_runtime/prepare.py --build-python python
       - name: Build installable desktop artifact

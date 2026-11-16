@@ -101,7 +101,8 @@ impl Runtime {
         cmd.arg("-I").arg(&self.worker).arg("--probe");
         command::run(&mut cmd, control, Duration::from_secs(120))
     }
-    #[cfg(test)]
+    // Only the Unix process/runtime tests build fixtures; unused on Windows.
+    #[cfg(all(test, unix))]
     pub(super) fn fixture(python: PathBuf, worker: PathBuf) -> Self {
         Self {
             python: Some(python),
