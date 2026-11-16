@@ -20,7 +20,10 @@ python3 scripts/separation_runtime/packaged-smoke.py --root '/absolute/fresh/OhM
 The driver refuses an existing root. It copies the Mac `.app`, silently installs
 the Windows NSIS artifact, or extracts the Linux AppImage. Unix resources become
 read-only; system Python, compiler and FFmpeg are hidden with an empty application
-PATH. The app resolves its own installed resources and calls the production
+PATH. On Linux, the AppImage's `#!/usr/bin/env bash` AppRun needs a shell, so PATH
+holds only a private directory linking an explicit allowlist of basic shell
+utilities (no Python, pip, uv, compiler or FFmpeg); the driver logs the launcher
+scripts. The app resolves its own installed resources and calls the production
 manager/controller through `--stem-runtime-smoke`, rather than loading a workspace
 worker. Linux CI runs this under `xvfb-run -a` for native GUI initialization.
 

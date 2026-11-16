@@ -115,6 +115,40 @@ def install(destination: Path) -> Path:
     return binary
 
 
+# The extracted AppImage starts through linuxdeploy's `#!/usr/bin/env bash`
+# AppRun and its hook scripts. An explicit allowlist of basic shell utilities
+# lets it start while Python, compilers and FFmpeg stay undiscoverable.
+LAUNCHER_TOOLS = (
+    "bash", "sh", "env", "dirname", "basename", "readlink", "realpath", "cat",
+    "grep", "sed", "cut", "tr", "head", "ls", "mkdir", "uname", "printf", "echo",
+)
+FORBIDDEN_TOOL_PREFIXES = ("python", "pip", "uv", "cc", "gcc", "g++", "c++", "clang", "ffmpeg", "ffprobe")
+
+
+def launcher_path(destination: Path, binary: Path) -> str:
+    """Return the application's PATH: empty except for the Linux launcher tools."""
+    if platform.system() != "Linux":
+        return ""
+    for tool in LAUNCHER_TOOLS:
+        if tool.startswith(FORBIDDEN_TOOL_PREFIXES):
+            raise ValueError(f"Launcher allowlist must not expose {tool}")
+    tools = destination / "launcher-tools"
+    tools.mkdir()
+    for tool in LAUNCHER_TOOLS:
+        found = shutil.which(tool)
+        if found is not None:
+            (tools / tool).symlink_to(found)
+    # Record exactly what the launcher runs, for diagnosing missing tools.
+    for script in [binary, *sorted((binary.parent / "apprun-hooks").glob("*"))]:
+        try:
+            text = script.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            print(f"launcher {script.name}: binary", flush=True)
+            continue
+        print(f"launcher {script.name}:\n{text}", flush=True)
+    return str(tools)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
@@ -144,7 +178,7 @@ def main() -> None:
     env = dict(os.environ)
     # App image launcher/native GUI can still use OS libraries; no Python,
     # compiler or system FFmpeg is discoverable through PATH by the application.
-    env["PATH"] = ""
+    env["PATH"] = launcher_path(destination, binary)
     for key in list(env):
         if key.startswith(("PYTHON", "UV_", "PIP_", "CONDA", "VIRTUAL_ENV")):
             del env[key]
