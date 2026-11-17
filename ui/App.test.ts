@@ -46,6 +46,13 @@ beforeEach(() => {
   mock.status.mockImplementation(async () => ({ ...transport }));
 });
 
+// Seeks run through the app's action queue, so wait for the rendered slider as
+// well as the mock before issuing a dependent keyboard command.
+async function shown(seconds: number, name = 'Song position') {
+  await waitFor(() => expect(transport.position).toBe(seconds));
+  await waitFor(() => expect(screen.getByRole('slider', { name }).getAttribute('aria-valuenow')).toBe(String(seconds)));
+}
+
 async function ready() {
   render(App);
   await screen.findByRole('heading', { name: 'Workshop take' });
@@ -873,14 +880,15 @@ it('defaults to measure loops and snaps A/B shortcuts, with exact inputs and a f
   await ready();expect((screen.getByRole('checkbox',{name:'Snap to measures'}) as HTMLInputElement).checked).toBe(true);
   await fireEvent.click(screen.getByRole('button',{name:'Loop off'}));
   await waitFor(()=>expect(document.loop_selection).toEqual({start:4,end:8,fade_ms:5}));
-  await fireEvent.keyDown(window,{key:'ArrowLeft'});await waitFor(()=>expect(transport.position).toBe(0));
+  await fireEvent.keyDown(window,{key:'Enter'});await waitFor(()=>expect(transport.position).toBe(0));
   await fireEvent.keyDown(window,{key:'a'});await waitFor(()=>expect(document.loop_selection?.start).toBe(0));
-  await fireEvent.keyDown(window,{key:'ArrowRight'});await waitFor(()=>expect(transport.position).toBe(5));
+  await fireEvent.keyDown(window,{key:'ArrowRight'});await shown(4);
+  await fireEvent.keyDown(window,{key:'ArrowRight',shiftKey:true});await shown(4.1);
   await fireEvent.keyDown(window,{key:'b'});await waitFor(()=>expect(document.loop_selection?.end).toBe(4));
   await fireEvent.change(screen.getByLabelText('Loop end seconds'),{target:{value:'5.25'}});
   await waitFor(()=>expect(document.loop_selection?.end).toBe(5.25));
   await fireEvent.click(screen.getByRole('checkbox',{name:'Snap to measures'}));
-  await fireEvent.keyDown(window,{key:'b'});await waitFor(()=>expect(document.loop_selection?.end).toBe(5));
+  await fireEvent.keyDown(window,{key:'b'});await waitFor(()=>expect(document.loop_selection?.end).toBe(4.1));
 });
 
 
@@ -890,9 +898,9 @@ it('sets an initial mapped loop to one measure near a barline, preserving free-t
   await ready();await fireEvent.keyDown(window,{key:'a'});
   await waitFor(()=>expect(document.loop_selection).toEqual({start:0,end:4,fade_ms:5}));
   await fireEvent.keyDown(window,{key:'x'});await waitFor(()=>expect(document.loop_selection).toBeNull());
-  await fireEvent.keyDown(window,{key:'ArrowRight'});await waitFor(()=>expect(transport.position).toBe(8.99));
+  await fireEvent.keyDown(screen.getByRole('slider',{name:'Song position'}),{key:'End'});await waitFor(()=>expect(transport.position).toBe(12));
   await fireEvent.keyDown(window,{key:'b'});
-  await waitFor(()=>expect(document.loop_selection).toEqual({start:0,end:8.99,fade_ms:5}));
+  await waitFor(()=>expect(document.loop_selection).toEqual({start:0,end:12,fade_ms:5}));
 });
 
 
@@ -985,7 +993,9 @@ it('defaults re-snapping on without detection and allows toggling either way',as
   expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(true);
   await fireEvent.click(checkbox);expect(checkbox.checked).toBe(false);
   expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(false);
-  await fireEvent.keyDown(screen.getByRole('slider',{name:'Measure-map song position'}),{key:'ArrowRight'});
+  await fireEvent.keyDown(screen.getByRole('slider',{name:'Measure-map song position'}),{key:'End'});
+  await shown(12,'Measure-map song position');
+  await fireEvent.keyDown(screen.getByRole('slider',{name:'Measure-map song position'}),{key:'ArrowLeft',shiftKey:true});
   await screen.findByRole('heading',{name:'Free time'});
   await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));
   await fireEvent.click(screen.getByRole('button',{name:'Join / Split / Shift'}));
@@ -1381,4 +1391,64 @@ describe('integrated separation workflow',()=>{
   await ready();exit(true);await fireEvent.click(await screen.findByRole('button',{name:'Quit and cancel'}));await waitFor(()=>expect(mock.finishExit).toHaveBeenCalledOnce());exit(true);exit(false);await new Promise(resolve=>setTimeout(resolve,20));expect(mock.finishExit).toHaveBeenCalledOnce();expect(screen.queryByRole('dialog',{name:'Quit and cancel processing'})).toBeNull();complete();
  });
 
+});
+
+it.each([
+  {context:'practice',focused:false}, {context:'practice',focused:true},
+  {context:'mapping',focused:false}, {context:'mapping',focused:true}
+])('uses measure starts for navigation in $context with focused timeline=$focused', async ({context,focused}) => {
+  const original = timingFixture(48000);
+  original.map.boundaries[0].frame = 48000;
+  original.view.measures[0].start = 48000;
+  original.map.measures[0].kind = original.view.measures[0].kind = 'pickup';
+  // Separate the second measure from the first with uncounted audio.
+  original.map.boundaries.push({ id: 'gap-end', frame: 264000 });
+  original.map.measures[1].start = original.view.measures[1].start_id = 'gap-end';
+  original.view.measures[1].start = 264000;
+  document.measure_map = original.map;
+  document.controls = { speed: .75, semitones: -3 };
+  document.loop_selection = { start: 6, end: 7, fade_ms: 5 };
+  document.loop_enabled = true;
+  transport.position = 6.5;
+  transport.playing = true;
+  mock.initialize.mockResolvedValue({ ...response(), map_view: original.view,
+    song: { key: 'test', reference_token:'test', asset_id:'asset', timeline_id:'timeline', reference_revision:1, session_id:'session', title:'Workshop take', path:'/test/song.wav', duration:12, rate:48000, peaks:[[-.2,.2]] }
+  });
+  await ready();
+  if (context === 'mapping') await fireEvent.click(screen.getByRole('button', { name:'Measure map' }));
+  const target = focused ? screen.getByRole('slider', {name:context === 'mapping' ? 'Measure-map song position' : 'Song position'}) : window;
+  for (const [key, seconds] of [['ArrowLeft', 5.5], ['ArrowLeft', 1], ['ArrowRight', 5.5], ['Enter', 1]] as const) {
+    // A focused slider owns its keys; Enter is a global shortcut only.
+    await fireEvent.keyDown(key === 'Enter' ? window : target, { key });
+    await shown(seconds, context === 'mapping' ? 'Measure-map song position' : 'Song position');
+    expect(mock.action).toHaveBeenLastCalledWith({ type:'seek', seconds }, 'test');
+  }
+  expect(transport.playing).toBe(true);
+  expect(document.controls).toEqual({ speed:.75, semitones:-3 });
+  expect(document.loop_selection).toEqual({ start:6, end:7, fade_ms:5 });
+  expect(document.loop_enabled).toBe(false);
+  // No preceding/following measure means no additional seek at the map edges.
+  mock.action.mockClear();
+  await fireEvent.keyDown(target, { key:'ArrowLeft' });
+  expect(mock.action).not.toHaveBeenCalled();
+  await fireEvent.keyDown(target, { key:'ArrowRight' });
+  await shown(5.5, context === 'mapping' ? 'Measure-map song position' : 'Song position');
+  mock.action.mockClear();
+  await fireEvent.keyDown(target, { key:'ArrowRight' });
+  expect(mock.action).not.toHaveBeenCalled();
+  await fireEvent.keyDown(target, { key:'ArrowRight', shiftKey:true });
+  await waitFor(() => expect(transport.position).toBe(5.6));
+});
+
+it('retains time-based navigation for an empty measure map', async () => {
+  const original = timingFixture(48000);
+  original.map.measures = [];
+  original.view.measures = [];
+  document.measure_map = original.map;
+  mock.initialize.mockResolvedValue({ ...(await mock.initialize()), map_view:original.view, document:structuredClone(document) });
+  await ready();
+  for (const [key, seconds] of [['ArrowRight', 5], ['ArrowRight', 10], ['ArrowLeft', 5], ['Enter', 0]] as const) {
+    await fireEvent.keyDown(window, { key });
+    await shown(seconds);
+  }
 });

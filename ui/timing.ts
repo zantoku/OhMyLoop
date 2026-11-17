@@ -8,6 +8,10 @@ export type MeasureMap = { version: number; revision: number; rate: number; fram
 export type GridPoint = { id: string | null; frame: number; quarter: number; label: string };
 export type MeasureView = { id: string; start_id: string; end_id: string; start: number; end: number; number: number | null; label: string; meter: Meter; kind: MeasureKind; length: Fraction; protected: boolean; grid: GridPoint[]; split_points:{beat:number;frame:number;anchor:boolean}[]; tempo_bpm: number };
 export type MapView = { revision: number; measures: MeasureView[] };
+// Navigate source-frame starts, including pickups and across uncounted gaps.
+export function adjacentMeasure(measures: readonly MeasureView[], frame: number, direction: number): MeasureView | undefined {
+  return direction > 0 ? measures.find(m => m.start > frame) : [...measures].reverse().find(m => m.start < frame);
+}
 // Presentation lookup on the Rust-projected ranges; shared ends belong to the
 // following measure, and gaps/EOF have no active measure.
 export function measureAtFrame(measures: readonly MeasureView[], frame: number): MeasureView | null {

@@ -6,7 +6,7 @@
   import { drawWaveform, sourcePoint, panView, overviewView, wheelView } from './timeline';
   import type { View } from './types';
   import type { MapEdit, MapView, MeasureView, GridPoint } from './timing';
-  import {measureAtFrame} from './timing';
+  import {adjacentMeasure,measureAtFrame} from './timing';
   import {unmappedRanges} from './map-ranges';
   let { peaks, duration, rate, position, view, mapView, selected, disabled = false, candidates = [], playback, onview, onseek, onselect, ongap, onedit }:
     { peaks: [number, number][]; duration: number; rate: number; position: number; view: View; mapView: MapView | null; selected: string | null; disabled?: boolean; candidates?: { frame: number; downbeat: boolean }[];
@@ -31,6 +31,19 @@
   const ticks = $derived(Array.from({length:7},(_,i)=>view.start+span*i/6));
   const gaps=$derived(unmappedRanges(measures,Math.round(duration*rate)));
   const frame = (event: MouseEvent) => Math.round(sourcePoint(view,duration,field.getBoundingClientRect(),event.clientX)*rate);
+  function seekKey(event: KeyboardEvent) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.key === 'Home' || event.key === 'End') {
+      seekAt(event.key === 'Home' ? 0 : duration);
+      return;
+    }
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    if (!event.shiftKey && measures.length) {
+      const target = adjacentMeasure(measures, Math.round(position * rate), direction);
+      if (target) seekAt(target.start / rate);
+    } else seekAt(clamp(position + direction * (event.shiftKey ? .1 : 5), 0, duration));
+  }
   function seekAt(seconds:number){const frame=Math.round(seconds*rate),measure=measureAtFrame(measures,frame);if(measure)onselect(measure.id);else if(gaps.some(g=>g.start<=frame&&frame<g.end))ongap?.(frame);onseek(seconds);}
   function displayed(id: string, at: number) { return drag?.edit?.type==='move_boundary' && drag.edit.id===id && draggedFrame!==null ? draggedFrame : at; }
   $effect(()=>{void size; drawWaveform(canvas,peaks,duration,view.start,view.end);drawWaveform(overview,peaks,duration,0,duration,true);});
@@ -97,7 +110,7 @@
 <div class="map-wave-field" class:keyboard-focus={keyboard} class:panning={drag?.pan} bind:this={field} role="region" tabindex="-1" aria-label="Measure-map waveform. Click to seek; drag beat and measure lines to correct timing."
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onauxclick={e=>{if(e.button===1)e.preventDefault();}}>
   <div class="map-seek" role="slider" tabindex="0" aria-label="Measure-map song position" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
-    onkeydown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();e.stopPropagation();seekAt(e.key==='Home'?0:e.key==='End'?duration:clamp(position+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?.1:5),0,duration));}}}></div>
+    onkeydown={seekKey}></div>
   <div class="map-time-ruler" aria-hidden="true">{#each ticks as tick,i}<span style:left={`${i/6*100}%`}>{time(tick)}</span>{/each}</div>
   <canvas class="map-wave-canvas" bind:this={canvas}></canvas>
   {#each gaps.filter(g=>g.end/rate>view.start&&g.start/rate<view.end) as gap}

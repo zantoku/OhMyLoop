@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import PracticeRuler from './PracticeRuler.svelte';
   import { measureLoop, snapLoopPoint, stepLoopPoint } from './practice-timeline';
-  import type { MapView } from './timing';
+  import { adjacentMeasure, type MapView } from './timing';
   import type { Loop, Section, View } from './types';
   import { clamp, range, sectionColor, time } from './model';
 
@@ -12,6 +12,19 @@
     { peaks: [number, number][]; duration: number; sections: Section[]; selection: Loop | null;
       position: number; view: View; mapView?: MapView | null; rate?: number; snapToMeasures?: boolean; onseek: (value: number) => void; onselection: (value: Loop) => void;
       onsection: (section: Section) => void; onview: (view: View) => void } = $props();
+  function seekKey(event: KeyboardEvent) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.key === 'Home' || event.key === 'End') {
+      onseek(event.key === 'Home' ? 0 : duration);
+      return;
+    }
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    if (!event.shiftKey && mapView?.measures.length) {
+      const target = adjacentMeasure(mapView.measures, Math.round(position * rate), direction);
+      if (target) onseek(target.start / rate);
+    } else onseek(clamp(position + direction * (event.shiftKey ? .1 : 5), 0, duration));
+  }
   let canvas: HTMLCanvasElement;
   let overview: HTMLCanvasElement;
   let field: HTMLDivElement;
@@ -165,7 +178,7 @@
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel}
   onauxclick={e => { if (e.button === 1) e.preventDefault(); }}>
   <div class="seek-surface" role="slider" tabindex="0" aria-label="Song position" aria-valuemin="0" aria-valuemax={duration} aria-valuenow={position} aria-valuetext={time(position)}
-    onkeydown={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); onseek(clamp(position + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? .1 : 5), 0, duration)); } else if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); e.stopPropagation(); onseek(e.key === 'Home' ? 0 : duration); } }}></div>
+    onkeydown={seekKey}></div>
   <canvas class="wave-canvas" bind:this={canvas}></canvas>
   <PracticeRuler {mapView} {rate} {view} {width}/>
   {#if current && current.end > view.start && current.start < view.end}

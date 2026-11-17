@@ -424,11 +424,17 @@ wraps page backwards. The final page clamps to EOF. Manual panning, minimap
 navigation, wheel zoom, Fit measure and Whole song preserve the follow setting.
 Only the Follow playhead action changes it. With following on, playback keeps
 revealing the playhead after navigation. Paused editing keeps the viewport still.
+Left/Right navigate strictly earlier/later mapped measure starts, across free-time
+gaps. Within a measure, Left returns to its start; at its start, Left goes to the
+preceding measure. At the first/last start, an arrow with no target does nothing.
+Enter jumps to the earliest mapped measure, including a pickup. An absent or empty
+map retains five-second arrow seeks and Enter at source zero. Shift+arrows retain
+0.1-second seeks. These rules also apply to arrows on the focused position slider.
 Explicit playhead navigation (including Left, Right and Enter) reveals the
 resulting position in either screen even while paused or with following off.
 It preserves zoom and the follow toggle, and does not move the view if the
 resulting position is already visible. Rewinding also works when the playhead
-is already at zero but the view has been panned elsewhere.
+is already at the rewind target but the view has been panned elsewhere.
 
 Clicks share the engine's nominal source-position estimate. Rubber Band's adaptive
 timing can move individual transients around that estimate, particularly during

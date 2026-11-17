@@ -56,11 +56,13 @@ sections during the current app session.
 
 Space toggles playback, L toggles looping, C toggles count-in on Practice,
 and A/B set loop boundaries.
-Comma jumps to A, period jumps to B, and Enter rewinds to the song start.
+Comma jumps to A, period jumps to B, and Enter jumps to the first mapped measure
+(including a pickup), or the song start without a map.
 Jumping to B turns looping off; seeking preserves play/pause state.
 X clears the A–B range and turns looping off, brackets navigate sections,
 N adds a section, and Cmd/Ctrl+O opens a song. Arrow keys
-seek five seconds; Shift+arrows seek 0.1 seconds. Shortcuts are suspended while
+jump to the preceding/following measure start when a map has measures, or seek
+five seconds without one. Shift+arrows always seek 0.1 seconds. Shortcuts are suspended while
 editing fields or dialogs. The in-app shortcut panel lists these controls.
 
 Shortcuts, command-button mappings, and hover/help descriptions come from a
