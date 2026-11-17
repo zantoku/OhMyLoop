@@ -22,3 +22,4 @@ node_modules/
 # Locally installed agent skills (not part of the project)
 /.agents/
 /skills-lock.json
+.worktrees/
