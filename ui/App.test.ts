@@ -46,6 +46,13 @@ beforeEach(() => {
   mock.status.mockImplementation(async () => ({ ...transport }));
 });
 
+// Seeks run through the app's action queue, so wait for the rendered slider as
+// well as the mock before issuing a dependent keyboard command.
+async function shown(seconds: number, name = 'Song position') {
+  await waitFor(() => expect(transport.position).toBe(seconds));
+  await waitFor(() => expect(screen.getByRole('slider', { name }).getAttribute('aria-valuenow')).toBe(String(seconds)));
+}
+
 async function ready() {
   render(App);
   await screen.findByRole('heading', { name: 'Workshop take' });
@@ -875,8 +882,8 @@ it('defaults to measure loops and snaps A/B shortcuts, with exact inputs and a f
   await waitFor(()=>expect(document.loop_selection).toEqual({start:4,end:8,fade_ms:5}));
   await fireEvent.keyDown(window,{key:'Enter'});await waitFor(()=>expect(transport.position).toBe(0));
   await fireEvent.keyDown(window,{key:'a'});await waitFor(()=>expect(document.loop_selection?.start).toBe(0));
-  await fireEvent.keyDown(window,{key:'ArrowRight'});await waitFor(()=>expect(transport.position).toBe(4));
-  await fireEvent.keyDown(window,{key:'ArrowRight',shiftKey:true});await waitFor(()=>expect(transport.position).toBe(4.1));
+  await fireEvent.keyDown(window,{key:'ArrowRight'});await shown(4);
+  await fireEvent.keyDown(window,{key:'ArrowRight',shiftKey:true});await shown(4.1);
   await fireEvent.keyDown(window,{key:'b'});await waitFor(()=>expect(document.loop_selection?.end).toBe(4));
   await fireEvent.change(screen.getByLabelText('Loop end seconds'),{target:{value:'5.25'}});
   await waitFor(()=>expect(document.loop_selection?.end).toBe(5.25));
@@ -987,7 +994,7 @@ it('defaults re-snapping on without detection and allows toggling either way',as
   await fireEvent.click(checkbox);expect(checkbox.checked).toBe(false);
   expect(screen.getByRole('button',{name:'Shift right'}).hasAttribute('disabled')).toBe(false);
   await fireEvent.keyDown(screen.getByRole('slider',{name:'Measure-map song position'}),{key:'End'});
-  await waitFor(()=>expect(transport.position).toBe(12));
+  await shown(12,'Measure-map song position');
   await fireEvent.keyDown(screen.getByRole('slider',{name:'Measure-map song position'}),{key:'ArrowLeft',shiftKey:true});
   await screen.findByRole('heading',{name:'Free time'});
   await fireEvent.click(within(screen.getByLabelText('Measures on timeline')).getByRole('button',{name:'2 4/4'}));
@@ -1405,15 +1412,16 @@ it.each([
   transport.position = 6.5;
   transport.playing = true;
   mock.initialize.mockResolvedValue({ ...response(), map_view: original.view,
-    song: { key: 'test', title:'Workshop take', path:'/test/song.wav', duration:12, rate:48000, peaks:[[-.2,.2]] }
+    song: { key: 'test', reference_token:'test', asset_id:'asset', timeline_id:'timeline', reference_revision:1, session_id:'session', title:'Workshop take', path:'/test/song.wav', duration:12, rate:48000, peaks:[[-.2,.2]] }
   });
   await ready();
   if (context === 'mapping') await fireEvent.click(screen.getByRole('button', { name:'Measure map' }));
   const target = focused ? screen.getByRole('slider', {name:context === 'mapping' ? 'Measure-map song position' : 'Song position'}) : window;
   for (const [key, seconds] of [['ArrowLeft', 5.5], ['ArrowLeft', 1], ['ArrowRight', 5.5], ['Enter', 1]] as const) {
-    await fireEvent.keyDown(target, { key });
-    await waitFor(() => expect(transport.position).toBe(seconds));
-    expect(mock.action).toHaveBeenLastCalledWith({ type:'seek', seconds });
+    // A focused slider owns its keys; Enter is a global shortcut only.
+    await fireEvent.keyDown(key === 'Enter' ? window : target, { key });
+    await shown(seconds, context === 'mapping' ? 'Measure-map song position' : 'Song position');
+    expect(mock.action).toHaveBeenLastCalledWith({ type:'seek', seconds }, 'test');
   }
   expect(transport.playing).toBe(true);
   expect(document.controls).toEqual({ speed:.75, semitones:-3 });
@@ -1424,7 +1432,7 @@ it.each([
   await fireEvent.keyDown(target, { key:'ArrowLeft' });
   expect(mock.action).not.toHaveBeenCalled();
   await fireEvent.keyDown(target, { key:'ArrowRight' });
-  await waitFor(() => expect(transport.position).toBe(5.5));
+  await shown(5.5, context === 'mapping' ? 'Measure-map song position' : 'Song position');
   mock.action.mockClear();
   await fireEvent.keyDown(target, { key:'ArrowRight' });
   expect(mock.action).not.toHaveBeenCalled();
@@ -1441,6 +1449,6 @@ it('retains time-based navigation for an empty measure map', async () => {
   await ready();
   for (const [key, seconds] of [['ArrowRight', 5], ['ArrowRight', 10], ['ArrowLeft', 5], ['Enter', 0]] as const) {
     await fireEvent.keyDown(window, { key });
-    await waitFor(() => expect(transport.position).toBe(seconds));
+    await shown(seconds);
   }
 });
