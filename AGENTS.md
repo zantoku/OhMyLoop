@@ -42,7 +42,9 @@ existing practice workflows while extending the desktop UI.
 - Exercise device playback on available hardware; distinguish automated checks,
   hardware checks, and subjective listening results.
 - Build and test on all three platforms in CI. A configured CI job is not proof
-  that a platform has passed; report untested platforms honestly.
+  that a platform has passed; report untested platforms honestly. For now CI
+  runs macOS only: Linux and Windows are paused until their failures are fixed
+  on those platforms, so report them as untested by CI unless checked there.
 - Run formatting, linting, and focused tests appropriate to each change.
 - Document exact setup and run commands, architecture, dependencies, and known
   risks. Do not claim technical risks are settled without evidence.
