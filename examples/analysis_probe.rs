@@ -4,8 +4,10 @@ use ohmyloop::{
     analysis::AnalysisManager,
     audio::{Audio, write_wav},
     playback::Player,
+    project::{SessionId, SongRecord},
 };
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::PathBuf,
@@ -13,6 +15,23 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+// Generated PCM has no durable library song; use the same typed reference
+// contract without persisting fixture records. Labels remain report/display data.
+fn fixture_reference(label: &str, audio: &Audio) -> Result<String> {
+    let mut digest = Sha256::new();
+    digest.update(audio.rate.to_le_bytes());
+    for sample in audio.frames.iter().flatten() {
+        digest.update(sample.to_le_bytes());
+    }
+    let record = SongRecord::new(
+        format!("generated:{label}"),
+        format!("{:x}", digest.finalize()),
+        audio,
+    );
+    record.validate()?;
+    Ok(record.reference(SessionId::new()).token())
+}
 
 fn fixture(variable: bool) -> (Audio, Vec<f64>, Vec<f64>) {
     let rate = 48_000;
@@ -154,7 +173,12 @@ fn main() -> Result<()> {
             None
         };
         let started = Instant::now();
-        manager.analyze(executable.clone(), audio.clone(), name.into(), 0)?;
+        manager.analyze(
+            executable.clone(),
+            audio.clone(),
+            fixture_reference(name, &audio)?,
+            0,
+        )?;
         let status = wait(&manager)?;
         ensure!(
             status.error.is_none(),
@@ -181,7 +205,8 @@ fn main() -> Result<()> {
         reports.push(report);
     }
     let audio = Arc::new(fixture(false).0);
-    let start = manager.analyze(executable, audio, "cancel-case".into(), 0)?;
+    let token = fixture_reference("cancel-case", &audio)?;
+    let start = manager.analyze(executable, audio, token, 0)?;
     let begin = Instant::now();
     while manager.worker_pid().is_none() {
         ensure!(
@@ -208,4 +233,35 @@ fn main() -> Result<()> {
     )?;
     manager.shutdown();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn generated_analysis_and_cancellation_contexts_satisfy_manager_identity_contract() {
+        let root = std::env::temp_dir().join(format!(
+            "ohmyloop-probe-{}",
+            ohmyloop::project::SongId::new()
+        ));
+        let manager =
+            AnalysisManager::new(root.join("missing-models"), root.join("cache")).unwrap();
+        let audio = Arc::new(Audio::tone(1000, 0.1, 220.0));
+        for label in ["steady-4-4", "tempo-meter-rubato", "cancel-case"] {
+            let token = fixture_reference(label, &audio).unwrap();
+            assert!(ohmyloop::project::Reference::parse(&token).is_ok());
+            assert!(manager.cached_result(&token, &audio).unwrap().is_none());
+            let error = manager
+                .analyze(std::env::current_exe().unwrap(), audio.clone(), token, 0)
+                .err()
+                .expect("Missing models must reject inference after identity validation");
+            assert!(
+                error
+                    .to_string()
+                    .contains("Install the analysis model first")
+            );
+            assert!(!manager.status().running);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { ButtonId } from './actions';
   import type { Keymap } from './keymap';
-  let { enabled, level=$bindable(50), keymap, button, available, run, native }:
-    {enabled:boolean;level?:number;keymap:Keymap;button:ButtonId;available:boolean;run:()=>void;native:boolean}=$props();
+  let { disabled=false,enabled, level=$bindable(50), keymap, button, available, run, native }:
+    {disabled?:boolean;enabled:boolean;level?:number;keymap:Keymap;button:ButtonId;available:boolean;run:()=>void;native:boolean}=$props();
 </script>
 <div class="metronome-controls" role="group" aria-label="Metronome controls">
   <button class="button" class:active={enabled} aria-pressed={enabled} disabled={!available} title={keymap.title(button)} onclick={run}>{keymap.buttonLabel(button,enabled?'Metronome on':'Metronome off')}</button>
-  <label>Click level<input aria-label="Metronome volume" type="range" min="0" max="100" bind:value={level} disabled={!native}/><span>{level}%</span></label>
+  <label>Click level<input aria-label="Metronome volume" type="range" min="0" max="100" bind:value={level} disabled={!native||disabled}/><span>{level}%</span></label>
 </div>
 <style>
   .metronome-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted)}

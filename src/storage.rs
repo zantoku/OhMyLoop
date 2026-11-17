@@ -2,7 +2,7 @@
 use anyhow::{Context, Result};
 use std::{
     fs::{self, File},
-    io::Write,
+    io::{Read, Write},
     path::Path,
 };
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -13,4 +13,11 @@ pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     drop(file);
     fs::rename(temporary, path).context("Cannot replace saved local data")?;
     Ok(())
+}
+
+pub(crate) fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    File::open(path)?.take(limit + 1).read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() as u64 <= limit, "Document exceeds size limit");
+    Ok(bytes)
 }

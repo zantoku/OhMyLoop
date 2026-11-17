@@ -18,6 +18,9 @@ impl Audio {
     }
 
     pub fn load(path: &Path) -> Result<Self> {
+        Self::load_checked(path, |_| Ok(()))
+    }
+    pub fn load_checked(path: &Path, mut check: impl FnMut(u64) -> Result<()>) -> Result<Self> {
         let stream = MediaSourceStream::new(Box::new(File::open(path)?), Default::default());
         let mut hint = Hint::new();
         if let Some(extension) = path.extension().and_then(|x| x.to_str()) {
@@ -38,6 +41,7 @@ impl Audio {
         let mut frames = Vec::new();
         let mut rate = None;
         loop {
+            check(frames.len() as u64)?;
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
                 Err(Error::IoError(error)) if error.kind() == ErrorKind::UnexpectedEof => break,
@@ -83,6 +87,13 @@ impl Audio {
     /// Band-limited, delay-compensated conversion before device playback.
     /// This runs on the control thread, never in the callback.
     pub fn resample(&self, rate: u32) -> Result<Self> {
+        self.resample_checked(rate, |_| Ok(()))
+    }
+    pub fn resample_checked(
+        &self,
+        rate: u32,
+        mut check: impl FnMut(u64) -> Result<()>,
+    ) -> Result<Self> {
         use rubato::{
             Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
             WindowFunction,
@@ -114,6 +125,7 @@ impl Audio {
         let mut input = vec![vec![0.0; 1024]; 2];
         let mut cursor = 0;
         while frames.len() < count {
+            check(frames.len() as u64)?;
             for (channel, plane) in input.iter_mut().enumerate() {
                 for (n, sample) in plane.iter_mut().enumerate() {
                     *sample = self

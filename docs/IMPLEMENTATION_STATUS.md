@@ -1,5 +1,21 @@
 # Measure mapping implementation and evidence
 
+## UUID identity and reference replacement (2026-10-12)
+
+Issue #2 now uses stable song UUIDs, separately typed asset/timeline IDs, atomic
+song envelopes, scoped legacy metadata reset and reference/session guards across
+native/Tauri/UI contracts. Library replacement recovers changed/missing references
+without re-identifying songs; compatible replacement requires explicit same-timing
+confirmation plus equal decoded rate/frame count. Independent imports are available; songs now keep one recording/map without
+retained history. [Persistence and checks](UUID_IDENTITY.md) describes the
+exact slice; managed root/copying remains issue #3.
+
+Automated macOS checks: all native targets with `beat-analysis`, workspace strict
+Clippy, formatting, 172 frontend tests, Svelte check and production frontend build.
+This slice has no new hardware or subjective listening evidence; Linux/Windows
+have not been run locally. Legacy reset tests use generated isolated data only.
+
+
 Updated: 2026-10-11. Manual measure editing, practice navigation, map-review
 listening and optional automatic drafts are implemented. Detector accuracy and
 cross-platform release readiness remain provisional. This page describes the
@@ -102,10 +118,11 @@ shared boundaries and explicit anchors define a piecewise timing curve. Tempo,
 numbering and grids are derived. Meter, pulse and optional grouping belong to each
 measure; gaps continue global numbering without independent numbering resets.
 
-`src/project.rs` owns version-4 song documents containing notes and version-1 maps.
-Valid version-2/3 documents migrate; malformed/future documents are preserved. Native load
-and update validate decoded source rate/frame count. Sections, loops and controls
-retain their own source coordinates. Failed saves leave the accepted map intact:
+`src/project.rs` owns UUID song envelopes with song-level notes/controls and
+one versioned reference timeline containing a version-1 map, sections and loop positions.
+Incompatible pre-UUID metadata is reset as authorized; malformed/future UUID files
+are preserved. The flattened UI document is version 5. Native load and update
+validate decoded source rate/frame count. Failed saves leave the accepted map intact:
 a draft remains available for retry, while direct edits retain their form values.
 
 `src/desktop.rs` owns native transport/source state. `src/metronome.rs` mixes
@@ -339,3 +356,17 @@ work. Whole-measure loop selection/snapping and per-gap numbering resets are not
 implemented. Count-ins, inter-loop rests, speed
 ladders, section automation, sequences, export UI, recording, stems and synchronized
 tabs remain later milestones in [PLAN.md](../PLAN.md).
+
+## Managed library (2026-10-13)
+
+Issue #3 adds selected library roots, direct-copy imports/progress, independent
+duplicates, relative assets, authoritative metadata, hash checks, settings, unavailable
+root actions and permanent confirmed edit-panel deletion. No journaling, locks,
+recovery, staging, trash or storage-size UI. Automated macOS checks: 124 native tests passed (one existing hardware test
+ignored), 187 frontend tests passed, strict workspace/all-target Clippy including
+Tauri passed, formatting/Svelte checks/production build passed. Independent
+Standards and Spec review found no remaining code findings after corrections to
+failed-save activation, post-deletion warning coherence and stale catalogue
+replies; outdated README storage guidance was corrected. Parent independently
+reran all 12 managed native tests and 13 library-session frontend tests. No new
+hardware, screenshot, subjective listening or Linux/Windows results are claimed. See [Library](LIBRARY.md).

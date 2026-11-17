@@ -20,6 +20,11 @@ npm ci
 npm run desktop
 ```
 
+Optional stem separation also needs its bundled setup resources prepared before a
+maintainer desktop build. See [managed-runtime build/setup](scripts/separation_runtime/README.md).
+End users perform explicit **Set up stem separation** inside Stems; they need no
+system Python, compiler or FFmpeg. Installed inference works offline.
+
 Development builds optimize inference and resampling dependencies while keeping
 app code debuggable. The first build after these profile changes takes longer;
 restart `npm run desktop` to pick up native code and build-profile changes.
@@ -37,7 +42,7 @@ Windows and Linux use their platform's Tauri bundle formats. Linux also needs
 the WebKitGTK and desktop integration packages listed in
 [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Use **Library → Open song**, or try the built-in demo. Click the waveform to seek; drag to
+Use **Library → Import song**, or try the built-in demo. Click the waveform to seek; drag to
 choose a temporary loop. The A/B handles and numeric fields adjust the bounds.
 Scroll over the waveform to zoom at the pointer; hold the middle mouse button
 and drag to pan. Click or drag the whole-song minimap to move the detailed
@@ -66,8 +71,10 @@ validation rules, and [example configuration](config/keymap.example.json).
 
 Practice documents are saved in the app's per-user data directory, under
 `practice`. They contain stable section IDs, source coordinates, controls,
-loop selection, last position, and plain-text song notes. A SHA-256 identity lets settings survive
-moving or renaming an unchanged audio file. Playback is restored paused.
+loop selection, last position, and plain-text song notes. Songs have stable UUIDs independent of audio revisions. Notes/settings belong to
+the song; sections/maps/loops/positions belong to its single reference timeline.
+Playback is restored paused. [UUID persistence and reset](docs/UUID_IDENTITY.md)
+describes the one-time legacy metadata reset; audio and preferences are retained.
 Corrupt or unsupported documents are reported and left intact. For development
 only, `OHMYLOOP_DATA_DIR` selects the practice-document directory itself; it does
 not redirect the model or keymap folders. The analysis cache is its sibling
@@ -128,27 +135,36 @@ CARGO_HOME="$PWD/.cargo-home" cargo test --locked --release -p ohmyloop --test c
 
 ## Music library
 
-Open **Library** from the header to find previously opened songs. Real songs are
-added automatically on successful open; the built-in demo is excluded. Artist,
-title and album come from embedded tags when available, with the filename as a
-fallback title. **Edit → Save details** changes the library record without writing
-to your audio file. Later opens retain your edits.
+Open **Library** from the header to browse your songs. **Import song** copies a
+recording into your selected library and leaves the external original untouched.
+The first import asks you to create an **OhMyLoop Library** subfolder or open an
+existing library; the demo needs no setup. Imports show copy progress and open
+Practice paused. Exact duplicates offer **Open existing song** or **Import separate
+song**; separate imports own independent copies, notes and maps.
 
-Search title, artist, album or file location. Click a column heading or use Sort by
-to choose any of the six fields, including Date added and Last opened; reverse the
-order with the adjacent button. The default is Last opened, descending. Click a
-song title to reopen its existing practice state. Opening the library pauses
-playback. The top-right navigation button becomes **Practice** while browsing.
-**Open song** lives in the library heading; Cmd/Ctrl+O also opens through the
-library, keeping it visible if the file picker is cancelled.
+Artist, title and album come from embedded tags with filename fallback. **Edit →
+Save details** changes stored metadata without modifying audio. Search title,
+artist, album or file location; sort by those fields, Date added or Last opened.
+Opening Library pauses playback. Click a song title to reopen its practice state.
+**Library settings** provides Create library and Open existing library. Switching
+saves pending edits and unloads the song without selecting another.
 
-The catalogue is `practice/library.json`, separate from each song's practice
-JSON and the analysis cache. It uses the same content hashes, so reopening a moved
-unchanged file updates its location and keeps its annotations. Missing or replaced
-files produce an error; use Open song to locate a moved file. Previously used
-songs join the catalogue the next time they are opened or restored. No folder
-scan/import, artwork, removal or export workflow is implemented yet.
-See [docs/LIBRARY.md](docs/LIBRARY.md) for details.
+The selected folder owns recordings and authoritative song documents under
+`songs/<song-uuid>/`; `catalogue.json` is a rebuildable projection. App data holds
+the selected library and last-song pointer. To move or back up a library, close
+the app and move/copy the whole folder, then open it at its new location.
+
+Opening a song checks its recording's content hash. Missing/changed audio uses
+**Library → Edit → Replace recording…**, below **File location**. Explicit
+unchanged-timing confirmation requires matching decoded rate/frame count and
+preserves annotations; changed timing clears the map, sections, loop and saved
+position. Notes, controls and song UUID survive. No recording/map history.
+
+**Delete song** appears only in the Library edit panel and permanently deletes
+managed song files after confirmation. External originals remain untouched.
+No trash/restore, journaling/restart recovery, locking, import cancellation,
+storage-size UI or in-app move command. Assume one instance accesses a library.
+See [docs/LIBRARY.md](docs/LIBRARY.md) for behavior and failure limits.
 
 ## Song notes
 
@@ -235,7 +251,8 @@ corrections. **Clear map** removes all measures/anchors, including protected one
 sections, loops and playback settings. Mapping undo/redo retains up to 50 edits
 during the same song session and survives switching back to practice; it is not
 saved across restarts. The accepted map is
-persisted with the song in version-4 documents; valid version-2 and version-3 documents migrate.
+persisted in the song’s reference-timeline record. Pre-UUID metadata is reset once
+on launch instead of migrated; future/malformed UUID records remain preserved.
 Practice uses a single waveform ruler: measure numbers and vertical barlines in
 mapped audio, timecodes in free time. The separate section lane stays. Loops
 snap to whole measures by default; turn off **Snap to measures** or Shift-drag
@@ -408,6 +425,24 @@ Create the output directory first if it does not exist. `render` writes stereo
 32-bit float WAV; `--seconds` limits **output** duration. Looped rendering
 requires that limit. `--start` seeks in source seconds. `--fade` controls the
 loop seam fade. Normal rendering stops at the end of the source audio.
+
+## Stem separation experiment
+
+An isolated offline prototype compares six-stem models for guitar study and
+backing tracks. Setup and commands are in the
+[prototype README](scripts/stem_prototype/README.md). Its implementation scope is in
+[the prototype plan](docs/STEM_SEPARATION_PROTOTYPE_PLAN.md), with model and
+deployment evidence in [the research](docs/research/STEM_SEPARATION_RESEARCH.md).
+This experiment is separate from the desktop practice workflow.
+
+The desktop integration—implemented UUID song identity and managed imports, with
+planned stem playback and a practice mixer—is in [docs/STEMS.md](docs/STEMS.md), with its ADRs
+and delivery slices. UUID identity/replacement/reset and managed
+storage are implemented. A native file-backed stem player now exercises a shared
+Rubber Band pipeline through a terminal harness; see
+[usage and listening steps](docs/STEM_DSP_USAGE.md). Desktop mixer integration
+and integrated separation remain planned. Shared-DSP sound quality awaits
+maintainer listening approval.
 
 ## Architecture and limits
 

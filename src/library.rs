@@ -18,7 +18,7 @@ pub struct Metadata {
     pub album: String,
 }
 impl Metadata {
-    fn normalized(mut self) -> Result<Self> {
+    pub(crate) fn normalized(mut self) -> Result<Self> {
         self.artist = self.artist.trim().to_owned();
         self.title = self.title.trim().to_owned();
         self.album = self.album.trim().to_owned();
@@ -52,23 +52,22 @@ pub struct Catalogue {
 impl Default for Catalogue {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             songs: vec![],
         }
     }
 }
 impl Catalogue {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         ensure!(
-            self.version == 1,
+            self.version == 2,
             "Unsupported library version; the original file was left intact"
         );
         ensure!(self.songs.len() <= 10_000, "Library exceeds 10,000 songs");
         let mut keys = HashSet::new();
         for entry in &self.songs {
             ensure!(
-                entry.song_key.len() == 64
-                    && entry.song_key.bytes().all(|b| b.is_ascii_hexdigit())
+                crate::project::SongId::try_from(entry.song_key.clone()).is_ok()
                     && keys.insert(&entry.song_key),
                 "Invalid or duplicate library song identity"
             );

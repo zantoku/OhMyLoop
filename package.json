@@ -6,6 +6,7 @@
   "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "prototype:mixer": "vite --host 127.0.0.1 --open '/?mixer-prototype&variant=A'",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",

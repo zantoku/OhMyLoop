@@ -14,12 +14,16 @@ fn missing_or_corrupt_models_fail_without_results_or_damage_to_input_files() {
     fs::create_dir_all(&models).unwrap();
     let manager = AnalysisManager::new(models.clone(), directory.join("cache")).unwrap();
     let audio = Arc::new(Audio::tone(48_000, 0.1, 440.0));
+    let record = ohmyloop::project::SongRecord::new("/fixture.wav".into(), "a".repeat(64), &audio);
+    let token = record
+        .reference(ohmyloop::project::SessionId::new())
+        .token();
     assert!(
         manager
             .analyze(
                 std::env::current_exe().unwrap(),
                 audio.clone(),
-                "song".into(),
+                token.clone(),
                 0
             )
             .is_err()
@@ -30,7 +34,7 @@ fn missing_or_corrupt_models_fail_without_results_or_damage_to_input_files() {
     fs::write(models.join("mel_spectrogram.onnx"), b"invalid mel").unwrap();
     fs::write(models.join("beat_this.onnx"), b"invalid beats").unwrap();
     manager
-        .analyze(std::env::current_exe().unwrap(), audio, "song".into(), 7)
+        .analyze(std::env::current_exe().unwrap(), audio, token.clone(), 7)
         .unwrap();
     let began = Instant::now();
     while manager.status().running {

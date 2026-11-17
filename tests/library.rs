@@ -2,7 +2,7 @@ use ohmyloop::{
     audio::{Audio, write_wav},
     desktop::Desktop,
     library::{Metadata, Store, read_tags},
-    project::{Section, song_key},
+    project::{Section, SongId},
 };
 use std::{
     fs,
@@ -69,7 +69,7 @@ fn tagged_wave(path: &std::path::Path) {
 fn catalogue_restores_edits_updates_location_and_retains_added_date() {
     let temp = Temp::new();
     let store = Store::new(&temp.0);
-    let key = "a".repeat(64);
+    let key = SongId::new().to_string();
     assert!(store.read().unwrap().songs.is_empty());
     store
         .opened(
@@ -112,7 +112,7 @@ fn catalogue_restores_edits_updates_location_and_retains_added_date() {
 fn invalid_metadata_and_catalogues_leave_original_bytes_intact() {
     let temp = Temp::new();
     let store = Store::new(&temp.0);
-    let key = "a".repeat(64);
+    let key = SongId::new().to_string();
     store
         .opened(key.clone(), "/song.wav".into(), metadata("Title"), 100)
         .unwrap();
@@ -177,11 +177,12 @@ fn desktop_reopens_library_song_with_practice_data_and_rejects_changed_files() {
     let temp = Temp::new();
     let path = temp.0.join("song.wav");
     tagged_wave(&path);
-    let key = song_key(&path).unwrap();
+
     let desktop = Desktop::start(temp.0.join("practice")).unwrap();
     let first = desktop
         .load(Some(path.to_string_lossy().into_owned()))
         .unwrap();
+    let key = first.song.as_ref().unwrap().key.clone();
     assert_eq!(first.song.as_ref().unwrap().title, "A tagged take");
     assert!(first.library_error.is_none());
     let mut document = first.document.unwrap();
@@ -235,11 +236,18 @@ fn corrupt_library_reports_error_but_keeps_existing_practice_workflow() {
     let path = temp.0.join("song.wav");
     tagged_wave(&path);
     let desktop = Desktop::start(practice).unwrap();
-    let opened = desktop
+    let loaded = desktop
         .load(Some(path.to_string_lossy().into_owned()))
         .unwrap();
-    assert!(opened.song.is_some());
-    assert!(opened.library_error.unwrap().contains("left intact"));
+    assert!(
+        loaded
+            .library_error
+            .as_ref()
+            .unwrap()
+            .contains("original preserved")
+    );
+    // The transient demo remains playable without overwriting a corrupt catalogue.
+    assert!(desktop.load(None).unwrap().song.is_some());
     assert!(desktop.library().is_err());
     assert_eq!(fs::read(library).unwrap(), b"broken JSON");
     desktop.shutdown();

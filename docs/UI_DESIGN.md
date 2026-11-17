@@ -94,6 +94,27 @@ selection and section navigation. A single waveform workspace, two prominent
 independent practice controls, and restrained section colors serve the guitar
 practice workflow without turning the screen into a DAW mixer.
 
+## Progress indicators
+
+Determinate circular progress indicators, including pie-style checklist bullets,
+start at **12 o'clock** and fill clockwise. At completion the fill returns to that
+same top position. Apply this orientation consistently across the app.
+
+## Close controls and dialog spacing
+
+Close controls should practically always be an **X icon button in the top
+leading corner of the containing element**: a dialog, panel or dedicated screen.
+Put it before the title in the heading row (top left in this left-to-right UI),
+with an accessible name describing what closes, a hover description and visible
+keyboard focus. Avoid a footer Cancel button when its only purpose is dismissal.
+Keep cancellation of running work distinct from closing its presentation.
+
+Replacement opens from **Library → Edit**, below File location. Its dialog has
+one leading X, clear spacing between the heading, explanation and choices, and
+stacked actions that fit narrow windows. Explain that unchanged timing preserves
+the current annotations, while changed timing clears the map, sections, loop and
+position. A song has one current recording/map; there is no recording-history UI.
+
 ## Measure-mapping screen
 
 Current implementation: updated 2026-10-11.
@@ -160,7 +181,7 @@ remains mounted, so WebKit accessibility follows panel changes reliably.
 ## Music library
 
 The top-right Library button opens a full-width catalogue screen and pauses playback;
-it becomes Practice while browsing. Open song is in the library panel heading.
+it becomes Practice while browsing. Import song is in the library panel heading. Library settings owns Create library and Open existing library. Delete song appears only in the song edit panel and requires permanent-deletion confirmation.
 Measure map is above the practice waveform, replacing the former workspace title.
 The waveform interaction hints sit below the minimap in place of Whole song.
 Mapping and notes use an X beside their white-panel titles to return to practice, retaining Library at the
@@ -192,3 +213,123 @@ and practice preserves transport. A failed save keeps the text with Retry save.
 
 Inactive Library and Notes markup is removed while session state remains mounted,
 so WebKit accessibility updates correctly when switching between screens.
+
+## Practice mixer — agreed design for issue #5
+
+The maintainer selected transport-strip mockup A. Place a compact, centered group
+of track controls beside playback, with 26 px gaps at desktop widths: track name,
+rotary gain knob, percentage and M/S buttons. Condense speed and pitch into a
+shallow row below the transport. Put position/duration directly below Play;
+omit the playback-status text.
+
+Stack Count-in above Loop. Both buttons have permanent outer borders and equal
+widths. Loop contains the loop and hourglass icons inside one shared border;
+use the same hourglass drawing as Count-in. Cycle Off → Loop → Loop with count-in
+→ Off. Highlight only the loop icon in the second state, both icons in the third.
+Selecting loop with count-in enables Count-in; disabling Count-in downgrades to
+ordinary looping. Turning looping off leaves Count-in enabled.
+
+There is no Original/Stems selector or A/B control. Play the reference recording
+when every track is at 100%, unmuted and unsoloed; otherwise play the attached stem
+set. Track controls remain operable in the default state. One song owns at most
+one stem set. Attaching another requires confirmation and replaces the prior set
+only after successful validation, copying and saving; retain controls for matching
+roles. Runtime availability, shortcuts and preparation are refined separately.
+
+The throwaway source is `ui/TrackMixer.prototype.svelte`, hosted in Practice via
+`npm run prototype:mixer`; it contains synthetic display data and no audio.
+
+For #5, a Stems button beside Notes and Measure map opens attachment/replacement,
+current-set details and errors. Integrated model installation/separation extends
+that same screen in #6.
+
+## Integrated separation flow
+
+The maintainer approved the interactive flow prototype on 2026-10-14. Open a
+Library song into Practice, then use the existing Stems button. Roformer-SW is
+the selected model; show a compact installation card rather than a model chooser.
+Opening the screen starts no work. If missing, offer explicit Download model with
+actual package size/storage requirements. Show download, verification and setup
+progress, Cancel and useful failure/Retry states. Installation is shared across
+songs, independently of completed stem sets.
+
+Successful model setup stops at Ready. A separate Separate song action starts
+processing. For an existing set, first confirm replacement; ordinary failures and
+cancellation preserve that set. Separation uses short semantic checklist labels,
+measured progress where available and elapsed time; unknown work is indeterminate,
+without a fabricated percentage or ETA. Cancel is available before publication;
+once publication starts show Finishing save instead.
+
+The separation progress bar has the static title **Splitting song into stems**.
+Show the current phase title below the bar as its subtitle; individual step names
+remain in the checklist. Completion and stopped status also appear in the subtitle.
+
+Completion automatically attaches the validated set, displays retained/skipped
+tracks, and offers Go to Practice. It changes neither reference recording nor
+measure map. Playback stays paused after publication. Model removal leaves stems
+intact. Attach existing outputs remains secondary, as does installed-model
+management. The top-leading X returns to Practice without cancelling active work;
+the Stems button shows a compact ongoing-work indicator.
+
+The [approved primary-source demo](https://github.com/zantoku/OhMyLoop/blob/prototype/stem-separation-flow-2026-10-14/ui/StemSeparation.prototype.html) is archived on
+`prototype/stem-separation-flow-2026-10-14` and can be opened directly in a browser. It uses in-memory state, simulated audio/progress and illustrative
+package sizes. Its current-song lock and always-paused audio were demonstration
+assumptions; the confirmed guard/playback policies below and
+[the implementation interview](STEM_SEPARATION_IMPLEMENTATION_PLAN.md) now govern
+implementation. The demo is kept off the implementation branch; do not ship its
+shell or reducer as production code.
+
+Implementation decisions confirmed 2026-10-14: separation pauses playback and
+disables Play until its terminal outcome, preserving position and leaving playback
+paused. Users can leave Stems and edit notes/measure maps for the current song,
+but cannot switch song/library or mutate recording/stems while separation runs.
+Automatic timing analysis and separation share one execution slot without a queue.
+The selected CPU profile is fixed; no device/quality chooser in #6. Normal app quit
+confirms cancellation of active work, or finishes an already-started final save.
+Playback remains available during download-only model installation. Model files
+are app-wide; generated audio stays in the song's library. Download retry restarts
+partial files, preserving verified files. Cancellation shows Stopping until work
+and cleanup finish. No RAM monitor or duration cap in #6; show a concise notice
+about several gigabytes of memory use. Short recordings use validated known padding
+and cropping, with no extra user controls.
+
+The 2026-10-14 refinement also freezes seeking, speed/pitch, loop/count-in and mixer
+controls during separation, while preserving waveform browsing and manual note/map
+editing. Show one-time estimated disk requirements and explain insufficient space.
+Check model integrity when installing and starting inference, without blocking
+ordinary Stems-screen status on a full scan. Failures show a short explanation,
+Retry and expandable Copy details; diagnostics are current-attempt/in-memory only.
+No model-folder import or prototype-weight reuse. Inference has elapsed time and
+Cancel, without an automatic overall deadline.
+
+## Stem processing transparency
+
+During attachment, show a prominent overall progress bar near the top of Stems,
+above the explanatory copy and set details. Below it, list the actual processing
+steps in a keyboard-scrollable region. Labels are short (at most eight words),
+use instrument names where useful, and do not include filenames or paths. Pending
+steps have hollow circular bullets, measured active progress fills a green pie,
+and completed steps have solid green bullets. Keep the completed checklist after
+attachment; an error leaves incomplete steps incomplete.
+
+New attachments omit tracks with a whole-track peak below −60 dBFS. Show those
+steps as “Skip near-silent <instrument>”, with a green bullet and “Skipped” status;
+count them toward overall completion and retain that status after publication.
+
+Overall progress represents completed task units plus the measured fraction of the
+active task for manual attachment, not a time estimate. Keep the full attachment denominator stable
+through copying, validation, playback preparation and final song-association save;
+show 100% only after successful publication. Unknown work is indeterminate. Reused
+playback preparation can show a single completed reuse step. Throttle visual updates
+while preserving stage transitions and completion events.
+
+The separation overall bar uses fixed stage weights calibrated from two
+full-song development timings, retaining actual
+within-stage units and no ETA. Manual attachment keeps task-unit weighting.
+For both workflows, follow the active checklist step automatically, pausing when
+the user scrolls away and resuming when they return to the active step. Reopening
+the screen during processing reveals the active step. No follow button is added.
+During unknown-duration separation stages, hold overall progress while the active
+step remains indeterminate; advance when it completes. Keep timing breakdowns in
+maintainer verification evidence rather than adding them to the app.
+Full refinement contract: [STEM_PROGRESS_REFINEMENTS.md](STEM_PROGRESS_REFINEMENTS.md).

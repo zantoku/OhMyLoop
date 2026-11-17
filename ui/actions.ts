@@ -1,7 +1,7 @@
 // Stable action identities and presentation metadata. No UI or device access.
-export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'notes';
+export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'notes' | 'stems';
 export type Requirement = 'none' | 'song' | 'range' | 'sections' | 'audio' | 'loop_on' | 'undo' | 'editor' | 'help' | 'zoom_out';
-export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort';
+export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort' | 'stem_gain';
 function define(description: string, keys: readonly string[] = [], requires: Requirement = 'song', payload: PayloadKind = 'command', repeat = false) {
   return { description, keys, requires, payload, repeat, duringBusy: false, scope: 'all' as ActionScope };
 }
@@ -48,11 +48,57 @@ export type MappingActionId = keyof typeof MAPPING_ACTIONS;
 
 const library = (...args: Parameters<typeof define>) => ({ ...define(...args), scope: 'library' as ActionScope });
 export const ACTIONS = {
+  separation_install:define('Set up stem separation',[],'none'),
+  separation_start:define('Separate the full reference recording'),
+  separation_cancel:define('Cancel current stem processing',[],'none'),
+  separation_reinstall_model:define('Reinstall separation model',[],'none'),
+  separation_reinstall_runtime:define('Reinstall separation tools',[],'none'),
+  separation_remove_runtime:define('Remove separation tools',[],'none'),
+  separation_remove_model:define('Remove installed separation model',[],'none'),
+  separation_refresh_runtime:define('Check separation tools',[],'none'),
+  separation_practice:define('Return to practice with completed stems'),
+  separation_open:define('Open current stem processing',[],'none'),
+  retry_stem_mix:define('Retry saving stem controls'),
+  show_stems:practice('Open stems attachment and details'),
+  close_stems:{...define('Close stems and return to practice',[],'none'),scope:'stems' as ActionScope},
+  attach_stems:{...define('Attach or replace this song’s stems'),scope:'stems' as ActionScope},
+  remove_stems:{...define('Remove this song’s stems'),scope:'stems' as ActionScope},
+  stem_gain:practice('Adjust stem gain', [], 'song', 'stem_gain'),
+  solo_bass:practice('Solo / unsolo bass'),
+  solo_drums:practice('Solo / unsolo drums'),
+  solo_guitar:practice('Solo / unsolo guitar'),
+  solo_piano:practice('Solo / unsolo piano'),
+  solo_vocals:practice('Solo / unsolo vocals'),
+  solo_other:practice('Solo / unsolo other'),
+  mute_bass:practice('Mute / unmute bass',['1']),
+  mute_drums:practice('Mute / unmute drums',['2']),
+  mute_guitar:practice('Mute / unmute guitar',['3']),
+  mute_piano:practice('Mute / unmute piano',['4']),
+  mute_vocals:practice('Mute / unmute vocals',['5']),
+  mute_other:practice('Mute / unmute other',['6']),
+  managed_settings: define('Open library settings', [], 'none'),
+  managed_close: define('Close library dialog', [], 'none'),
+  managed_create: define('Create library in the chosen folder', [], 'none'),
+  managed_open: define('Open existing library', [], 'none'),
+  managed_locate: define('Locate the selected library', [], 'none'),
+  managed_retry: define('Retry the selected library', [], 'none'),
+  managed_continue: define('Continue to import a song', [], 'none'),
+  managed_duplicate_open: define('Open the existing song', [], 'none'),
+  managed_duplicate_import: define('Import a separate song', [], 'none'),
+  managed_delete: define('Permanently delete this song', [], 'none'),
+  managed_confirm_delete: define('Confirm permanent song deletion', [], 'none'),
+
+  import_separate: define('Import a separate song with independent notes and maps', [], 'none'),
+  replace_recording: define('Replace the current song reference recording'),
+  replacement_same_timing: define('Replace the recording and explicitly confirm unchanged timing', [], 'none'),
+  replacement_new_timeline: define('Replace the recording and clear the measure map, sections, loop and position', [], 'none'),
+  replacement_cancel: define('Close recording replacement', [], 'none'),
   show_notes: practice('Open song notes'),
   close_notes: {...define('Close notes and return to practice'),scope:'notes' as ActionScope},
   retry_notes: {...define('Retry saving song notes'),scope:'notes' as ActionScope},
   show_library: define('Open the music library', [], 'none'),
   library_close: library('Back to practice', [], 'none'),
+  library_replace: library('Replace this library song recording', [], 'none', 'library_song'),
   library_open: library('Open this library song for practice', [], 'none', 'library_song'),
   library_edit: library('Edit the song details stored in your library', [], 'none', 'library_song'),
   library_save: library('Save song details without changing the audio file', [], 'none'),
@@ -71,7 +117,7 @@ export const ACTIONS = {
   repeat_count_in: practice('Count in one measure before each loop repetition'),
   practice_metronome: practice('Toggle the metronome for the authored measure map'),
   toggle_loop_snap: practice('Snap loop selection to measure boundaries; Shift-drag bypasses snapping'),
-  toggle_loop: practice('Loop on / off', ['l']),
+  toggle_loop: practice('Cycle loop off, loop, and loop with count-in', ['l']),
   set_loop_start: practice('Set A at the playhead', ['a']),
   set_loop_end: practice('Set B at the playhead', ['b']),
   jump_loop_start: define('Jump to A', [','], 'range'),
@@ -85,7 +131,7 @@ export const ACTIONS = {
   previous_section: practice('Previous section', ['['], 'sections'),
   next_section: practice('Next section', [']'], 'sections'),
   add_section: practice('Save a named section', ['n']),
-  open_song: define('Open a song', ['Mod+o'], 'none'),
+  open_song: define('Import a song', ['Mod+o'], 'none'),
   disable_loop: define('Turn looping off', ['Escape'], 'loop_on'),
   show_shortcuts: { ...define('Show keyboard shortcuts', [], 'none'), duringBusy: true },
   reload_keymap: define('Reload shortcut configuration', [], 'none'),
@@ -111,8 +157,25 @@ export const ACTIONS = {
 
 export type ActionId = keyof typeof ACTIONS;
 export const BUTTONS = {
+  separation_install:'separation_install',separation_reinstall_model:'separation_reinstall_model',separation_reinstall_runtime:'separation_reinstall_runtime',separation_remove_runtime:'separation_remove_runtime',separation_start:'separation_start',separation_cancel:'separation_cancel',separation_remove_model:'separation_remove_model',separation_refresh_runtime:'separation_refresh_runtime',separation_practice:'separation_practice',separation_open:'separation_open',
+  retry_stem_mix:'retry_stem_mix',show_stems:'show_stems',close_stems:'close_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',
+  solo_bass:'solo_bass',  solo_drums:'solo_drums',  solo_guitar:'solo_guitar',  solo_piano:'solo_piano',  solo_vocals:'solo_vocals',  solo_other:'solo_other',
+  mute_bass:'mute_bass',mute_drums:'mute_drums',mute_guitar:'mute_guitar',mute_piano:'mute_piano',mute_vocals:'mute_vocals',mute_other:'mute_other',
+  managed_settings:'managed_settings',
+  managed_close:'managed_close',
+  managed_create:'managed_create',
+  managed_open:'managed_open',
+  managed_locate:'managed_locate',
+  managed_retry:'managed_retry',
+  managed_continue:'managed_continue',
+  managed_duplicate_open:'managed_duplicate_open',
+  managed_duplicate_import:'managed_duplicate_import',
+  managed_delete:'managed_delete',
+  managed_confirm_delete:'managed_confirm_delete',
+
+  import_separate:'import_separate',replace_recording:'replace_recording',replacement_same_timing:'replacement_same_timing',replacement_new_timeline:'replacement_new_timeline',replacement_cancel:'replacement_cancel',
   show_notes:'show_notes',close_notes:'close_notes',retry_notes:'retry_notes',
-  show_library:'show_library', library_close:'library_close', library_open:'library_open', library_edit:'library_edit',
+  show_library:'show_library', library_close:'library_close', library_open:'library_open', library_edit:'library_edit',library_replace:'library_replace',
   library_save:'library_save', library_cancel:'library_cancel', library_retry:'library_retry', library_sort:'library_sort', library_reverse:'library_reverse',
   ...Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id => [id, id])) as { [K in MappingActionId]: K },
   mapping_loop_off: 'disable_loop', show_measure_map: 'show_measure_map', show_practice: 'show_practice',

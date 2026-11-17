@@ -216,9 +216,11 @@ including EOF, without creating a phantom next measure. Displayed beat numbers
 are local to the chosen pulse interpretation; conversion uses quarter-note
 positions rather than assuming every displayed beat is one quarter note.
 
-Version-4 song documents contain a version-1 map and plain-text notes; valid version-2/3 documents
-migrate without changing the meaning of sections, controls, loops or position.
-Malformed/future-version files remain intact. Native load/update validate the map
+Version-1 reference-timeline records contain the version-1 map inside the UUID
+song envelope; notes and speed/pitch controls remain song-level. The UI uses a
+flattened version-5 document. The authorized pre-release launch reset replaces
+legacy identity migration; malformed/future UUID files remain intact. See
+[UUID identity](UUID_IDENTITY.md). Native load/update validate the map
 against the decoded source rate and frame count. A map supports up to 10,000
 measures and 80,000 internal anchors. Meter numerators are 1–99, denominators are
 1/2/4/8/16/32/64, and stored rational offsets/durations have numerator at most
@@ -227,7 +229,8 @@ bounded cache, not in the document or routine playback-status payload.
 
 Saved detection is read once per song/editor session through a separate native
 cache-read command. Validate the cache version, model/preprocessing identity,
-song key, source rate/frame count and event positions before displaying it. A
+reference asset/timeline revision, source rate/frame count and event positions
+before displaying it, rebinding verified cached evidence to the current session. A
 missing cache is normal; unreadable/invalid caches report an error and stay intact.
 The installed model is not needed to reload existing evidence. Keep existing
 suggestions visible during reanalysis/cancellation/failure and replace them only

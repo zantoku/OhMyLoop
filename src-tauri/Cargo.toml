@@ -6,10 +6,11 @@ license = "GPL-3.0-or-later"
 description = "OhMyLoop desktop music practice player"
 
 [dependencies]
-ohmyloop = { path = "..", features = ["beat-analysis"] }
+ohmyloop = { path = "..", features = ["beat-analysis", "stem-separation"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 anyhow = "1.0"
+serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
