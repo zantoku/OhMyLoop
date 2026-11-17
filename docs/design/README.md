@@ -31,7 +31,7 @@ then **Measure map**, then Library, Notes and Stems.
 | Screen | Job | Entered from | Briefed |
 | --- | --- | --- | --- |
 | Practice | Hear a song at a workable speed and pitch, loop passages, return to them | Library, start-up, every other screen | [practice.md](practice.md) |
-| Measure map | Build and correct the song's measure map against its reference recording | Practice | – |
+| Measure map | Build and correct the song's measure map against its reference recording | Practice | [measure-map.md](measure-map.md) |
 | Library | Find, import, open and describe songs in the managed library | Header, empty start | – |
 | Notes | Keep plain-text notes for one song | Practice | – |
 | Stems | Separate or attach a stem set and follow its processing | Practice, processing notice | – |
