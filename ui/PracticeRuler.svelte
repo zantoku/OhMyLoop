@@ -7,13 +7,21 @@
   const measures = $derived(mapView?.measures ?? []);
   const span = $derived(view.end - view.start);
   const percent = (frame:number) => (frame/rate-view.start)/span*100;
-  const boundaries = $derived([...new Set(measures.flatMap(m=>[m.start,m.end]))].filter(f=>f/rate>=view.start&&f/rate<=view.end));
+  const inView = (frame:number) => frame/rate>=view.start&&frame/rate<=view.end;
+  const boundaries = $derived([...new Set(measures.flatMap(m=>[m.start,m.end]))].filter(inView));
   const labels = $derived.by(()=>{
     const points = measures.map(m=>({frame:m.start,label:m.label}));
     const first = measureAtFrame(measures, Math.round(view.start*rate));
     // Keep the containing measure legible when its start is offscreen.
     if(first && first.start/rate<view.start) points.push({frame:view.start*rate,label:first.label});
     return markersForView(points.sort((a,b)=>a.frame-b.frame),view.start*rate,view.end*rate,width,55).markers;
+  });
+  // Barlines follow the thinned labels so a zoomed-out song stays readable.
+  // Ends with no following measure (gaps, end of the map) stay visible.
+  const barlines = $derived.by(()=>{
+    const starts = new Set(measures.map(m=>m.start));
+    const labelled = new Set(labels.map(l=>l.frame));
+    return boundaries.filter(f=>labelled.has(f)||!starts.has(f));
   });
   const timeTicks = $derived(Array.from({length:7},(_,i)=>view.start+span*i/6).filter(t=>
     !measureAtFrame(measures, Math.round(t*rate)) &&
@@ -29,7 +37,7 @@
   {/each}
 </div>
 <div class="wave-grid" aria-hidden="true">
-  {#each boundaries as frame}<i class="measure-line" style:left={`${percent(frame)}%`}></i>{/each}
+  {#each barlines as frame}<i class="measure-line" style:left={`${percent(frame)}%`}></i>{/each}
   {#each timeTicks as tick}<i class="time-line" style:left={`${(tick-view.start)/span*100}%`}></i>{/each}
 </div>
 <style>

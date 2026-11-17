@@ -157,6 +157,17 @@ describe('authored measure practice timeline',()=>{
     expect(field.querySelector('.time-label')?.textContent).not.toBe('0:04.7');
     expect(screen.queryByRole('button',{name:/Jump to measure/})).toBeNull();
   });
+  it('draws barlines only where a zoomed-out ruler shows the measure number',async()=>{
+    const bar=timingFixture().view.measures[0];
+    const measures=Array.from({length:40},(_,i)=>({...bar,id:`m${i}`,start:i*1000,end:(i+1)*1000,number:i+1,label:String(i+1)}));
+    const {field,rerender}=setup({revision:1,measures});
+    const lines=()=>[...field.querySelectorAll<HTMLElement>('.measure-line')].map(e=>e.style.left);
+    expect(lines()).toHaveLength(9); // Uncrowded: every barline from 2 to 10 s.
+    await rerender({view:{start:0,end:40}});
+    const labels=[...field.querySelectorAll('.measure-label')].map(e=>e.textContent);
+    expect(labels).toEqual(['1','5','9','13','17','21','25','29','33','37']);
+    expect(lines()).toEqual([...labels.map(l=>`${(Number(l)-1)/40*100}%`),'100%']); // Plus the end of the map.
+  });
   it('selects whole touched measures in either direction, including single-bar drags',async()=>{
     const {field,onselection,onseek}=setup(timingFixture().view);
     await pointer(field,'pointerdown',250); // 3.2 s
