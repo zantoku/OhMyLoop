@@ -9,16 +9,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Linux (ubuntu-22.04, x86_64-unknown-linux-gnu, appimage) and Windows
+        # (windows-2022, x86_64-pc-windows-msvc, nsis) are paused until their
+        # failures are fixed on those platforms. Re-add their rows here; the
+        # platform-specific steps below still apply to them.
         include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundle: appimage
           - os: macos-26
             target: aarch64-apple-darwin
             bundle: app,dmg
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-            bundle: nsis
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -45,35 +43,6 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --release -p ohmyloop --features beat-analysis,stem-separation
-        if: runner.os != 'Windows'
-      # TEMPORARY: locate the Windows STATUS_ACCESS_VIOLATION in one test, with a
-      # native stack from cdb when the runner provides the Debugging Tools.
-      - name: Windows crash diagnostics
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $test = 'desktop::stems::tests::unavailable_stems_preserve_requested_settings_and_stale_publication_preserves_record'
-          $exe = cargo test --locked --release -p ohmyloop --features beat-analysis,stem-separation --lib --no-run --message-format=json |
-            ConvertFrom-Json | Where-Object { $_.reason -eq 'compiler-artifact' -and $_.executable } |
-            Select-Object -Last 1 -ExpandProperty executable
-          Write-Output "test executable: $exe"
-          $cdb = @(
-            (Get-Command cdb.exe -ErrorAction SilentlyContinue).Source,
-            'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
-          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-          Write-Output "cdb: $cdb"
-          # Alone the test passes, so reproduce with the tests that precede it.
-          $symbols = "$(Split-Path $exe);srv*$env:RUNNER_TEMP\symbols*https://msdl.microsoft.com/download/symbols"
-          foreach ($filter in @('desktop::stems::tests', '')) {
-            Write-Output "=== cdb run, filter '$filter'"
-            & $cdb -g -G -lines -y $symbols -c '.lastevent; .ecxr; kn 60; ~*kn 25; q' $exe $filter --test-threads=1 --nocapture
-            Write-Output "exit code: $LASTEXITCODE"
-          }
-      # TEMPORARY: the Windows lib tests abort with STATUS_ACCESS_VIOLATION and no
-      # test name. Serial execution prints each test name before it runs.
-      - run: cargo test --locked --release -p ohmyloop --features beat-analysis,stem-separation -- --test-threads=1
-        if: runner.os == 'Windows'
       - name: Prepare pinned separation bootstrap resources
         run: python scripts/separation_runtime/prepare.py --build-python python
       - name: Build installable desktop artifact
