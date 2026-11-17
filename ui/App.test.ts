@@ -28,7 +28,7 @@ beforeEach(() => {
   mock.readLibrary.mockResolvedValue({version:1,songs:[]});
   mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:false,reference_token:null,map_revision:0,error:null,result:null});
   mock.readKeymap.mockResolvedValue({ path: '/test/keymap.json', configuration: null, warning: null });
-  document = { version: 4, notes:'', song_key: 'test',reference_token:'test', controls: { speed: 1, semitones: 0 },
+  document = { version: 4, notes:'', song_key: 'test',reference_token:'test', controls: { speed: 1, semitones: 0, tuning_cents: 0 },
     sections: [{ id: 'verse', name: 'Verse', start: 0, end: 8 }, { id: 'chorus', name: 'Chorus', start: 3, end: 6 }],
     selected_section: null, loop_selection: null, loop_enabled: false, last_position: 0 };
   transport = { song_key: 'test',reference_token:'test', position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: 'Test output' };
@@ -101,9 +101,27 @@ describe('single-song practice workflow', () => {
   it('preserves a pitch adjustment when changing speed quickly afterwards', async () => {
     await ready();
     await fireEvent.change(screen.getByLabelText('Pitch semitones'), { target: { value: '-3' } });
-    await fireEvent.click(screen.getByRole('button', { name: '75%' }));
-    await waitFor(() => expect(document.controls).toEqual({ speed: .75, semitones: -3 }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Slower by 10 percent' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Slower by 5 percent' }));
+    await waitFor(() => expect(document.controls).toEqual({ speed: .85, semitones: -3, tuning_cents: 0 }));
     expect((screen.getByLabelText('Pitch semitones') as HTMLInputElement).value).toBe('-3');
+  });
+  it('keeps tuning separate from whole-semitone transposition and resets each on its own', async () => {
+    await ready();
+    await fireEvent.change(screen.getByLabelText('Tuning cents'), { target: { value: '31.8' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Transpose up' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Transpose up' }));
+    await fireEvent.change(within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent'), { target: { value: '87.5' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Faster by 5 percent' }));
+    await waitFor(() => expect(document.controls).toEqual({ speed: .93, semitones: 2, tuning_cents: 31.8 }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset pitch' }));
+    await waitFor(() => expect(document.controls).toEqual({ speed: .93, semitones: 0, tuning_cents: 31.8 }));
+    await fireEvent.change(screen.getByLabelText('Tuning cents'), { target: { value: '80' } });
+    await waitFor(() => expect(document.controls.tuning_cents).toBe(50));
+    await fireEvent.change(within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent'), { target: { value: '' } });
+    expect((within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent') as HTMLInputElement).value).toBe('93');
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset tuning' }));
+    await waitFor(() => expect(document.controls).toEqual({ speed: .93, semitones: 0, tuning_cents: 0 }));
   });
   it('creates a named phrase inside a longer section', async () => {
     await ready(); await fireEvent.click(screen.getByRole('button', { name: 'Add section' }));
@@ -310,7 +328,7 @@ it('uses detected beats by default, derives count from the preview, and prevents
 });
 
 it('keeps compact playback over the waveform without turning its controls into seeks',async()=>{
-  document.controls={speed:.75,semitones:-3};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
+  document.controls={speed:.75,semitones:-3, tuning_cents: 0};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
   mock.initialize.mockResolvedValue({...response(),song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   const waveform=screen.getByRole('region',{name:/Measure-map waveform/}),playback=within(waveform).getByRole('group',{name:'Measure mapping playback'});
@@ -319,7 +337,7 @@ it('keeps compact playback over the waveform without turning its controls into s
   const speedInput=within(playback).getByRole('spinbutton',{name:'Speed percent'});
   for(const type of ['pointerdown','pointerup']){const event=new MouseEvent(type,{bubbles:true,button:0});Object.defineProperty(event,'pointerId',{value:1});await fireEvent(speedInput,event);}
   await fireEvent.change(speedInput,{target:{value:'50'}});
-  await waitFor(()=>expect(document.controls).toEqual({speed:.5,semitones:-3}));
+  await waitFor(()=>expect(document.controls).toEqual({speed:.5,semitones:-3, tuning_cents: 0}));
   await fireEvent.click(within(playback).getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
   expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'toggle_play'},'test');
   const wheel=new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-100});await fireEvent(speedInput,wheel);expect(wheel.defaultPrevented).toBe(false);
@@ -565,7 +583,7 @@ it('marks a measure as free time, selects its waveform gap and reclaims it witho
 
 it.each(['left','right'] as const)('shifts the remaining map %s in one direct edit with Undo and preserved practice settings',async(direction)=>{
   const original=timingFixture(48000),changed=structuredClone(original);
-  document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3};document.loop_selection={start:1,end:3,fade_ms:5};document.loop_enabled=true;
+  document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3, tuning_cents: 0};document.loop_selection={start:1,end:3,fade_ms:5};document.loop_enabled=true;
   const frame=direction==='right'?288000:96000;
   changed.map.boundaries[1].frame=frame;changed.map.revision=2;changed.view.revision=2;
   changed.map.measures[0]={...changed.map.measures[0],meter:{...changed.map.measures[0].meter,numerator:direction==='right'?6:4},length:{num:direction==='right'?6:2,den:1},kind:direction==='right'?'full':'incomplete'};
@@ -583,7 +601,7 @@ it.each(['left','right'] as const)('shifts the remaining map %s in one direct ed
   await fireEvent.click(screen.getByRole('button',{name:direction==='right'?'Shift right':'Shift left'}));
   await waitFor(()=>expect(document.measure_map).toEqual(changed.map));
   expect(mock.previewMap).toHaveBeenCalledExactlyOnceWith('test',original.map,{type:'shift',id:'map-5',pulses:2,direction});
-  expect(document.controls).toEqual({speed:.75,semitones:-3});expect(document.loop_selection).toEqual({start:1,end:3,fade_ms:5});expect(mock.action).not.toHaveBeenCalled();
+  expect(document.controls).toEqual({speed:.75,semitones:-3, tuning_cents: 0});expect(document.loop_selection).toEqual({start:1,end:3,fade_ms:5});expect(mock.action).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:'Apply map'})).toBeNull();
   await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
   await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));expect(document.measure_map?.boundaries).toEqual(original.map.boundaries);
@@ -617,7 +635,7 @@ it.each([
   const original=timingFixture(48000),preview=structuredClone(original);
   preview.map.boundaries[1].frame=252000;preview.map.revision=2;
   preview.view.measures[0].end=252000;preview.view.measures[1].start=252000;preview.view.revision=2;
-  document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3};
+  document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3, tuning_cents: 0};
   document.loop_selection={start:1,end:3,fade_ms:5};document.loop_enabled=true;
   transport.playing=playing;
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
@@ -633,7 +651,7 @@ it.each([
   expect(measure.classList.contains('selected')).toBe(true);
   expect(transport.playing).toBe(playing);expect(document.loop_enabled).toBe(false);
   expect(document.loop_selection).toEqual({start:1,end:3,fade_ms:5});
-  expect(document.controls).toEqual({speed:.75,semitones:-3});expect(document.measure_map).toEqual(original.map);
+  expect(document.controls).toEqual({speed:.75,semitones:-3, tuning_cents: 0});expect(document.measure_map).toEqual(original.map);
   expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
   await fireEvent.keyDown(window,{key:'Enter',code:'Enter'});
   await waitFor(()=>expect(transport.position).toBe(0));
@@ -717,7 +735,7 @@ it('resizes a shared boundary as one undoable edit that restores both measures a
 
 it('clears a protected map, keeps practice settings, and restores the exact map through Undo',async()=>{
   const original=timingFixture(48000);original.map.measures[0].protected=true;
-  document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
+  document.measure_map=structuredClone(original.map);document.controls={speed:.75,semitones:-3, tuning_cents: 0};document.loop_selection={start:3,end:6,fade_ms:5};document.loop_enabled=true;
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   const empty={...original,map:{...original.map,revision:2,first_number:1,measures:[],boundaries:[]},view:{revision:2,measures:[]}};
   mock.previewMap.mockResolvedValue(empty);mock.mapView.mockResolvedValue({...original.view,revision:3});
@@ -725,7 +743,7 @@ it('clears a protected map, keeps practice settings, and restores the exact map 
   await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(0));expect(mock.previewMap.mock.lastCall?.[2]).toEqual({type:'clear'});
   await waitFor(()=>expect(screen.getByRole('button',{name:'Undo'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Undo'}));
   await waitFor(()=>expect(document.measure_map?.measures).toEqual(original.map.measures));expect(document.measure_map?.boundaries).toEqual(original.map.boundaries);
-  expect(document.controls).toEqual({speed:.75,semitones:-3});expect(document.loop_enabled).toBe(true);expect(document.loop_selection).toEqual({start:3,end:6,fade_ms:5});expect(document.sections[0].id).toBe('verse');
+  expect(document.controls).toEqual({speed:.75,semitones:-3, tuning_cents: 0});expect(document.loop_enabled).toBe(true);expect(document.loop_selection).toEqual({start:3,end:6,fade_ms:5});expect(document.sections[0].id).toBe('verse');
 });
 
 it('auditions the displayed draft, reverts on discard, and disables clicks when returning to practice',async()=>{
@@ -1244,7 +1262,7 @@ it('sets up the library on first import and explains copied originals before cho
 });
 it('keeps the selected song when switching cannot save pending settings',async()=>{
   await ready();mock.update.mockRejectedValue(new Error('Cannot save'));
-  await fireEvent.input(screen.getByRole('slider',{name:'Playback speed'}),{target:{value:'80'}});
+  await fireEvent.change(within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent'),{target:{value:'80'}});
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(screen.getByRole('button',{name:'Library settings'}));
   await fireEvent.click(screen.getByRole('button',{name:'Open existing library'}));
   await within(screen.getByRole('dialog',{name:'Library settings'})).findByText(/Cannot save/);expect(mock.chooseLibrary).not.toHaveBeenCalled();expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();
@@ -1406,7 +1424,7 @@ it.each([
   original.map.measures[1].start = original.view.measures[1].start_id = 'gap-end';
   original.view.measures[1].start = 264000;
   document.measure_map = original.map;
-  document.controls = { speed: .75, semitones: -3 };
+  document.controls = { speed: .75, semitones: -3, tuning_cents: 0 };
   document.loop_selection = { start: 6, end: 7, fade_ms: 5 };
   document.loop_enabled = true;
   transport.position = 6.5;
@@ -1424,7 +1442,7 @@ it.each([
     expect(mock.action).toHaveBeenLastCalledWith({ type:'seek', seconds }, 'test');
   }
   expect(transport.playing).toBe(true);
-  expect(document.controls).toEqual({ speed:.75, semitones:-3 });
+  expect(document.controls).toEqual({ speed:.75, semitones:-3, tuning_cents: 0 });
   expect(document.loop_selection).toEqual({ start:6, end:7, fade_ms:5 });
   expect(document.loop_enabled).toBe(false);
   // No preceding/following measure means no additional seek at the map edges.

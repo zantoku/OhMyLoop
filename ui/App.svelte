@@ -33,7 +33,8 @@
   import { MAPPING_ACTIONS, type ActionId, type ButtonId, type MappingActionId } from './actions';
   import { clamp, editing, ordered, range, sectionColor, time, zoom } from './model';
   import { pageForPlayhead } from './timeline';
-  import type { Action, Loop, PracticeDocument, Section, Snapshot, Song, Transport, View } from './types';
+  import type { Action, Controls, Loop, PracticeDocument, Section, Snapshot, Song, Transport, View } from './types';
+  import { normalized, ORIGINAL, stepSpeed, transpose } from './playback-controls';
 
   let song = $state<Song | null>(null);
   let project = $state<PracticeDocument | null>(null);
@@ -148,8 +149,8 @@
   let mounted = false;
   const sections = $derived(ordered(project?.sections ?? []));
   const selection = $derived(project?.loop_selection ?? null);
-  const speed = $derived(project?.controls.speed ?? 1);
-  const pitch = $derived(project?.controls.semitones ?? 0);
+  const playbackControls = $derived<Controls>({ ...ORIGINAL, ...project?.controls });
+  const speed = $derived(playbackControls.speed);
 
   function apply(snapshot: Snapshot, documentRevision = revision) {
     if(documentRevision!==revision)return;
@@ -239,9 +240,10 @@
     catch (e) { error = String(e); }
     finally{if(preparingStems){busy='';stemProgress=null;}}
   }
-  function controls(nextSpeed: number, nextPitch: number) {
-    if (separationActive || !project || !Number.isFinite(nextSpeed) || !Number.isFinite(nextPitch)) return;
-    project = { ...project, controls: { speed: clamp(nextSpeed, .25, 2), semitones: clamp(nextPitch, -12, 12) } };
+  function controls(change: Partial<Controls>) {
+    const next = normalized({ ...playbackControls, ...change });
+    if (separationActive || !project || !next) return;
+    project = { ...project, controls: next };
     revision++;
     clearTimeout(controlTimer);
     saved = false;
@@ -400,11 +402,14 @@
     zoom_in: () => { view = zoom(view, song!.duration, .5, selection ? (selection.start + selection.end) / 2 : transport.position); },
     zoom_out: () => { view = zoom(view, song!.duration, 2, (view.start + view.end) / 2); },
     show_whole_song: () => { view = { start: 0, end: song!.duration }; },
-    reset_speed: () => controls(1, pitch), reset_pitch: () => controls(speed, 0),
+    reset_speed: () => controls({ speed: 1 }), reset_pitch: () => controls({ semitones: 0 }), reset_tuning: () => controls({ tuning_cents: 0 }),
+    speed_down_10: () => controls({ speed: stepSpeed(speed, -10) }), speed_down_5: () => controls({ speed: stepSpeed(speed, -5) }),
+    speed_up_5: () => controls({ speed: stepSpeed(speed, 5) }), speed_up_10: () => controls({ speed: stepSpeed(speed, 10) }),
+    transpose_down: () => controls({ semitones: transpose(playbackControls.semitones, -1) }), transpose_up: () => controls({ semitones: transpose(playbackControls.semitones, 1) }),
     retry_audio: () => action({ type: 'retry_audio' }), retry_save: () => update({}),
     undo_delete: undoDelete, dismiss_error: () => { error = ''; },
     select_section: ({ section }) => selectSection(section!), edit_section: ({ section }) => startSection(section),
-    delete_section: ({ section }) => removeSection(section!.id), speed_preset: ({ speed }) => controls(speed!, pitch),
+    delete_section: ({ section }) => removeSection(section!.id),
     save_section: saveSection, close_editor: () => sectionDialog.close(), close_shortcuts: () => helpDialog.close()
   }, () => ({ context: screen, busy: !!busy||stemsLoading, song: !!song, range: !!selection, sections: !!sections.length,
     audio: !!song && native && !transport.audio_error, loop_on: !!project?.loop_enabled,
@@ -566,7 +571,7 @@
           {#if stemsState.snapshot?.set_id}<TrackMixer tracks={stemsState.snapshot.tracks} disabled={separationActive||!!busy||stemsLoading||!stemsState.snapshot.available||!!transport.audio_error} {keymap} ongain={(role,gain)=>runAction('stem_gain',{role,gain})} onmute={role=>runButton(`mute_${role}`)} onsolo={role=>runButton(`solo_${role}`)}/>{/if}
         </div>
 
-        <PlaybackSettings disabled={!!busy||separationActive} {speed} {pitch} {keymap} {controls} {runButton}/>
+        <PlaybackSettings disabled={!!busy||separationActive} controls={playbackControls} {keymap} onchange={controls} {runButton}/>
         {/if}
 
       {:else}
@@ -576,7 +581,7 @@
   </main>
   {#if song}
     {#key song.reference_token}
-      {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls(value,pitch)} disabled={!!busy||separationActive}/>{/snippet}
+      {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls({speed:value})} disabled={!!busy||separationActive}/>{/snippet}
       <MeasureEditor bind:this={measureEditor} playbackFrozen={separationActive} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.reference_token,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={id=>{void runButton(id);}} available={buttonAvailable}/>
     {/key}
     <div class="musical-navigation" hidden={screen==='library'||screen==='notes'||screen==='stems'||!mapView?.measures.length}>

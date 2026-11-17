@@ -64,7 +64,11 @@ fn real_dsp_changes_speed_and_pitch_independently() {
             (0.25, -12.0),
             (2.0, 12.0),
         ] {
-            let controls = Controls { speed, semitones };
+            let controls = Controls {
+                speed,
+                semitones,
+                tuning_cents: 0.0,
+            };
             let output = render(audio.clone(), controls, 0.0, None, None, finer).unwrap();
             let seconds = output.len() as f64 / audio.rate as f64;
             assert!(
@@ -83,6 +87,28 @@ fn real_dsp_changes_speed_and_pitch_independently() {
 }
 
 #[test]
+fn tuning_cents_retune_a_recording_to_a440_alongside_whole_semitones() {
+    // A recording made at A = 432 Hz is brought to 440 Hz by its tuning offset alone.
+    let audio = Arc::new(Audio::tone(48_000, 2.0, 432.0));
+    let to_a440 = 1200.0 * (440.0_f64 / 432.0).log2();
+    for (semitones, expected_hz) in [(0.0, 440.0), (-5.0, 440.0 * 2_f64.powf(-5.0 / 12.0))] {
+        let controls = Controls {
+            speed: 0.75,
+            semitones,
+            tuning_cents: to_a440,
+        };
+        let output = render(audio.clone(), controls, 0.0, None, None, true).unwrap();
+        let hz = frequency(&output, audio.rate);
+        let cents = 1200.0 * (hz / expected_hz).log2();
+        assert!(
+            cents.abs() < 5.0,
+            "semitones={semitones} hz={hz} cents={cents}"
+        );
+        assert!(((output.len() as f64 / 48_000.0) - 2.0 / 0.75).abs() < 0.05);
+    }
+}
+
+#[test]
 fn seek_and_loop_use_the_selected_audio_not_only_matching_metadata() {
     let mut audio = Audio::tone(48_000, 1.0, 220.0);
     audio.frames.extend(Audio::tone(48_000, 1.0, 880.0).frames);
@@ -90,6 +116,7 @@ fn seek_and_loop_use_the_selected_audio_not_only_matching_metadata() {
     let controls = Controls {
         speed: 0.75,
         semitones: 3.0,
+        tuning_cents: 0.0,
     };
     for finer in [false, true] {
         let sought = render(audio.clone(), controls, 1.15, None, None, finer).unwrap();
@@ -134,6 +161,7 @@ fn live_control_changes_reach_real_dsp() {
         .set_controls(Controls {
             speed: 0.5,
             semitones: 12.0,
+            tuning_cents: 0.0,
         })
         .unwrap();
     let shifted = collect(&mut engine);
@@ -220,6 +248,7 @@ fn source_markers_survive_session_serialization_and_reject_invalid_input() {
     session.controls = Controls {
         speed: 0.5,
         semitones: -3.5,
+        tuning_cents: 0.0,
     };
     let json = serde_json::to_vec(&session).unwrap();
     let restored: Session = serde_json::from_slice(&json).unwrap();
@@ -236,7 +265,8 @@ fn source_markers_survive_session_serialization_and_reject_invalid_input() {
     assert!(
         Controls {
             speed: f64::NAN,
-            semitones: 0.0
+            semitones: 0.0,
+            tuning_cents: 0.0,
         }
         .validate()
         .is_err()
@@ -371,6 +401,7 @@ fn repeated_loop_timing_does_not_drift_at_half_speed() {
         Controls {
             speed: 0.5,
             semitones: 0.0,
+            tuning_cents: 0.0,
         },
         0.0,
         Some(LoopRegion {

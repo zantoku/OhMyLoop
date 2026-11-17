@@ -23,7 +23,7 @@ describe('shared action execution', () => {
     const handler = vi.fn<(payload: ActionPayload) => void>();
     const handlers = handlersWith(() => handler);
     const dispatcher = new ActionDispatcher(handlers, () => ({ busy: false, song: true, range: true, sections: true, audio: true, loop_on: true, undo: true, editor: true, help: true, zoom_out: true }));
-    dispatcher.run('delete_section'); dispatcher.run('speed_preset', { speed: NaN });
+    dispatcher.run('delete_section');
     expect(handler).not.toHaveBeenCalled();
     const section = { id: 'riff', name: 'Riff', start: 1, end: 2 };
     dispatcher.run('select_section', { section }); expect(handler).toHaveBeenLastCalledWith({ section });

@@ -316,7 +316,11 @@ fn probe(args: &[String]) -> Result<()> {
     ];
     for finer in [true, false] {
         for (speed, semitones) in matrix {
-            let controls = Controls { speed, semitones };
+            let controls = Controls {
+                speed,
+                semitones,
+                tuning_cents: 0.0,
+            };
             let dsp = Dsp::new(audio.rate, controls, finer)?;
             let start = Instant::now();
             let output = render(audio.clone(), controls, 0.0, None, None, finer)?;
@@ -352,6 +356,7 @@ fn probe(args: &[String]) -> Result<()> {
             Controls {
                 speed: 0.5,
                 semitones: 0.0,
+                tuning_cents: 0.0,
             },
             None,
         ),
@@ -360,6 +365,7 @@ fn probe(args: &[String]) -> Result<()> {
             Controls {
                 speed: 1.0,
                 semitones: -5.0,
+                tuning_cents: 0.0,
             },
             None,
         ),
@@ -368,6 +374,7 @@ fn probe(args: &[String]) -> Result<()> {
             Controls {
                 speed: 0.7,
                 semitones: 3.0,
+                tuning_cents: 0.0,
             },
             Some(LoopRegion {
                 start: 1.17,
@@ -417,11 +424,13 @@ fn smoke(args: &[String]) -> Result<()> {
     player.set_controls(Controls {
         speed: 0.5,
         semitones: 0.0,
+        tuning_cents: 0.0,
     })?;
     thread::sleep(Duration::from_secs(1));
     player.set_controls(Controls {
         speed: 0.75,
         semitones: -5.0,
+        tuning_cents: 0.0,
     })?;
     player.seek(1.0)?;
     thread::sleep(Duration::from_secs(1));

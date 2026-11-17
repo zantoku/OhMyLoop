@@ -1,7 +1,7 @@
 import { ACTIONS, type ActionId } from './actions';
 import type { Section } from './types';
 
-export type ActionPayload = {role?:import('./stems').StemRole;gain?:number; section?: Section; speed?: number; songKey?:string; librarySort?:import('./library').LibrarySort };
+export type ActionPayload = {role?:import('./stems').StemRole;gain?:number; section?: Section; songKey?:string; librarySort?:import('./library').LibrarySort };
 export type ActionHandlers = Record<ActionId, (payload: ActionPayload) => void | Promise<void>>;
 export type ActionState = {
   context?: 'practice' | 'mapping' | 'library' | 'notes' | 'stems'; busy: boolean; song: boolean; range: boolean; sections: boolean; audio: boolean;
@@ -27,7 +27,6 @@ export class ActionDispatcher {
     if (ACTIONS[id].payload === 'library_sort' && !payload.librarySort) return;
     if (ACTIONS[id].payload === 'library_song' && !payload.songKey) return;
     if(ACTIONS[id].payload==='stem_gain'&&(!payload.role||!Number.isFinite(payload.gain)))return;
-    if (ACTIONS[id].payload === 'speed' && !Number.isFinite(payload.speed)) return;
     return this.handlers[id](payload);
   }
 }

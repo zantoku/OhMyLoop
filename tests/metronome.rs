@@ -175,8 +175,18 @@ fn render_clicks(
     let mut mixer = ClickMixer::new(rate);
     mixer.configure(true, 1.0, ticks(&authored, rate).unwrap());
     mixer.reset(region);
-    let mut engine =
-        Engine::new(audio, Controls { speed, semitones }, start, region, true).unwrap();
+    let mut engine = Engine::new(
+        audio,
+        Controls {
+            speed,
+            semitones,
+            tuning_cents: 0.0,
+        },
+        start,
+        region,
+        true,
+    )
+    .unwrap();
     let mut result = vec![];
     while result.len() < limit {
         let block = engine.next_block();

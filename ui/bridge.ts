@@ -20,7 +20,7 @@ function demo(): Snapshot {
   previewSong = { key: 'builtin-demo', reference_token:'builtin-demo', asset_id:'preview',timeline_id:'preview',reference_revision:1,session_id:'preview',  title: 'Practice sketch', path: null, duration: 12, rate: 48000,
     peaks: Array.from({ length: 4096 }, (_, i) => { const t = i / 4096 * 12; const level = 0.06 + 0.21 * Math.exp(-5 * (t % .5)); return [-level, level]; }) };
   const saved = localStorage.getItem('ohmyloop-ui-preview');
-  previewDocument = saved ? JSON.parse(saved) : { version: 4, notes:'', song_key: 'builtin-demo',reference_token:'builtin-demo', controls: { speed: 1, semitones: 0 },
+  previewDocument = saved ? JSON.parse(saved) : { version: 4, notes:'', song_key: 'builtin-demo',reference_token:'builtin-demo', controls: { speed: 1, semitones: 0, tuning_cents: 0 },
     sections: ['Verse', 'Chorus', 'Bridge', 'Outro'].map((name, i) => ({ id: `demo-${i}`, name, start: i * 3, end: (i + 1) * 3 })),
     selected_section: null, loop_selection: null, loop_enabled: false, last_position: 0 };
   previewDocument = {...previewDocument!,version:4,reference_token:'builtin-demo',notes:previewDocument!.notes??''};

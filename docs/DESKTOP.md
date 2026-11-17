@@ -23,6 +23,14 @@ controls, keyboard navigation, and restored practice settings.
 The source timeline remains independent from playback speed and output sample
 rate. Sections have stable IDs and can overlap. Temporary loops are separate
 document fields. Mutations and status polling do not resend waveform data.
+
+Playback controls are saved per song. Speed accepts free entry from 25% to
+200%, and its −10/−5/+5/+10 buttons step in percentage points. Pitch is a
+whole-semitone transposition (±12) plus a separate tuning offset (±50 cents)
+for recordings tuned away from A = 440 Hz, e.g. +31.8 cents for A = 432 Hz.
+The engine plays their sum; resetting pitch keeps the tuning. Song records
+written before tuning existed read as 0 cents. All step, transpose, and reset
+actions are bindable in the keymap and are unbound by default.
 Frontend control updates are serialized and coalesced, and older replies do
 not overwrite newer edits. The audio engine owns playback timing.
 

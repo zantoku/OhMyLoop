@@ -37,6 +37,7 @@ fn main() -> Result<()> {
     player.set_controls(Controls {
         speed: 0.5,
         semitones: -5.0,
+        tuning_cents: 0.0,
     })?;
     thread::sleep(Duration::from_secs(2));
     println!("slow / pitch shifted: {}", player.status());
@@ -49,6 +50,7 @@ fn main() -> Result<()> {
     player.set_controls(Controls {
         speed: 1.7,
         semitones: 7.0,
+        tuning_cents: 0.0,
     })?;
     thread::sleep(Duration::from_secs(3));
     println!("seek / loop / fast: {}", player.status());

@@ -111,7 +111,7 @@ a song and `Shift+ArrowLeft` performs fine seeking. Tab remains keyboard focus
 navigation. Bindings that overlap after modifier/platform resolution and screen scope are rejected.
 
 `buttons` maps a stable control ID to an action. Actions requiring contextual
-data, such as a section or speed preset, can only replace actions accepting the
+data, such as a section, can only replace actions accepting the
 same kind of payload. Form submit and dialog-close controls retain their own
 payload categories. Layout and icons belong to the view; execution, availability,
 tooltips, and remapped accessible labels use the resolved action.
