@@ -916,7 +916,16 @@ mod tests {
             frames
         }
         fn configure(&self, speed: f64, semitones: f64, repeat: bool) {
-            self.send(|reply| Command::Controls(Controls { speed, semitones }, reply));
+            self.send(|reply| {
+                Command::Controls(
+                    Controls {
+                        speed,
+                        semitones,
+                        tuning_cents: 0.0,
+                    },
+                    reply,
+                )
+            });
             self.send(|reply| {
                 Command::Loop(
                     Some(LoopRegion {
@@ -1016,6 +1025,7 @@ mod tests {
                 Controls {
                     speed: 0.5,
                     semitones: 7.0,
+                    tuning_cents: 0.0,
                 },
                 reply,
             )
@@ -1061,6 +1071,7 @@ mod tests {
                 Controls {
                     speed: 0.5,
                     semitones: 0.0,
+                    tuning_cents: 0.0,
                 },
                 reply,
             )

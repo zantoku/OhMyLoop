@@ -75,7 +75,11 @@ fn block_source_real_r3_pitch_duration_and_seek_loop() {
         for semitones in [-12.0, 0.0, 12.0] {
             let mut engine = Engine::new_source(
                 Fixture.open(0, MixState::default()).unwrap(),
-                Controls { speed, semitones },
+                Controls {
+                    speed,
+                    semitones,
+                    tuning_cents: 0.0,
+                },
                 0.0,
                 None,
                 true,
@@ -157,6 +161,7 @@ fn live_mix_source_paused_controls_and_original_bypass() {
         .set_controls(Controls {
             speed: 0.25,
             semitones: 12.0,
+            tuning_cents: 0.0,
         })
         .unwrap();
     for _ in 0..1000 {

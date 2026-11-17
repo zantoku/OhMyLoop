@@ -1,7 +1,7 @@
 // Stable action identities and presentation metadata. No UI or device access.
 export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'notes' | 'stems';
 export type Requirement = 'none' | 'song' | 'range' | 'sections' | 'audio' | 'loop_on' | 'undo' | 'editor' | 'help' | 'zoom_out';
-export type PayloadKind = 'command' | 'section' | 'speed' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort' | 'stem_gain';
+export type PayloadKind = 'command' | 'section' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort' | 'stem_gain';
 function define(description: string, keys: readonly string[] = [], requires: Requirement = 'song', payload: PayloadKind = 'command', repeat = false) {
   return { description, keys, requires, payload, repeat, duringBusy: false, scope: 'all' as ActionScope };
 }
@@ -141,7 +141,14 @@ export const ACTIONS = {
   zoom_out: practice('Zoom out', [], 'zoom_out'),
   show_whole_song: practice('Show the whole song'),
   reset_speed: define('Reset to original speed'),
-  reset_pitch: define('Reset to original pitch'),
+  reset_pitch: define('Reset transposition to 0 semitones'),
+  reset_tuning: define('Reset tuning to 0 cents'),
+  speed_down_10: define('Slow down by 10 percentage points'),
+  speed_down_5: define('Slow down by 5 percentage points'),
+  speed_up_5: define('Speed up by 5 percentage points'),
+  speed_up_10: define('Speed up by 10 percentage points'),
+  transpose_down: define('Transpose down one semitone'),
+  transpose_up: define('Transpose up one semitone'),
   retry_audio: define('Retry audio output'),
   retry_save: define('Retry saving practice settings'),
   undo_delete: practice('Restore the removed section', [], 'undo'),
@@ -149,7 +156,6 @@ export const ACTIONS = {
   select_section: practice('Jump to this section', [], 'song', 'section'),
   edit_section: practice('Edit this section', [], 'song', 'section'),
   delete_section: practice('Delete this section', [], 'song', 'section'),
-  speed_preset: define('Set playback speed', [], 'song', 'speed'),
   save_section: practice('Save section', [], 'editor', 'editor_submit'),
   close_editor: practice('Close section editor', [], 'editor', 'editor_close'),
   close_shortcuts: { ...define('Close shortcuts', [], 'help', 'help_close'), duringBusy: true }
@@ -188,10 +194,12 @@ export const BUTTONS = {
   jump_loop_start: 'jump_loop_start', jump_loop_end: 'jump_loop_end',
   add_section: 'add_section', save_selection: 'add_section',
   zoom_in: 'zoom_in', zoom_out: 'zoom_out', show_whole_song: 'show_whole_song',
-  reset_speed: 'reset_speed', reset_pitch: 'reset_pitch', original_pitch: 'reset_pitch',
+  reset_speed: 'reset_speed', reset_pitch: 'reset_pitch', original_pitch: 'reset_pitch', reset_tuning: 'reset_tuning',
+  speed_down_10: 'speed_down_10', speed_down_5: 'speed_down_5', speed_up_5: 'speed_up_5', speed_up_10: 'speed_up_10',
+  transpose_down: 'transpose_down', transpose_up: 'transpose_up',
   retry_audio: 'retry_audio', retry_save: 'retry_save', undo_delete: 'undo_delete',
   dismiss_error: 'dismiss_error', select_section: 'select_section',
-  edit_section: 'edit_section', delete_section: 'delete_section', speed_preset: 'speed_preset',
+  edit_section: 'edit_section', delete_section: 'delete_section',
   save_section: 'save_section', close_editor: 'close_editor', cancel_editor: 'close_editor',
   close_shortcuts: 'close_shortcuts', reload_keymap: 'reload_keymap'
 } as const satisfies Record<string, ActionId>;

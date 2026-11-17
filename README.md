@@ -353,6 +353,7 @@ quit
 
 - Speed is continuous from 0.25 to 2.0; 0.5 means half speed.
 - Pitch is continuous from -12 to +12 semitones; fractional values allow tuning.
+  (The desktop app splits this into whole semitones plus a ±50 cent tuning offset.)
 - Markers and loop bounds use seconds in the **original song**, regardless of
   speed. `mark NAME` without a time uses the current estimated output position.
 - Loop bounds can be marker names or numbers. Minimum loop length: 100 ms.

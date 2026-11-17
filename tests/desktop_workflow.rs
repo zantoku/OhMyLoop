@@ -159,6 +159,7 @@ fn desktop_controller_restores_sections_controls_and_source_position() {
     doc.controls = Controls {
         speed: 0.75,
         semitones: -3.0,
+        tuning_cents: 31.8,
     };
     doc.sections.push(Section {
         id: "riff".into(),

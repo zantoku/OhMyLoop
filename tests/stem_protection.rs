@@ -113,7 +113,13 @@ fn prepared_near_bound_stem_mix_r3_music_and_maximum_clicks_do_not_clip() {
         for semitones in [-12.0, 0.0, 12.0] {
             let player = Player::headless(prepared.clone(), true, 48_000).unwrap();
             player.set_mix(1, MixState::default()).unwrap();
-            player.set_controls(Controls { speed, semitones }).unwrap();
+            player
+                .set_controls(Controls {
+                    speed,
+                    semitones,
+                    tuning_cents: 0.0,
+                })
+                .unwrap();
             player
                 .set_loop(Some(LoopRegion {
                     start: 0.2,
@@ -178,6 +184,7 @@ fn deliberately_unattenuated_input_through_real_r3_exposes_clamp_activity() {
         .set_controls(Controls {
             speed: 0.5,
             semitones: 12.0,
+            tuning_cents: 0.0,
         })
         .unwrap();
     player.play().unwrap();

@@ -167,7 +167,15 @@ fn continuous_file_backed_gain_sweep_has_no_repeated_audio_dropouts() {
 fn continuous_gain_and_original_transitions_remain_clean_across_speed_and_pitch() {
     for speed in [0.25, 1., 2.] {
         for semitones in [-12., 0., 12.] {
-            exercise_gain_sweep(true, ohmyloop::dsp::Controls { speed, semitones }, true);
+            exercise_gain_sweep(
+                true,
+                ohmyloop::dsp::Controls {
+                    speed,
+                    semitones,
+                    tuning_cents: 0.0,
+                },
+                true,
+            );
         }
     }
 }

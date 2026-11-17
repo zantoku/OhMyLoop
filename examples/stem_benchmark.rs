@@ -66,6 +66,7 @@ fn main() -> Result<()> {
                 2 => player.set_controls(Controls {
                     speed: 0.25,
                     semitones: -12.0,
+                    tuning_cents: 0.0,
                 })?,
                 _ => player.seek(1.0)?,
             }
@@ -106,22 +107,27 @@ fn main() -> Result<()> {
         Controls {
             speed: 0.5,
             semitones: -5.0,
+            tuning_cents: 0.0,
         },
         Controls {
             speed: 0.25,
             semitones: -12.0,
+            tuning_cents: 0.0,
         },
         Controls {
             speed: 0.25,
             semitones: 12.0,
+            tuning_cents: 0.0,
         },
         Controls {
             speed: 2.0,
             semitones: -12.0,
+            tuning_cents: 0.0,
         },
         Controls {
             speed: 2.0,
             semitones: 12.0,
+            tuning_cents: 0.0,
         },
     ] {
         player.pause();

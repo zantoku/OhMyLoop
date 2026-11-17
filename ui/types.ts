@@ -1,4 +1,4 @@
-export type Controls = { speed: number; semitones: number };
+export type Controls = { speed: number; semitones: number; tuning_cents: number };
 export type Loop = { start: number; end: number; fade_ms: number };
 export type Section = { id: string; name: string; start: number; end: number };
 export type PracticeDocument = {

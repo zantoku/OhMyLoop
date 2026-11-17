@@ -33,7 +33,11 @@ unsafe extern "C" {
 pub struct Controls {
     /// Source seconds per output second. 0.5 means half-speed.
     pub speed: f64,
+    /// Transposition in semitones. The desktop UI keeps this whole; the CLI allows fractions.
     pub semitones: f64,
+    /// Fine tuning offset, e.g. to bring a recording made at another reference pitch to A = 440 Hz.
+    #[serde(default)]
+    pub tuning_cents: f64,
 }
 
 impl Default for Controls {
@@ -41,6 +45,7 @@ impl Default for Controls {
         Self {
             speed: 1.0,
             semitones: 0.0,
+            tuning_cents: 0.0,
         }
     }
 }
@@ -55,10 +60,14 @@ impl Controls {
             self.semitones.is_finite() && (-12.0..=12.0).contains(&self.semitones),
             "Pitch must be -12–12 semitones"
         );
+        ensure!(
+            self.tuning_cents.is_finite() && (-50.0..=50.0).contains(&self.tuning_cents),
+            "Tuning must be -50–50 cents"
+        );
         Ok(self)
     }
     pub fn pitch_scale(self) -> f64 {
-        2_f64.powf(self.semitones / 12.0)
+        2_f64.powf((self.semitones + self.tuning_cents / 100.0) / 12.0)
     }
 }
 
@@ -161,5 +170,29 @@ impl Drop for Dsp {
     fn drop(&mut self) {
         // SAFETY: this wrapper owns exactly one native allocation.
         unsafe { rubberband_delete(self.state.as_ptr()) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Controls;
+
+    #[test]
+    fn tuning_is_limited_to_half_a_semitone_either_way() {
+        let tuned = |tuning_cents| {
+            Controls {
+                tuning_cents,
+                ..Controls::default()
+            }
+            .validate()
+        };
+        assert!(tuned(50.0).is_ok() && tuned(-50.0).is_ok());
+        assert!(tuned(50.1).is_err() && tuned(f64::NAN).is_err());
+    }
+
+    #[test]
+    fn older_saved_controls_without_tuning_read_as_untuned() {
+        let controls: Controls = serde_json::from_str(r#"{"speed":0.8,"semitones":-2}"#).unwrap();
+        assert_eq!(controls.tuning_cents, 0.0);
     }
 }
