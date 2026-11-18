@@ -34,7 +34,7 @@ then **Measure map**, then Library, Notes and Stems.
 | Measure map | Build and correct the song's measure map against its reference recording | Practice | [measure-map.md](measure-map.md) |
 | Library | Find, import, open and describe songs in the managed library | Header, empty start | – |
 | Notes | Keep plain-text notes for one song | Practice | – |
-| Stems | Separate or attach a stem set and follow its processing | Practice, processing notice | – |
+| Stems | Separate or attach a stem set and follow its processing | Practice, processing notice | [stems.md](stems.md) |
 
 Dialogs and overlays:
 
@@ -44,6 +44,7 @@ Dialogs and overlays:
 | Keyboard shortcuts | Global | List bindings; reload the shortcut configuration file |
 | Library settings / duplicate / delete | Library | Create, open, locate a managed library; resolve duplicate imports; confirm deletion |
 | Recording replacement | Library | Replace the reference recording, keeping or clearing timing |
+| App settings | Global | Manage shared separation tools and model (new, from the Stems review) |
 | Quit confirmation | Global | Quit while processing runs |
 | Stem replacement confirmation | Stems | Replace an existing stem set |
 
