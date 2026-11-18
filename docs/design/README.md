@@ -32,7 +32,7 @@ then **Measure map**, then Library, Notes and Stems.
 | --- | --- | --- | --- |
 | Practice | Hear a song at a workable speed and pitch, loop passages, return to them | Library, start-up, every other screen | [practice.md](practice.md) |
 | Measure map | Build and correct the song's measure map against its reference recording | Practice | [measure-map.md](measure-map.md) |
-| Library | Find, import, open and describe songs in the managed library | Header, empty start | – |
+| Library | Find, import, open and describe songs in the managed library | Header, empty start | [library.md](library.md) |
 | Notes | Keep plain-text notes for one song | Practice | – |
 | Stems | Separate or attach a stem set and follow its processing | Practice, processing notice | [stems.md](stems.md) |
 
@@ -42,9 +42,9 @@ Dialogs and overlays:
 | --- | --- | --- |
 | Section editor | Practice | Name a section and set its exact bounds |
 | Keyboard shortcuts | Global | List bindings; reload the shortcut configuration file |
-| Library settings / duplicate / delete | Library | Create, open, locate a managed library; resolve duplicate imports; confirm deletion |
+| Library setup / duplicate / delete | Library | Create or open a library on the first import; resolve duplicate imports; confirm deletion |
 | Recording replacement | Library | Replace the reference recording, keeping or clearing timing |
-| App settings | Global | Manage shared separation tools and model (new, from the Stems review) |
+| App settings | Global | Manage shared separation tools and model (from the Stems review); see, create, open and switch the library (from the Library review) |
 | Quit confirmation | Global | Quit while processing runs |
 | Stem replacement confirmation | Stems | Replace an existing stem set |
 

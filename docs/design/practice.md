@@ -108,7 +108,7 @@ follow settings last for the app session.
 
 | # | Story | Freq. | Actions |
 | --- | --- | --- | --- |
-| H1 | On first launch, understand what the app does and get to a song: library, import, or the built-in demo. | rare | `show_library`, `open_song`, `load_demo` |
+| H1 | On first launch, understand what the app does and get to a song: library or import. (The built-in demo is removed; see [library.md](library.md#design-decisions).) | rare | `show_library`, `open_song` |
 
 ## States to design
 
