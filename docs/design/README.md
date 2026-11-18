@@ -33,7 +33,7 @@ then **Measure map**, then Library, Notes and Stems.
 | Practice | Hear a song at a workable speed and pitch, loop passages, return to them | Library, start-up, every other screen | [practice.md](practice.md) |
 | Measure map | Build and correct the song's measure map against its reference recording | Practice | [measure-map.md](measure-map.md) |
 | Library | Find, import, open and describe songs in the managed library | Header, empty start | [library.md](library.md) |
-| Notes | Keep plain-text notes for one song | Practice | – |
+| Notes | Keep plain-text notes for one song | Practice | [notes.md](notes.md) |
 | Stems | Separate or attach a stem set and follow its processing | Practice, processing notice | [stems.md](stems.md) |
 
 Dialogs and overlays:
