@@ -163,14 +163,49 @@ Answers to the open questions from the story review (2026-11-17):
 
 1. **Drafting:** Analysis and Create measures get out of the way once a map
    exists. They lead the empty state and are reopened only to redraft.
-2. **Selected-measure tools:** open. Explore a few options: an inspector
-   beside the waveform, a toolbar near the selection, a contextual bar.
+2. **Selected-measure tools:** a floating toolbar anchored to the selected
+   measure (concept MB, chosen 2026-11-18). See
+   [Chosen concept](#chosen-concept-floating-toolbar).
 3. **Readout band:** compact, giving the waveform the height, unless a
    layout has room to spare.
 4. **Follow playhead:** always on; the `map_follow` toggle is removed.
-5. **Expert controls:** open. Explore placement alongside question 2.
+5. **Expert controls:** in the toolbar's ⋯ panel, next to the tools they
+   belong to rather than behind a global "Advanced" disclosure.
 6. **Whole-song settings:** numbering, grouping and clear map stay
    reachable after drafting, in a dialog.
 7. **Toggles:** the detected-beats toggle sits in the bar below the
    waveform. The metronome is always on at full level on this screen, so
    the `map_metronome` toggle and its level control are removed.
+
+## Chosen concept: floating toolbar
+
+Three placements were drawn: an inspector beside the waveform (MA), a
+floating toolbar at the selection (MB) and a contextual strip under the
+waveform (MC). MB was chosen on 2026-11-18 for its minimalism: the tools sit
+where the eye already is, and the waveform keeps its full width and height.
+
+- **Anchoring:** the toolbar floats over the waveform, just below the ruler,
+  centred on the selected measure. It doesn't cover the ruler band, so
+  measure numbers and the playhead marker stay visible. It clamps to the
+  edges of the view, fades while a line is dragged, and is reachable by
+  keyboard focus. When the selected measure scrolls out of view, it
+  collapses to an edge tab ("m. 37 ›") that scrolls back to the measure.
+- **Contents, in order:** measure number; measure properties ("4/4 · Full
+  ▾"); Split; Join; Shift ◀ ▶; Lock; ⋯.
+- **Split** (C5) splits before the beat nearest the playhead, so it needs
+  no extra input. The button names that beat ("Split at beat 3") and a
+  preview line marks it on hover. It's disabled when the playhead is outside
+  the selected measure. After a split, a toast confirms the result and that
+  later measures were renumbered, with Undo.
+- **Measure properties panel** (C4): meter, kind (full, pickup,
+  incomplete), how long a pickup lasts, grouping, the beat note, and "apply
+  to following measures", with Cancel and Apply.
+- **⋯ panel** (expert controls, C2, C3, C6, C7): exact barline positions,
+  beat-marker offsets, the shift step with re-snap and ε, and Mark as free
+  time.
+- **Beats** show as dotted lines across the full waveform height, so they
+  can be aligned with waveform peaks. On the selected measure, diamonds on
+  the beat lines are the drag handles.
+
+Still to design: free-time range selected, edit rejected, stale or missing
+analysis, separation running, dense map, narrow window, light appearance.
