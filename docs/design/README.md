@@ -54,8 +54,8 @@ These recur on several screens. Their design is settled during the Practice
 pass and reused afterwards.
 
 - **App shell:** brand, current song title and duration, navigation between
-  screens, global notices, and a status bar showing save state, audio device,
-  appearance and shortcut help.
+  screens, global notices, and a status bar showing save state, audio device
+  and shortcut help. Appearance moved to app-wide Settings (Library review).
 - **Notices:** errors and running work, often with one recovery action (Retry,
   Reload, View). Several can be active at once.
 - **Waveform workspace:** a whole-song minimap with a viewport, a detailed

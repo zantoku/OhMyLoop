@@ -181,8 +181,9 @@ the maintainer's answers.
    song record already knows it.
 5. **No song status in the list.** An optional self-review score may come
    later; it's out of scope for this pass.
-6. **Editing details:** open. The designs explore a side panel, editing in
-   place, and a dialog.
+6. **Editing details:** a side panel beside the list, opened only by an
+   explicit edit action (concept LD, chosen 2026-11-18). See
+   [Chosen concept](#chosen-concept-open-without-editing).
 7. **Replace recording and delete** stay inside the song's details only, no
    row menu.
 8. **First launch** shows the empty Library with Import. Onboarding is a
@@ -190,3 +191,39 @@ the maintainer's answers.
 9. **Drag and drop:** dropping one audio file onto the window imports it,
    through the same flow as Import (B4). Several files or unsupported types
    are refused with an explanation.
+
+## Chosen concept: open without editing
+
+Four layouts were drawn: a side panel that opens on selection (LA), editing
+in place (LB), a details dialog (LC), and, after reviewing those, LD. LD was
+chosen on 2026-11-18. Its rule: **opening a song never shows its edit
+fields;** editing needs an explicit edit action.
+
+- **Rows** show title, artist and length. The loaded song has a blue bar
+  and a CURRENT tag.
+- **Mouse:** hovering a row shows → before the title and ⋯ at the end of the
+  row. → opens the song in Practice, paused (A4); it's an arrow, not ▶,
+  because playback doesn't start. Double-click opens too. A single click
+  only selects the row; arrow keys move the selection and Enter opens it.
+- **Back to the current song** (A5, F1): the loaded song always shows its →,
+  which returns to Practice as I left it, without reloading
+  (`library_close`). Esc does the same. There's no separate "Back to …"
+  button in the header.
+- **Editing:** ⋯ or ⌘I opens the editor panel beside the list: title,
+  artist and album fields; length, dates and file as read-only facts; and,
+  at the bottom, Replace recording and Delete song (C1–C3).
+- **Touch:** a tap on the row opens the song. → and ⋯ are visible on every
+  row when there's no hover (a coarse-pointer media query); long-press
+  opens the editor. Rows are 46 px tall.
+- **Header:** "Library" as the breadcrumb root, ✓ Saved, a labelled
+  Settings button and the keyboard-shortcuts button. Library is the home
+  of the app-wide Settings button; ⌘, opens Settings from any screen, and
+  on macOS the app menu has "Settings…".
+- **Appearance:** the theme choice moves from the status bar into Settings
+  → Appearance.
+- Search, sort, Import, the drop target, and the empty, loading, no-match,
+  missing-library, failed-list, import and refused-drop states are shared
+  with the other concepts.
+
+Still to design: a large library (500+ songs), narrow window, light
+appearance.
