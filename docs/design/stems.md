@@ -166,8 +166,9 @@ Answers to the open questions from the story review (2026-11-18):
 3. **Progress elsewhere:** a persistent toast on the other views while
    setup or separation runs, with its progress and a way to open Stems.
 4. **Checklist:** the overall bar, its phase subtitle and elapsed time stay
-   visible; the step list is hidden, since nothing in it can be acted on.
-   It appears when work fails or is cancelled, with the details to copy.
+   visible. The step list sits behind "Show steps" while work runs, for
+   anyone who wants it, and is open when work fails or is cancelled, with
+   the details to copy.
 5. **Tool management:** reinstalling, removing and checking the tools and
    the model move to an app-wide settings place, since they're shared by
    all songs. The Stems screen only links there when setup is broken.
@@ -176,5 +177,29 @@ Answers to the open questions from the story review (2026-11-18):
    where the set came from. Playback state appears only when it falls back
    to the original. Headroom and the model name go behind a details
    disclosure.
-8. **Done:** the screen stays on the result with Go to Practice; no
-   automatic navigation.
+8. **Done:** no separate result state and no automatic navigation. After
+   a separation, the screen shows the attached stems with a dismissible
+   "Separation finished" banner. "Go to Practice" is dropped as redundant.
+
+## Chosen concept: guided steps
+
+Three layouts were drawn: a status card (SA), instrument lanes (SB) and
+guided steps (SC). SC was chosen on 2026-11-18.
+
+- A step list on the left (Set up separation → Separate this song → Review
+  the stems) shows where the song stands; the pane beside it holds the
+  current step. Done steps show a check and a one-line summary.
+- Attaching stems from another tool, and replacing or removing a set, are
+  quiet links under the steps.
+- While work runs, the pane shows the progress bar, phase, elapsed time,
+  Cancel and "Show steps". The persistent toast takes over on other views.
+
+## Future: stem review
+
+Tracked in [#15](https://github.com/zantoku/OhMyLoop/issues/15). Once a
+song has stems, the pane lists one row per stem with a shared playhead:
+play it alone, its name (renameable), its waveform, show or hide it in the
+Practice mixer, and a ⋯ menu with Rename, Hide in mixer and Delete.
+Near-silent stems are kept and flagged "probably empty" with a direct
+Delete: the player decides, replacing today's automatic skip below
+−60 dBFS.
