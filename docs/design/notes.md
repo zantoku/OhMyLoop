@@ -122,3 +122,29 @@ Answers to the open questions from the story review (2026-11-18):
    UI font. A monospaced option may come later as a setting in app-wide
    Settings.
 6. **Library search** doesn't search notes.
+
+## Chosen concept: tall drawer
+
+Three placements were drawn: a panel right of the waveform (NA), a Notes tab
+in the sections sidebar (NB), and a tall drawer (NC). NC was chosen on
+2026-11-19.
+
+- **Place:** a 320 px drawer on the right edge of Practice, from below the
+  header down to the playback bar, beside both the readout band and the
+  waveform. The readout band and waveform narrow while it's open; the
+  sections sidebar on the left is unaffected. The height suits long notes
+  (lyrics, chord charts, plans).
+- **Open and close:** a Notes button in the header, and N, toggle the drawer
+  (A1, A5). There's no close X. Notes leaves the Practice / Measure map /
+  Stems segmented control.
+- **Save status:** the header's "✓ Saved" covers notes and turns into
+  "⚠ Notes not saved" when a save fails. The drawer shows "Saving…" only
+  when saving is slow, and an alert with Retry when it fails (C1) or when
+  the notes exceed 1 MiB (C3).
+- **Playing while writing** (B2): shortcuts don't fire while typing, so a
+  hint in the drawer says Esc returns focus to the waveform, after which
+  Space plays again. The transport stays clickable throughout.
+- **Empty notes** show a placeholder in the text area.
+
+Still to design: long notes scrolled, no song loaded, separation running,
+narrow window, light appearance.
