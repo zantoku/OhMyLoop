@@ -2,17 +2,21 @@ import { ACTIONS, BUTTONS, type ActionId, type ButtonId } from './actions';
 
 export type KeymapFile = { path: string | null; configuration: unknown; warning: string | null };
 type Input = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey' | 'repeat' | 'isComposing'>;
-type Chord = { key: string; shift: boolean | null; ctrl: boolean; meta: boolean; alt: boolean };
+export type Chord = { key: string; shift: boolean | null; ctrl: boolean; meta: boolean; alt: boolean };
 type Config = { version: 1; keys?: Partial<Record<ActionId, string[]>>; buttons?: Partial<Record<ButtonId, ActionId>>; descriptions?: Partial<Record<ActionId, string>> };
 const own = (value: object, key: string) => Object.hasOwn(value, key);
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const keyName = (key: string) => key === ' ' ? 'Space' : key === 'Plus' ? '+' : key.length === 1 ? key.toLowerCase() : key;
-const namedKeys = new Set(['Space', 'Enter', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Delete', 'Backspace']);
+/** Keys a slider-like control navigates with; also the keys that signal keyboard navigation. */
+export const NAVIGATION_KEYS: readonly string[] = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+/** Named (non-character) keys a binding may use, besides F1–F12. */
+export const NAMED_KEYS: ReadonlySet<string> = new Set(['Space', 'Enter', 'Escape', ...NAVIGATION_KEYS, 'Delete', 'Backspace']);
 
-function parse(text: string, mac: boolean): Chord {
+/** Parses a binding such as `Mod+Shift+z`; `Plus` means a literal `+`. Throws on invalid text. */
+export function parseChord(text: string, mac: boolean): Chord {
   const parts = text.split('+');
   const key = keyName(parts.pop() ?? '');
-  if (!(key.length === 1 || namedKeys.has(key) || /^F(?:[1-9]|1[0-2])$/.test(key))) throw new Error(`Unsupported key: ${text}`);
+  if (!(key.length === 1 || NAMED_KEYS.has(key) || /^F(?:[1-9]|1[0-2])$/.test(key))) throw new Error(`Unsupported key: ${text}`);
   const modifiers = new Set(parts);
   if (modifiers.size !== parts.length || parts.some(p => !['Mod', 'Ctrl', 'Meta', 'Alt', 'Shift'].includes(p))) throw new Error(`Invalid modifiers: ${text}`);
   if (modifiers.has('Mod') && (modifiers.has('Meta') || modifiers.has('Ctrl'))) throw new Error(`Do not combine Mod with Ctrl or Meta: ${text}`);
@@ -61,7 +65,7 @@ export class Keymap {
     this.descriptions = Object.fromEntries(Object.entries(ACTIONS).map(([id, definition]) => [id, config?.descriptions?.[id as ActionId]?.trim() ?? definition.description])) as Record<ActionId, string>;
     for (const id of Object.keys(ACTIONS) as ActionId[]) {
       for (const text of this.keys[id]) {
-        const chord = parse(text, mac);
+        const chord = parseChord(text, mac);
         const scope=ACTIONS[id].scope;
         const conflict = this.bindings.find(b => overlaps(b.chord, chord) && (scope==='all' || ACTIONS[b.action].scope==='all' || scope===ACTIONS[b.action].scope));
         if (conflict) throw new Error(`Shortcut ${text} conflicts with ${conflict.action}.`);
@@ -78,6 +82,8 @@ export class Keymap {
   }
 
   actionFor(button: ButtonId): ActionId { return this.buttons[button]; }
+  /** Resolved binding texts for an action, e.g. `Mod+o`; the menu bar derives accelerators from them. */
+  keysFor(action: ActionId): readonly string[] { return this.keys[action]; }
   description(action: ActionId): string { return this.descriptions[action]; }
   shortcut(action: ActionId): string { return this.keys[action].map(k => this.display(k)).join(' / '); }
   actionTitle(action: ActionId): string {

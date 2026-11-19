@@ -12,10 +12,11 @@
     { peaks: [number, number][]; duration: number; rate: number; position: number; view: View; mapView: MapView | null; selected: string | null; disabled?: boolean; candidates?: { frame: number; downbeat: boolean }[];
       playback?:Snippet;onview: (view: View, navigation: 'zoom' | 'pan') => void; onseek: (seconds: number) => void; onselect: (id: string) => void; ongap?:(frame:number)=>void;onedit: (edit: MapEdit) => void } = $props();
   let canvas: HTMLCanvasElement, overview: HTMLCanvasElement, field: HTMLDivElement;
-  let size = $state(0), width = $state(800), keyboard = $state(false), overviewPointer = $state<number | null>(null);
+  let size = $state(0), width = $state(800), overviewPointer = $state<number | null>(null);
   type Drag = { pointer: number; x: number; width: number; view: View; edit: Extract<MapEdit, {type:'move_boundary'|'set_beat'}> | null; selected: string | null; pan: boolean };
   let drag = $state<Drag | null>(null), draggedFrame = $state<number | null>(null);
   const measures = $derived(mapView?.measures ?? []);
+  const playheadShown = $derived(position>=view.start&&position<=view.end);
   const span = $derived(view.end-view.start);
   const pct = (frame: number) => (frame/rate-view.start)/span*100;
   const visible = $derived(measures.filter(m => m.end/rate > view.start && m.start/rate < view.end));
@@ -49,11 +50,9 @@
   $effect(()=>{void size; drawWaveform(canvas,peaks,duration,view.start,view.end);drawWaveform(overview,peaks,duration,0,duration,true);});
   onMount(()=>{
     const observer=new ResizeObserver(()=>{size++;width=Math.max(1,field.clientWidth);});observer.observe(field);
-    const pointer=()=>{keyboard=false;},key=()=>{keyboard=true;};
-    window.addEventListener('pointerdown',pointer,true);window.addEventListener('keydown',key,true);
     const wheel=(event:WheelEvent)=>{if(inPlayback(event.target))return;event.preventDefault();if(!drag&&overviewPointer===null)onview(wheelView(view,duration,field.getBoundingClientRect(),event),'zoom');};
     field.addEventListener('wheel',wheel,{passive:false});
-    return()=>{observer.disconnect();field.removeEventListener('wheel',wheel);window.removeEventListener('pointerdown',pointer,true);window.removeEventListener('keydown',key,true);};
+    return()=>{observer.disconnect();field.removeEventListener('wheel',wheel);};
   });
   function inPlayback(target:EventTarget|null){return target instanceof Element&&!!target.closest('[data-timeline-playback]');}
   function down(event:PointerEvent){
@@ -93,7 +92,7 @@
   function overviewEnd(event:PointerEvent){if(overviewPointer!==event.pointerId)return;overviewPointer=null;const button=event.currentTarget as HTMLElement;if(button.hasPointerCapture(event.pointerId))button.releasePointerCapture(event.pointerId);}
 </script>
 <div class="map-overview-wrap">
-  <button class="map-overview" class:keyboard-focus={keyboard} aria-label="Move measure-map view" title="Click or drag to move the detailed view" onclick={overviewPan}
+  <button class="map-overview" aria-label="Move measure-map view" title="Click or drag to move the detailed view" onclick={overviewPan}
     onpointerdown={overviewDown} onpointermove={e=>{if(e.pointerId===overviewPointer)overviewPan(e);}} onpointerup={e=>{if(e.pointerId===overviewPointer)overviewPan(e);overviewEnd(e);}} onpointercancel={overviewEnd} onlostpointercapture={overviewEnd}>
     <canvas bind:this={overview}></canvas><span class="map-viewport" style:left={`${view.start/duration*100}%`} style:width={`${span/duration*100}%`}></span>
     <i style:left={`${position/duration*100}%`}></i>
@@ -107,9 +106,9 @@
     </button>
   {/each}
 </div>
-<div class="map-wave-field" class:keyboard-focus={keyboard} class:panning={drag?.pan} bind:this={field} role="region" tabindex="-1" aria-label="Measure-map waveform. Click to seek; drag beat and measure lines to correct timing."
+<div class="map-wave-field" class:panning={drag?.pan} bind:this={field} role="region" tabindex="-1" data-home aria-label="Measure-map waveform. Click to seek; drag beat and measure lines to correct timing."
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel} onauxclick={e=>{if(e.button===1)e.preventDefault();}}>
-  <div class="map-seek" role="slider" tabindex="0" aria-label="Measure-map song position" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
+  <div class="map-seek" class:offscreen={!playheadShown} role="slider" tabindex="0" data-owns-keys="ArrowLeft ArrowRight Home End" aria-label="Measure-map song position" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
     onkeydown={seekKey}></div>
   <div class="map-time-ruler" aria-hidden="true">{#each ticks as tick,i}<span style:left={`${i/6*100}%`}>{time(tick)}</span>{/each}</div>
   <canvas class="map-wave-canvas" bind:this={canvas}></canvas>
@@ -122,21 +121,21 @@
   {#each visible as m (m.id)}
     {#if selected===m.id}<div class="selected-measure" style:left={`${Math.max(0,pct(m.start))}%`} style:width={`${Math.min(100,pct(m.end))-Math.max(0,pct(m.start))}%`}></div>{/if}
     {#if m.start/rate>=view.start && (measurePixels(m)>=16 || selected===m.id)}
-      <button class="measure-handle" data-boundary={m.start_id} data-measure={m.id} style:left={`${pct(displayed(m.start_id,m.start))}%`} aria-label={`Measure ${m.label} start`} aria-disabled={disabled||m.protected}
+      <button class="measure-handle" data-owns-keys="ArrowLeft ArrowRight" data-boundary={m.start_id} data-measure={m.id} style:left={`${pct(displayed(m.start_id,m.start))}%`} aria-label={`Measure ${m.label} start`} aria-disabled={disabled||m.protected}
         title="Move boundary and evenly space adjacent beats; arrow keys adjust; Shift gives fine adjustment" onclick={()=>onselect(m.id)} onkeydown={e=>nudge(e,m,m.start_id,m.start)}><span>{m.label}</span></button>
     {/if}
     {#each beatsByMeasure.get(m.id)??[] as p}
-      <button class="beat-handle" class:anchor={!!p.id} data-beat={p.id??''} data-quarter={p.quarter} data-measure={m.id}
+      <button class="beat-handle" data-owns-keys="ArrowLeft ArrowRight" class:anchor={!!p.id} data-beat={p.id??''} data-quarter={p.quarter} data-measure={m.id}
         style:left={`${pct(drag?.edit?.type==='set_beat'&&drag.edit.measure===m.id&&drag.edit.offset.num/drag.edit.offset.den===p.quarter&&draggedFrame!==null?draggedFrame:p.frame)}%`}
         aria-label={`Measure ${m.label} beat ${p.label}`} aria-disabled={disabled||m.protected} title={`${p.id?'Fixed anchor':'Interpolated beat'}: drag to correct timing`}
         onclick={()=>onselect(m.id)} onkeydown={e=>nudge(e,m,'',p.frame,p)}><span>{p.label}</span></button>
     {/each}
     {#if !startIds.has(m.end_id)&&m.end/rate>=view.start&&m.end/rate<=view.end}
-      <button class="measure-handle end" data-boundary={m.end_id} data-measure={m.id} style:left={`${pct(displayed(m.end_id,m.end))}%`} aria-label={`Measure ${m.label} end`} aria-disabled={disabled||m.protected}
+      <button class="measure-handle end" data-owns-keys="ArrowLeft ArrowRight" data-boundary={m.end_id} data-measure={m.id} style:left={`${pct(displayed(m.end_id,m.end))}%`} aria-label={`Measure ${m.label} end`} aria-disabled={disabled||m.protected}
         onclick={()=>onselect(m.id)} onkeydown={e=>nudge(e,m,m.end_id,m.end)}><span>End</span></button>
     {/if}
   {/each}
-  {#if position>=view.start&&position<=view.end}<div class="map-playhead" style:left={`${(position-view.start)/span*100}%`} aria-hidden="true"></div>{/if}
+  {#if playheadShown}<div class="map-playhead" style:left={`${(position-view.start)/span*100}%`} aria-hidden="true"></div>{/if}
   {#if playback}<div class="playback-overlay" data-timeline-playback>{@render playback()}</div>{/if}
   {#if beatLayout.stride>1}<span class="detail-level" aria-hidden="true">Every {beatLayout.stride} beats · zoom in for detail</span>{/if}
 </div>
@@ -144,8 +143,8 @@
   .playback-overlay{position:absolute;left:12px;bottom:12px;z-index:5;max-width:calc(100% - 24px);cursor:default}.detail-level{position:absolute;right:10px;top:32px;color:#afbdd4;font-size:10px;pointer-events:none;background:#233552d9;padding:3px 5px;border-radius:3px}
   .map-overview-wrap{position:relative;padding-bottom:23px;flex-shrink:0}.map-overview{position:relative;display:block;width:100%;height:46px;padding:5px 0;border:0;border-radius:5px;background:var(--overview-bg);overflow:hidden;touch-action:none;cursor:grab}.map-overview canvas{width:100%;height:100%;display:block}.map-viewport{position:absolute;inset-block:0;border:1px solid var(--blue);background:var(--blue-wash);min-width:3px;pointer-events:none}.map-overview i{position:absolute;inset-block:0;border-left:2px solid var(--blue)}.map-overview-wrap>span{position:absolute;bottom:4px;font-size:11px;color:var(--muted)}.map-overview-wrap>span:last-child{right:0}
   .measure-lane{position:relative;height:44px;background:var(--sidebar);border-radius:5px 5px 0 0;overflow:hidden;flex-shrink:0}.measure-lane button{position:absolute;inset-block:0;border:0;border-right:1px solid var(--surface);text-align:left;background:var(--measure-bg);color:var(--measure-text);padding:4px 9px;overflow:hidden;white-space:nowrap}.measure-lane button.dense{padding-inline:1px}.measure-lane button.dense span{display:none}.measure-lane button.selected{background:var(--measure-selected)}.measure-lane button.protected{box-shadow:inset 0 -3px #6b8c80}.measure-lane strong{display:block;font-size:13px}.measure-lane span{font-size:10px}
-  .map-wave-field{position:relative;flex:1;min-height:190px;background:var(--wave-bg);border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;user-select:none;cursor:crosshair}.map-wave-field.panning{cursor:grabbing}.map-seek{position:absolute;inset:0;outline-offset:-3px}.map-wave-canvas{position:absolute;left:0;top:70px;width:100%;height:calc(100% - 86px);pointer-events:none}.map-time-ruler{position:absolute;inset:0 0 auto;height:30px;color:#bbcae2;font-size:11px;pointer-events:none}.map-time-ruler span{position:absolute;top:8px;transform:translateX(-50%)}.map-time-ruler span:first-child{transform:none;padding-left:8px}.map-time-ruler span:last-child{transform:translateX(-100%);padding-right:8px}
+  .map-wave-field{position:relative;flex:1;min-height:190px;background:var(--wave-bg);border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;user-select:none;cursor:crosshair}.map-wave-field.panning{cursor:grabbing}.map-seek{position:absolute;inset:0}.map-wave-canvas{position:absolute;left:0;top:70px;width:100%;height:calc(100% - 86px);pointer-events:none}.map-time-ruler{position:absolute;inset:0 0 auto;height:30px;color:#bbcae2;font-size:11px;pointer-events:none}.map-time-ruler span{position:absolute;top:8px;transform:translateX(-50%)}.map-time-ruler span:first-child{transform:none;padding-left:8px}.map-time-ruler span:last-child{transform:translateX(-100%);padding-right:8px}
   .free-time{position:absolute;inset-block:30px 0;background:repeating-linear-gradient(135deg,#ffffff06,#ffffff06 5px,transparent 5px,transparent 12px);pointer-events:none}.free-time span{position:absolute;bottom:10px;left:8px;font-size:10px;color:#a7b6d0;white-space:nowrap}.selected-measure{position:absolute;inset-block:30px 0;background:#a7c9bd13;pointer-events:none}.measure-handle{position:absolute;top:30px;bottom:0;width:14px;padding:0;border:0;border-left:2px solid #a7c9bd;border-radius:0;background:transparent;color:#233552;cursor:ew-resize;touch-action:none}.measure-handle span{position:absolute;top:0;left:-2px;min-width:22px;padding:3px 5px;background:#a7c9bd;border-radius:0 0 3px 0;font-size:11px;font-weight:600}.measure-handle.end{transform:translateX(-12px);border-left:0;border-right:2px solid #a7c9bd}.measure-handle.end span{left:auto;right:-2px}.beat-handle{position:absolute;top:57px;bottom:0;width:10px;padding:0;border:0;border-left:1px dashed #adbcdb75;border-radius:0;background:transparent;color:#adbcdb;cursor:ew-resize;touch-action:none}.beat-handle span{position:absolute;top:0;left:3px;font-size:10px}.beat-handle.anchor{border-left:1px solid #cad9f0}.candidate-line{position:absolute;inset-block:74px 0;border-left:1px dotted #dfbb7f99;pointer-events:none}.candidate-line.downbeat{border-left:2px dotted #dfbb7f}.map-playhead{position:absolute;inset-block:26px 0;border-left:2px solid white;pointer-events:none}
-  .map-overview:not(.keyboard-focus):focus,.map-wave-field:not(.keyboard-focus):focus,.map-wave-field:not(.keyboard-focus) :focus{outline:none}.map-seek:focus-visible{outline:3px solid var(--focus)}.measure-handle:focus-visible,.beat-handle:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  :global([data-modality=keyboard]) .map-seek:focus-visible{outline:none}:global([data-modality=keyboard]) .map-seek.offscreen:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}:global([data-modality=keyboard]) .map-seek:focus-visible ~ .map-playhead{outline:2px solid var(--focus);outline-offset:1px}
   @media(max-height:740px){.map-overview{height:32px}.map-wave-field{min-height:170px}}
 </style>

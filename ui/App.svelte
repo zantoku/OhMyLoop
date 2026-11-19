@@ -31,10 +31,15 @@
   import { Keymap, loadKeymap } from './keymap';
   import { ActionDispatcher, type ActionPayload } from './action-dispatcher';
   import { MAPPING_ACTIONS, type ActionId, type ButtonId, type MappingActionId } from './actions';
-  import { clamp, editing, ordered, range, sectionColor, time, zoom } from './model';
+  import { clamp, ordered, range, sectionColor, time, zoom } from './model';
   import { pageForPlayhead } from './timeline';
   import type { Action, Controls, Loop, PracticeDocument, Section, Snapshot, Song, Transport, View } from './types';
   import { normalized, ORIGINAL, stepSpeed, transpose } from './playback-controls';
+  import { ownsKey } from './key-routing';
+  import { currentModality } from './input-modality';
+  import { atHome, focusHome } from './home-focus';
+  import { AppMenu } from './app-menu';
+  import { appEditAction, editCommand, routeEditCommand, type EditCommand } from './undo-routing';
 
   let song = $state<Song | null>(null);
   let project = $state<PracticeDocument | null>(null);
@@ -125,6 +130,8 @@
   });
   let sectionDialog: HTMLDialogElement;
   let helpDialog: HTMLDialogElement;
+  // Reactive open state: set when shown, cleared by the dialogs' close events.
+  let sectionOpen = $state(false), helpOpen = $state(false);
   let replacementDialog: RecordingChooser;
   const replacement=new RecordingReplacement();
   async function replaceLibrary(songKey?:string){
@@ -280,7 +287,7 @@
     sectionId = section?.id ?? null; sectionName = section?.name ?? '';
     sectionStart = section?.start ?? selection?.start ?? Math.min(transport.position, song.duration - .1);
     sectionEnd = section?.end ?? selection?.end ?? song.duration;
-    dialogError = ''; sectionDialog.showModal(); requestAnimationFrame(() => nameInput?.focus());
+    dialogError = ''; sectionDialog.showModal(); sectionOpen = true; requestAnimationFrame(() => nameInput?.focus());
   }
   async function saveSection() {
     if (!song || !project) return;
@@ -321,9 +328,31 @@
     keymapLoading = true;
     try {
       const loaded = await loadKeymap(bridge.readKeymap, mac);
-      if (mounted) { keymap = loaded.model; keymapPath = loaded.path; keymapWarning = loaded.warning; }
+      if (mounted) { keymap = loaded.model; keymapPath = loaded.path; keymapWarning = loaded.warning; void installMenu(loaded.model); }
     } finally { keymapLoading = false; }
   }
+  // macOS only: Windows and Linux have no menu bar (see the native-ui skill).
+  let appMenu = $state.raw<AppMenu | null>(null);
+  let menuGeneration = 0;
+  function menuCommand(id: ActionId) { if (!commandsBlocked()) void runAction(id); }
+  function appEdit(command: EditCommand) {
+    const id = appEditAction(screen, command);
+    if (id && !commandsBlocked()) void runAction(id);
+  }
+  async function installMenu(model: Keymap) {
+    if (!native || !mac) return;
+    const generation = ++menuGeneration;
+    try {
+      const menu = await AppMenu.build(model, { run: menuCommand, edit: command => routeEditCommand(command, document, appEdit) });
+      // Only the latest build becomes the app menu; superseded builds are released.
+      if (generation !== menuGeneration || !mounted) { void menu.close(); return; }
+      await menu.activate();
+      const previous = appMenu; appMenu = menu; void previous?.close();
+    } catch (e) { if (mounted) error = `Could not build the menu bar: ${String(e)}`; }
+  }
+  // A string, so the effect below runs only when enabled state actually changes.
+  const menuEnabled = $derived(appMenu ? appMenu.actions.filter(id => !commandsBlocked() && actionAvailable(id)).join(' ') : '');
+  $effect(() => { appMenu?.sync(new Set(menuEnabled.split(' ').filter(Boolean) as ActionId[])); });
   async function commitMap(value: MapPreview, songKey:string) {
     if(busy||song?.reference_token!==songKey)throw new Error('The song changed. Please reopen the measure map.');
     flushControls(); await saves.catch(()=>{});
@@ -397,7 +426,7 @@
     seek_backward_fine: () => seekBy(-.1), seek_forward_fine: () => seekBy(.1),
     previous_section: () => nextSection(-1), next_section: () => nextSection(1),
     add_section: () => startSection(), open_song: async () => { await showLibrary(); if(screen==='library')await open(); },
-    disable_loop: () => {repeatCountIn=false;return update({ loop_enabled: false });}, show_shortcuts: () => helpDialog.showModal(),
+    disable_loop: () => {repeatCountIn=false;return update({ loop_enabled: false });}, show_shortcuts: () => { helpDialog.showModal(); helpOpen = true; },
     reload_keymap: reloadKeymap, load_demo: () => open(true), fit_loop: fitLoop,
     zoom_in: () => { view = zoom(view, song!.duration, .5, selection ? (selection.start + selection.end) / 2 : transport.position); },
     zoom_out: () => { view = zoom(view, song!.duration, 2, (view.start + view.end) / 2); },
@@ -413,7 +442,7 @@
     save_section: saveSection, close_editor: () => sectionDialog.close(), close_shortcuts: () => helpDialog.close()
   }, () => ({ context: screen, busy: !!busy||stemsLoading, song: !!song, range: !!selection, sections: !!sections.length,
     audio: !!song && native && !transport.audio_error, loop_on: !!project?.loop_enabled,
-    undo: !!undo.length, editor: !!sectionDialog?.open, help: !!helpDialog?.open,
+    undo: !!undo.length, editor: sectionOpen, help: helpOpen,
     zoom_out: !!song && view.end - view.start < song.duration }));
 
   async function runAction(id: ActionId, payload: ActionPayload = {}) {
@@ -454,12 +483,17 @@
     return true;
   }
   function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
+  // Modal states own the keyboard and the menu bar's commands.
+  function commandsBlocked() { return quitConfirmation || !!busy || sectionOpen || helpOpen || !!replacementDialog?.isOpen() || !!managedState.dialog; }
+  // Single routing point: key owners keep their own keys, everything else goes
+  // through the keymap to the dispatcher. Esc first unwinds focus to home.
   function keyboard(event: KeyboardEvent) {
-    if (['Enter',' '].includes(event.key) && event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
-    if(event.target instanceof Element&&event.target.closest('[role=slider]'))return;
-    if (editing(event.target) || quitConfirmation || busy || sectionDialog?.open || helpDialog?.open || replacementDialog?.isOpen() || managedState.dialog) return;
+    if (event.defaultPrevented || ownsKey(event.target, event.key, currentModality()) || commandsBlocked()) return;
+    if (event.key === 'Escape' && !atHome()) { event.preventDefault(); focusHome(); return; }
     const id = keymap.match(event,screen);
-    if (!id || !actionAvailable(id)) return;
+    // Undo/Redo outside text entries never fall through to WebKit's document
+    // undo stack, which could silently undo an unfocused field.
+    if (!id || !actionAvailable(id)) { if (editCommand(event, mac)) event.preventDefault(); return; }
     event.preventDefault(); void runAction(id);
   }
   onMount(() => {
@@ -596,10 +630,10 @@
   <footer class="statusbar"><span>{#if undo.length && !busy}Section removed.<button class="text-button" title={keymap.title('undo_delete')} onclick={() => runButton('undo_delete')}>Undo</button>{:else}{busy || (stemsLoading?'Preparing stem playback…':'') || (song ? (saved ? 'Practice settings saved' : 'Saving practice settings…') : 'Ready when you are')}{#if song && saved}<Icon name="check" size={13}/>{/if}{/if}</span><span>{song ? (transport.device ?? (native ? 'No audio output' : 'Browser preview')) : 'Local songs • Independent speed and pitch'}</span><div class="statusbar-tools"><ThemeControl/><button class="shortcuts-button" title={keymap.title('shortcuts')} onclick={() => runButton('shortcuts')}>Shortcuts {#if screen==='practice'||screen==='mapping'}<span class="keycap">{keymap.shortcut(keymap.actionFor('play'))}</span>{keymap.description(keymap.actionFor('play'))}{/if}</button></div></footer>
 </div>
 
-<dialog class="section-dialog" bind:this={sectionDialog} onclose={() => { dialogError = ''; }}>
+<dialog class="section-dialog" bind:this={sectionDialog} onclose={() => { dialogError = ''; sectionOpen = false; }}>
   <form onsubmit={event => { event.preventDefault(); void runButton('save_section'); }}><div class="dialog-heading"><h2>{sectionId ? 'Edit section' : 'Save a section'}</h2><button type="button" class="icon-button" aria-label="Close section editor" title={keymap.title('close_editor')} onclick={() => runButton('close_editor')}><Icon name="close"/></button></div><p>Keep a passage you’ll want to come back to.</p><label>Section name<input bind:this={nameInput} bind:value={sectionName} maxlength="128" placeholder="Verse, solo, a tricky phrase…" required/></label><div class="dialog-times"><label>Start (seconds)<input type="number" min="0" max={song?.duration ?? 0} step="any" bind:value={sectionStart} required/></label><label>End (seconds)<input type="number" min="0" max={song?.duration ?? 0} step="any" bind:value={sectionEnd} required/></label></div>{#if dialogError}<p class="form-error" role="alert">{dialogError}</p>{/if}<div class="dialog-actions"><button type="button" class="button" title={keymap.title('cancel_editor')} onclick={() => runButton('cancel_editor')}>Cancel</button><button class="button primary" type="submit" title={keymap.title('save_section')}>Save section</button></div></form>
 </dialog>
-<dialog class="help-dialog" bind:this={helpDialog}>
+<dialog class="help-dialog" bind:this={helpDialog} onclose={() => { helpOpen = false; }}>
   <div class="dialog-heading"><h2>Keep your hands on the guitar</h2><button class="icon-button" aria-label="Close shortcuts" title={keymap.title('close_shortcuts')} onclick={() => runButton('close_shortcuts')}><Icon name="close"/></button></div>
   <p>Shortcuts work when you’re not editing a field.</p>
   <dl>{#each shortcuts as shortcut (shortcut.action)}<div><dt>{shortcut.keys}</dt><dd>{shortcut.description}</dd></div>{/each}</dl>

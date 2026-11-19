@@ -19,6 +19,5 @@
   .position{display:flex;gap:5px;align-items:baseline;font-variant-numeric:tabular-nums}.position>span{color:#99aac3}.position strong{font-weight:500;min-width:53px}
   .speed-number{display:flex;gap:4px;align-items:center}.speed-number input{width:49px;color:#e1ebfa;background:#ffffff0c;border:1px solid #ffffff26;border-radius:3px;padding:4px;font:inherit;font-variant-numeric:tabular-nums;appearance:textfield}.speed-number input::-webkit-inner-spin-button{appearance:none}
   .loop-off{background:none;border:0;color:#d9e4f5;font:inherit;padding:5px;text-decoration:underline;text-underline-offset:3px}
-  button:focus-visible,input:focus-visible{outline:2px solid #cad9f0;outline-offset:2px}
   @media(max-width:1000px){.position>span{display:none}.map-playback{gap:8px}}
 </style>

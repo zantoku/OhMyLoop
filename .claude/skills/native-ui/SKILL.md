@@ -42,7 +42,9 @@ not own the key.
   key inside `[role=slider]` is the bug this rule exists to prevent.
 - **Clicks leave focus where it was.** As in native macOS apps, clicking a
   button, toggle, segmented control or tab does not move keyboard focus to
-  it. Prevent the focus change on `pointerdown`, not on `click`. Afterwards,
+  it. Prevent the focus change on `mousedown` (WebKit and Chromium move focus
+  there; cancelling `pointerdown` doesn't stop it), and commit a focused
+  field before cancelling, so its `change` still fires. Afterwards,
   Space plays, as it does everywhere. Only Tab-focused buttons activate with
   Space or Enter.
 - **Committing hands focus back.** In a number or short text field:

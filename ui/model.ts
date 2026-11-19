@@ -22,6 +22,3 @@ export function sectionColor(id: string): string {
   let hash = 0; for (const c of id) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
   return colors[hash % colors.length];
 }
-export function editing(target: EventTarget | null): boolean {
-  return target instanceof Element && Boolean(target.closest('input, textarea, select, [contenteditable="true"], dialog'));
-}

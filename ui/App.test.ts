@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import App from './App.svelte';
+import { installNativeChrome } from './native-chrome';
+import { installFieldCommit } from './field-commit';
 import { timingFixture } from './timing-fixture';
 import type { PracticeDocument, Snapshot, Transport } from './types';
 import type {StemProgress} from './stems';
@@ -8,6 +10,17 @@ import type {SeparationStatus} from './separation';
 
 const mock = vi.hoisted(() => ({ separationEstimate:vi.fn(),separationStatus:vi.fn(),installSeparationModel:vi.fn(),reinstallSeparationModel:vi.fn(),reinstallSeparationRuntime:vi.fn(),removeSeparationRuntime:vi.fn(),removeSeparationModel:vi.fn(),refreshSeparationRuntime:vi.fn(),startSeparation:vi.fn(),cancelSeparation:vi.fn(), stemsStatus:vi.fn(),setStemMix:vi.fn(),attachStems:vi.fn(),removeStems:vi.fn(),pickStemsDirectory:vi.fn(),onStemProgress:vi.fn(), libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), loadDemo: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
+const menu = vi.hoisted(() => {
+  const items: { id?: string; action?: () => void; setEnabled: unknown; close: unknown }[] = [];
+  const resource = (options: object) => { const item = { ...options, setEnabled: vi.fn(async () => {}), close: vi.fn(async () => {}) }; items.push(item); return item; };
+  return { items, module: {
+    Menu: { new: vi.fn(async (options: object) => ({ ...resource(options), setAsAppMenu: vi.fn(async () => {}) })) },
+    Submenu: { new: vi.fn(async (options: object) => resource(options)) },
+    PredefinedMenuItem: { new: vi.fn(async (options: object) => resource(options)) },
+    MenuItem: { new: vi.fn(async (options: object) => resource(options)) }
+  } };
+});
+vi.mock('@tauri-apps/api/menu', () => menu.module);
 let document: PracticeDocument;
 let transport: Transport;
 const response = (): Snapshot => ({ song: null, document: structuredClone(document), transport: { ...transport } });
@@ -16,6 +29,7 @@ function separationStatus():SeparationStatus {const attempt={id:'',running:false
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete window.document.documentElement.dataset.modality;
   mock.separationEstimate.mockResolvedValue(1950628864);mock.separationStatus.mockResolvedValue(separationStatus());
   mock.reinstallSeparationModel.mockResolvedValue(separationStatus());mock.reinstallSeparationRuntime.mockResolvedValue(separationStatus());mock.removeSeparationRuntime.mockResolvedValue(separationStatus());
   mock.installSeparationModel.mockResolvedValue(separationStatus());mock.removeSeparationModel.mockResolvedValue(separationStatus());mock.refreshSeparationRuntime.mockResolvedValue(separationStatus());mock.startSeparation.mockResolvedValue(separationStatus());mock.cancelSeparation.mockResolvedValue(separationStatus());
@@ -265,6 +279,8 @@ describe('measure-map screen integration',()=>{
 it('keeps the accepted map on a failed save and can retry the same preview',async()=>{
   mock.previewMap.mockResolvedValue(timingFixture(48000));await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await fireEvent.click(screen.getByRole('button',{name:'Preview evenly spaced measures'}));const apply=await screen.findByRole('button',{name:'Apply map'});
+  // A Tab-focused button owns Enter (keyboard modality), so it does not also jump to the start.
+  window.document.documentElement.dataset.modality='keyboard';
   const enter=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});await fireEvent(apply,enter);expect(enter.defaultPrevented).toBe(false);expect(mock.action).not.toHaveBeenCalled();
   mock.update.mockRejectedValueOnce(new Error('Disk full'));await fireEvent.click(apply);await screen.findByText(/Disk full/);expect(document.measure_map).toBeUndefined();
   await fireEvent.click(screen.getByRole('button',{name:'Apply map'}));await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));await waitFor(()=>expect(screen.queryByText(/Disk full/)).toBeNull());
@@ -1469,4 +1485,154 @@ it('retains time-based navigation for an empty measure map', async () => {
     await fireEvent.keyDown(window, { key });
     await shown(seconds);
   }
+});
+
+describe('key routing: owners keep their keys, everything else reaches the dispatcher', () => {
+  const modality = (value: 'keyboard' | 'pointer') => { window.document.documentElement.dataset.modality = value; };
+  it('plays with Space after clicking a button (button-Space regression)', async () => {
+    await ready(); modality('pointer');
+    const loop = screen.getByRole('button', { name: 'Loop off' }); loop.focus();
+    await fireEvent.keyDown(loop, { key: ' ', code: 'Space' });
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+  });
+  it('lets a Tab-focused button activate with Space instead of playing', async () => {
+    await ready(); modality('keyboard');
+    const space = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
+    await fireEvent(screen.getByRole('button', { name: 'Loop off' }), space);
+    expect(space.defaultPrevented).toBe(false); expect(mock.action).not.toHaveBeenCalled();
+    // Letters still reach the shortcuts from a Tab-focused button.
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Loop off' }), { key: 'l' });
+    await waitFor(() => expect(document.loop_enabled).toBe(true));
+  });
+  it('fires letter shortcuts and Space from a focused waveform slider (slider-letter regression)', async () => {
+    document.loop_selection = { start: 3, end: 6, fade_ms: 5 };
+    mock.initialize.mockResolvedValue({ ...(await mock.initialize()), document: structuredClone(document) });
+    await ready(); modality('keyboard');
+    const slider = screen.getByRole('slider', { name: 'Song position' });
+    await fireEvent.keyDown(slider, { key: 'l' });
+    await waitFor(() => expect(document.loop_enabled).toBe(true));
+    await fireEvent.keyDown(slider, { key: ' ', code: 'Space' });
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+    // The slider keeps its documented keys: End seeks to the end, not via a shortcut.
+    await fireEvent.keyDown(slider, { key: 'End' });
+    await waitFor(() => expect(mock.action).toHaveBeenLastCalledWith({ type: 'seek', seconds: 12 }, 'test'));
+  });
+  it('fires shortcuts from a stem knob but keeps its arrow keys', async () => {
+    mock.stemsStatus.mockResolvedValue(attachedStems());
+    await ready(); mock.action.mockClear();
+    const knob = screen.getByRole('slider', { name: 'Bass gain' });
+    await fireEvent.keyDown(knob, { key: 'ArrowLeft' });
+    expect(mock.action).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'seek' }), 'test');
+    await fireEvent.keyDown(knob, { key: ' ', code: 'Space' });
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+  });
+  it('fires shortcuts from range inputs, but not from number fields', async () => {
+    await ready();
+    const volume = screen.getAllByLabelText('Metronome volume')[0];
+    await fireEvent.keyDown(volume, { key: 'ArrowLeft' });
+    expect(mock.action).not.toHaveBeenCalled();
+    await fireEvent.keyDown(volume, { key: ' ', code: 'Space' });
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+    mock.action.mockClear();
+    await fireEvent.keyDown(screen.getByLabelText('Pitch semitones'), { key: ' ', code: 'Space' });
+    expect(mock.action).not.toHaveBeenCalled();
+  });
+  it('unwinds Esc to home focus first, then runs the Esc shortcut', async () => {
+    document.loop_selection = { start: 3, end: 6, fade_ms: 5 }; document.loop_enabled = true;
+    mock.initialize.mockResolvedValue({ ...(await mock.initialize()), document: structuredClone(document) });
+    await ready(); modality('keyboard');
+    const slider = screen.getByRole('slider', { name: 'Song position' }); slider.focus();
+    await fireEvent.keyDown(slider, { key: 'Escape' });
+    expect(window.document.activeElement).toBe(screen.getByRole('region', { name: /^Waveform/ }));
+    expect(document.loop_enabled).toBe(true);
+    await fireEvent.keyDown(window.document.activeElement!, { key: 'Escape' });
+    await waitFor(() => expect(document.loop_enabled).toBe(false));
+  });
+});
+
+describe('fields hand focus back and commit before buttons act', () => {
+  const cleanups: (() => void)[] = [];
+  beforeEach(() => {
+    cleanups.push(installNativeChrome(window.document), installFieldCommit(window.document));
+    // jsdom does not fire change on blur; browsers do. Emulate it.
+    const focused = new WeakMap<EventTarget, string>();
+    const focusin = (event: FocusEvent) => { if (event.target instanceof HTMLInputElement) focused.set(event.target, event.target.value); };
+    const focusout = (event: FocusEvent) => { const field = event.target; if (field instanceof HTMLInputElement && focused.get(field) !== field.value) field.dispatchEvent(new Event('change', { bubbles: true })); };
+    window.document.addEventListener('focusin', focusin); window.document.addEventListener('focusout', focusout);
+    cleanups.push(() => { window.document.removeEventListener('focusin', focusin); window.document.removeEventListener('focusout', focusout); });
+  });
+  afterEach(() => cleanups.splice(0).forEach(cleanup => cleanup()));
+  const speedField = () => window.document.getElementById('speed-percent') as HTMLInputElement;
+  const type = async (field: HTMLInputElement, value: string) => { field.focus(); field.value = value; await fireEvent.input(field); };
+  const press = async (button: HTMLElement) => { await fireEvent.mouseDown(button, { button: 0 }); await fireEvent.click(button); };
+  const home = () => screen.getByRole('region', { name: /^Waveform/ });
+
+  it('commits an edited field before a clicked button acts, then Space plays', async () => {
+    await ready();
+    await type(speedField(), '80');
+    await press(screen.getByRole('button', { name: 'Faster by 5 percent' }));
+    await waitFor(() => expect(document.controls.speed).toBe(.85));
+    expect(window.document.activeElement).toBe(home());
+    await fireEvent.keyDown(window.document.activeElement!, { key: ' ', code: 'Space' });
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+  });
+  it('commits on Enter in a practice field and returns home focus', async () => {
+    await ready();
+    const pitch = screen.getByLabelText('Pitch semitones') as HTMLInputElement;
+    await type(pitch, '-2');
+    await fireEvent.keyDown(pitch, { key: 'Enter' });
+    expect(window.document.activeElement).toBe(home());
+    await waitFor(() => expect(document.controls.semitones).toBe(-2));
+    expect(transport.position).toBe(0);
+  });
+  it('reverts the speed field on Esc and returns home without committing', async () => {
+    await ready();
+    await type(speedField(), '50');
+    await fireEvent.keyDown(speedField(), { key: 'Escape' });
+    expect(speedField().value).toBe('100');
+    expect(window.document.activeElement).toBe(home());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(document.controls.speed).toBe(1); expect(mock.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('undo and the macOS menu bar', () => {
+  const platform = Object.getOwnPropertyDescriptor(Navigator.prototype, 'platform')!;
+  beforeEach(() => { menu.items.length = 0; Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true }); });
+  afterEach(() => { delete (navigator as unknown as Record<string, unknown>).platform; Object.defineProperty(Navigator.prototype, 'platform', platform); });
+  const command = async (id: string) => { await waitFor(() => expect(menu.items.some(item => item.id === id)).toBe(true)); menu.items.filter(item => item.id === id).at(-1)!.action!(); };
+
+  it('ignores menu commands while a dialog blocks commands', async () => {
+    await ready();
+    await command('show_shortcuts');
+    await command('play_pause');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(mock.action).not.toHaveBeenCalledWith({ type: 'toggle_play' }, 'test');
+    await fireEvent.click(screen.getByRole('button', { name: 'Close shortcuts' }));
+    await command('play_pause');
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+  });
+  it('sends menu Undo to the app outside text fields and ⌘Z restores a removed section', async () => {
+    await ready();
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete Chorus' }));
+    await waitFor(() => expect(document.sections.find(s => s.id === 'chorus')).toBeUndefined());
+    await command('edit_undo');
+    await waitFor(() => expect(document.sections.find(s => s.id === 'chorus')).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete Chorus' }));
+    await waitFor(() => expect(document.sections.find(s => s.id === 'chorus')).toBeUndefined());
+    await fireEvent.keyDown(window, { key: 'z', metaKey: true });
+    await waitFor(() => expect(document.sections.find(s => s.id === 'chorus')).toBeTruthy());
+  });
+  it('always consumes ⌘Z outside text fields, even with nothing to undo, but not inside them', async () => {
+    await ready();
+    const undo = new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true, cancelable: true });
+    window.document.body.dispatchEvent(undo);
+    expect(undo.defaultPrevented).toBe(true);
+    const redo = new KeyboardEvent('keydown', { key: 'z', metaKey: true, shiftKey: true, bubbles: true, cancelable: true });
+    window.document.body.dispatchEvent(redo);
+    expect(redo.defaultPrevented).toBe(true);
+    const inField = new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true, cancelable: true });
+    screen.getByLabelText('Pitch semitones').dispatchEvent(inField);
+    expect(inField.defaultPrevented).toBe(false);
+  });
 });

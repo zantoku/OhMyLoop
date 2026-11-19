@@ -60,7 +60,7 @@
  p{font-size:13px;line-height:1.5;margin:0;color:var(--text-secondary)}.small{font-size:12px;color:var(--muted)}
  .component-status{display:grid;gap:8px;font-size:12px;margin:0}.component-status>div{display:flex;justify-content:space-between;gap:16px}.component-status dt{color:var(--text-secondary)}.component-status dd{margin:0;color:var(--muted)}
  .management-controls{display:flex;flex-wrap:wrap;gap:10px}.button{justify-self:start}.job-controls{display:flex;align-items:center;justify-content:space-between;gap:15px;font-size:12px;color:var(--text-secondary)}
- details{font-size:12px;color:var(--text-secondary)}details[open]{display:grid;gap:12px}summary{cursor:pointer}
+ details{font-size:12px;color:var(--text-secondary)}details[open]{display:grid;gap:12px}
  .notice{display:grid;gap:10px}.diagnostics pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;font-size:11px}
  .confirmation{display:grid;gap:16px;padding:18px;border:1px solid var(--border-strong);border-radius:7px}
 </style>

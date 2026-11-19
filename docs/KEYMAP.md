@@ -122,11 +122,36 @@ limited to 160 characters. All action/button IDs and default descriptions live
 in [ui/actions.ts](../ui/actions.ts); the documentation does not maintain a second
 action catalog.
 
-Practice shortcuts are suspended inside editable fields and dialogs and during
-IME composition. Holding a transport toggle does not repeatedly toggle it;
-seek actions permit key repeat. Standard widget keyboard behavior (waveform
-slider navigation, loop-handle adjustment, and numeric input editing) remains
-local to those widgets.
+Key ownership is decided by the key (`ui/key-routing.ts`). Text fields,
+selects, open dialogs and IME composition own every key. Composite controls
+(waveform and map seek sliders, loop handles, map lines, stem knobs, range
+inputs) own only their documented keys, such as the arrows and Home/End;
+letters, Space, Enter and Esc still reach the shortcuts from them. Clicking a
+button or toggle leaves keyboard focus where it was, so Space keeps playing;
+only a Tab-focused button activates with Space or Enter. Holding a transport
+toggle does not repeatedly toggle it; seek actions permit key repeat.
+
+Esc unwinds one level per press: an open dialog closes, a number or text field
+restores its value and returns focus to the screen's workspace, any other
+focused control returns focus to the workspace, and only then does Esc run its
+shortcut (`disable_loop`). Enter in a field commits and returns to the
+workspace.
+
+`Mod+z` undoes the last measure-map edit (mapping) or restores a removed section
+(practice); `Mod+Shift+z` redoes a measure-map edit. In text fields these keys
+keep their native text undo/redo. Outside text fields they are always consumed,
+even with nothing to undo, so the webview's own undo never edits an unfocused
+field. The macOS Edit ▸ Undo/Redo items follow the same rule (`ui/undo-routing.ts`).
+If a custom `keymap.json` binds `Mod+z` (or `Mod+Shift+z`) to another action,
+free the default with `"undo_delete": []` and `"map_undo": []` (or
+`"map_redo": []`); otherwise the file is rejected as conflicting and all
+defaults are restored.
+
+On macOS the menu bar is built from the same actions (`ui/app-menu.ts`): menu
+labels, `⌘` accelerators and enabled state follow the resolved keymap, and the
+standard About, Services, Hide, Quit and Edit clipboard items are kept. Single-key
+shortcuts stay in the webview. Windows and Linux have no menu bar; their Ctrl
+shortcuts go through the same webview handler.
 
 ## Architecture
 
@@ -135,6 +160,14 @@ local to those widgets.
 - `ui/keymap.ts`: pure configuration validation, override resolution, key
   matching, platform formatting, and descriptions for the view.
 - `ui/action-dispatcher.ts`: shared availability, payload checks, and execution.
+- `ui/key-routing.ts`: which focused element owns a key; everything else goes to
+  the keymap.
+- `ui/input-modality.ts`, `ui/home-focus.ts`, `ui/field-commit.ts`,
+  `ui/native-chrome.ts`: keyboard/pointer modality for focus rings, the
+  workspace's home focus, field commit/revert, and app-wide pointer behaviour
+  (no focus on click, no browser context menu, no dragging out).
+- `ui/app-menu.ts`: macOS menu bar layout and accelerators from the action model.
+- `ui/undo-routing.ts`: Undo/Redo to the focused text field, otherwise the screen's app undo.
 - `ui/App.svelte`: state-aware handler adapters and presentation. Its keyboard
   handler resolves a binding and dispatches an action; it contains no key list.
 - `src/keymap.rs`: bounded, read-only JSON file loading. It does not know UI

@@ -35,8 +35,8 @@ export const MAPPING_ACTIONS = {
   map_reclaim: mapping('Create a measure in the selected uncounted range'),
   map_protect: mapping('Protect or unprotect this measure'),
   map_respace: mapping('Respace the selected measures'),
-  map_undo: mapping('Undo a measure-map edit'),
-  map_redo: mapping('Redo a measure-map edit'),
+  map_undo: mapping('Undo a measure-map edit', ['Mod+z']),
+  map_redo: mapping('Redo a measure-map edit', ['Mod+Shift+z']),
   map_fit: mapping('Fit the selected measure'),
   map_whole: mapping('Show the whole song in the measure map'),
   map_analyze: mapping('Analyze beats and downbeats'),
@@ -151,7 +151,7 @@ export const ACTIONS = {
   transpose_up: define('Transpose up one semitone'),
   retry_audio: define('Retry audio output'),
   retry_save: define('Retry saving practice settings'),
-  undo_delete: practice('Restore the removed section', [], 'undo'),
+  undo_delete: practice('Restore the removed section', ['Mod+z'], 'undo'),
   dismiss_error: { ...define('Dismiss this message', [], 'none'), duringBusy: true },
   select_section: practice('Jump to this section', [], 'song', 'section'),
   edit_section: practice('Edit this section', [], 'song', 'section'),
@@ -162,6 +162,17 @@ export const ACTIONS = {
 } as const;
 
 export type ActionId = keyof typeof ACTIONS;
+// Short command names for the native menu bar, matching the on-screen buttons.
+// Actions without a label fall back to their description.
+export const ACTION_LABELS: Partial<Record<ActionId, string>> = {
+  open_song: 'Import Song…', show_library: 'Music Library', replace_recording: 'Replace Recording…',
+  show_practice: 'Practice', show_measure_map: 'Measure Map', show_notes: 'Notes', show_stems: 'Stems',
+  zoom_in: 'Zoom In', zoom_out: 'Zoom Out', show_whole_song: 'Show Whole Song',
+  play_pause: 'Play / Pause', toggle_loop: 'Loop', set_loop_start: 'Set A at Playhead', set_loop_end: 'Set B at Playhead',
+  clear_loop: 'Clear A–B Range', add_section: 'Save Section…',
+  jump_song_start: 'Go to Start', jump_loop_start: 'Go to A', jump_loop_end: 'Go to B',
+  show_shortcuts: 'Keyboard Shortcuts', reload_keymap: 'Reload Shortcut Configuration'
+};
 export const BUTTONS = {
   separation_install:'separation_install',separation_reinstall_model:'separation_reinstall_model',separation_reinstall_runtime:'separation_reinstall_runtime',separation_remove_runtime:'separation_remove_runtime',separation_start:'separation_start',separation_cancel:'separation_cancel',separation_remove_model:'separation_remove_model',separation_refresh_runtime:'separation_refresh_runtime',separation_practice:'separation_practice',separation_open:'separation_open',
   retry_stem_mix:'retry_stem_mix',show_stems:'show_stems',close_stems:'close_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',

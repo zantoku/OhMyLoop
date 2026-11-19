@@ -35,29 +35,22 @@
   );
   let drag = $state<Drag | null>(null);
   let overviewPointer = $state<number | null>(null);
-  let keyboardFocus = $state(false);
   let width = $state(800);
   let height = $state(200);
   const current = $derived(preview ?? selection);
   const span = $derived(view.end - view.start);
   const percent = (seconds: number) => (seconds - view.start) / span * 100;
   const measures = $derived(mapView?.measures ?? []);
+  const playheadShown = $derived(position >= view.start && position <= view.end);
 
   $effect(() => { void width; void height; void peaks; drawWaveform(canvas, peaks, duration, view.start, view.end); drawWaveform(overview, peaks, duration, 0, duration, true); });
   onMount(() => {
     const observer = new ResizeObserver(() => { width = field.clientWidth; height = field.clientHeight; });
     observer.observe(field);
-    // Scripted focus during dragging can retain WebKit's keyboard focus ring.
-    const pointerInput = () => { keyboardFocus = false; };
-    const keyboardInput = () => { keyboardFocus = true; };
-    window.addEventListener('pointerdown', pointerInput, true);
-    window.addEventListener('keydown', keyboardInput, true);
     // Cancel page scrolling even on WebViews that make wheel listeners passive by default.
     field.addEventListener('wheel', wheel, { passive: false });
     return () => {
       observer.disconnect(); field.removeEventListener('wheel', wheel);
-      window.removeEventListener('pointerdown', pointerInput, true);
-      window.removeEventListener('keydown', keyboardInput, true);
     };
   });
   function point(event: MouseEvent): number {
@@ -134,7 +127,7 @@
     const target = event.currentTarget as HTMLButtonElement;
     overviewPointer = event.pointerId;
     target.setPointerCapture(event.pointerId);
-    target.focus(); event.preventDefault();
+    event.preventDefault();
     panOverview(event);
   }
   function overviewMove(event: PointerEvent) {
@@ -154,7 +147,7 @@
 </script>
 
 <div class="overview-wrap">
-  <button class="overview" class:keyboard-focus={keyboardFocus} class:panning={overviewPointer !== null} onclick={panOverview}
+  <button class="overview" class:panning={overviewPointer !== null} onclick={panOverview}
     onpointerdown={overviewDown} onpointermove={overviewMove} onpointerup={overviewUp}
     onpointercancel={overviewCancel} onlostpointercapture={overviewCancel}
     aria-label="Move waveform view" title="Click or drag to move the detailed view">
@@ -173,34 +166,37 @@
   {/each}
 </div>
 
-<div class="wave-field" class:keyboard-focus={keyboardFocus} class:panning={drag?.mode === 'pan'} bind:this={field} role="region" tabindex="-1"
+<div class="wave-field" class:panning={drag?.mode === 'pan'} bind:this={field} role="region" tabindex="-1" data-home
   aria-label="Waveform. Click to seek, drag to choose a loop. Scroll to zoom, middle-drag to pan."
   onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={cancel} onlostpointercapture={cancel}
   onauxclick={e => { if (e.button === 1) e.preventDefault(); }}>
-  <div class="seek-surface" role="slider" tabindex="0" aria-label="Song position" aria-valuemin="0" aria-valuemax={duration} aria-valuenow={position} aria-valuetext={time(position)}
+  <div class="seek-surface" class:offscreen={!playheadShown} role="slider" tabindex="0" data-owns-keys="ArrowLeft ArrowRight Home End" aria-label="Song position" aria-valuemin="0" aria-valuemax={duration} aria-valuenow={position} aria-valuetext={time(position)}
     onkeydown={seekKey}></div>
   <canvas class="wave-canvas" bind:this={canvas}></canvas>
   <PracticeRuler {mapView} {rate} {view} {width}/>
   {#if current && current.end > view.start && current.start < view.end}
     <div class="loop-shade" style:left={`${Math.max(0, percent(current.start))}%`} style:width={`${Math.min(100, percent(current.end)) - Math.max(0, percent(current.start))}%`}></div>
     {#if current.start >= view.start && current.start <= view.end}
-      <button class="loop-handle start" data-handle="start" style:left={`${percent(current.start)}%`} aria-label="Loop start" title="Drag loop start. Snaps to measures when enabled; Shift bypasses snapping. Arrow keys adjust; Shift gives fine adjustment." onkeydown={(e) => shiftBoundary(e, 'start')}><span>A</span></button>
+      <button class="loop-handle start" data-handle="start" data-owns-keys="ArrowLeft ArrowRight" style:left={`${percent(current.start)}%`} aria-label="Loop start" title="Drag loop start. Snaps to measures when enabled; Shift bypasses snapping. Arrow keys adjust; Shift gives fine adjustment." onkeydown={(e) => shiftBoundary(e, 'start')}><span>A</span></button>
     {/if}
     {#if current.end >= view.start && current.end <= view.end}
-      <button class="loop-handle end" data-handle="end" style:left={`${percent(current.end)}%`} aria-label="Loop end" title="Drag loop end. Snaps to measures when enabled; Shift bypasses snapping. Arrow keys adjust; Shift gives fine adjustment." onkeydown={(e) => shiftBoundary(e, 'end')}><span>B</span></button>
+      <button class="loop-handle end" data-handle="end" data-owns-keys="ArrowLeft ArrowRight" style:left={`${percent(current.end)}%`} aria-label="Loop end" title="Drag loop end. Snaps to measures when enabled; Shift bypasses snapping. Arrow keys adjust; Shift gives fine adjustment." onkeydown={(e) => shiftBoundary(e, 'end')}><span>B</span></button>
     {/if}
   {/if}
-  {#if position >= view.start && position <= view.end}
+  {#if playheadShown}
     <div class="playhead" style:left={`${percent(position)}%`} aria-hidden="true"><span></span></div>
   {/if}
 </div>
 
 <style>
-  .overview:not(.keyboard-focus):focus,.wave-field:not(.keyboard-focus):focus,.wave-field:not(.keyboard-focus) :focus{outline:none}
-  .seek-surface:focus-visible{outline:3px solid var(--focus)}
+  /* The seek surface spans the field; its focus shows on the drawn playhead,
+     or as an inset ring on the field while the playhead is out of view. */
+  :global([data-modality=keyboard]) .seek-surface:focus-visible{outline:none}
+  :global([data-modality=keyboard]) .seek-surface.offscreen:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+  :global([data-modality=keyboard]) .seek-surface:focus-visible ~ .playhead{outline:2px solid var(--focus);outline-offset:1px}
   .wave-field.panning,.wave-field.panning .loop-handle{cursor:grabbing}
-  .seek-surface{position:absolute;inset:0;outline-offset:-3px}.wave-canvas{pointer-events:none}
-  .overview-wrap{position:relative;margin-bottom:8px;flex-shrink:0}.overview{display:block;width:100%;height:42px;border:0;padding:5px 0;background:var(--overview-bg);position:relative;overflow:hidden;border-radius:5px;cursor:pointer}.overview canvas{width:100%;height:100%;display:block}.viewport{position:absolute;inset-block:0;border:1px solid var(--blue);background:var(--blue-wash);pointer-events:none;min-width:3px}.overview-playhead{position:absolute;inset-block:0;border-left:2px solid var(--blue)}.overview-caption{display:flex;align-items:start;justify-content:space-between;gap:12px;margin-top:6px;color:var(--muted);font-size:11px;line-height:1.5}.overview-label{min-width:0}.overview-duration{flex-shrink:0;font-variant-numeric:tabular-nums}.section-lane{position:relative;height:25px;flex-shrink:0;background:var(--sidebar);border-radius:4px 4px 0 0;overflow:hidden}.section-lane button{position:absolute;height:100%;padding:0 9px;border:0;border-right:2px solid var(--page);text-align:left;font:500 11px inherit;color:#27334c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.wave-field{position:relative;height:auto;flex:1;min-height:120px;background:var(--wave-bg);border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;cursor:crosshair;user-select:none}.wave-field:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.wave-canvas{position:absolute;left:0;top:31px;width:100%;height:calc(100% - 46px)}.loop-shade{position:absolute;inset-block:30px 0;background:#dda54e29;pointer-events:none}.loop-handle{position:absolute;top:29px;bottom:0;width:20px;padding:0;border:0;border-left:2px solid #e6b65e;background:transparent;cursor:ew-resize;touch-action:none;border-radius:0;color:#233552}.loop-handle span{position:absolute;top:1px;left:-2px;background:#e6b65e;border-radius:0 0 3px 0;font-size:10px;font-weight:700;padding:3px 5px}.loop-handle.end{transform:translateX(-18px);border-left:0;border-right:2px solid #e6b65e}.loop-handle.end span{left:auto;right:-2px;border-radius:0 0 0 3px}.playhead{position:absolute;inset-block:26px 0;border-left:2px solid #f9fcff;pointer-events:none}.playhead span{position:absolute;top:-1px;left:-5px;width:8px;height:8px;background:#fff;transform:rotate(45deg)}
+  .seek-surface{position:absolute;inset:0}.wave-canvas{pointer-events:none}
+  .overview-wrap{position:relative;margin-bottom:8px;flex-shrink:0}.overview{display:block;width:100%;height:42px;border:0;padding:5px 0;background:var(--overview-bg);position:relative;overflow:hidden;border-radius:5px}.overview canvas{width:100%;height:100%;display:block}.viewport{position:absolute;inset-block:0;border:1px solid var(--blue);background:var(--blue-wash);pointer-events:none;min-width:3px}.overview-playhead{position:absolute;inset-block:0;border-left:2px solid var(--blue)}.overview-caption{display:flex;align-items:start;justify-content:space-between;gap:12px;margin-top:6px;color:var(--muted);font-size:11px;line-height:1.5}.overview-label{min-width:0}.overview-duration{flex-shrink:0;font-variant-numeric:tabular-nums}.section-lane{position:relative;height:25px;flex-shrink:0;background:var(--sidebar);border-radius:4px 4px 0 0;overflow:hidden}.section-lane button{position:absolute;height:100%;padding:0 9px;border:0;border-right:2px solid var(--page);text-align:left;font:500 11px inherit;color:#27334c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wave-field{position:relative;height:auto;flex:1;min-height:120px;background:var(--wave-bg);border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;cursor:crosshair;user-select:none}.wave-canvas{position:absolute;left:0;top:31px;width:100%;height:calc(100% - 46px)}.loop-shade{position:absolute;inset-block:30px 0;background:#dda54e29;pointer-events:none}.loop-handle{position:absolute;top:29px;bottom:0;width:20px;padding:0;border:0;border-left:2px solid #e6b65e;background:transparent;cursor:ew-resize;touch-action:none;border-radius:0;color:#233552}.loop-handle span{position:absolute;top:1px;left:-2px;background:#e6b65e;border-radius:0 0 3px 0;font-size:10px;font-weight:700;padding:3px 5px}.loop-handle.end{transform:translateX(-18px);border-left:0;border-right:2px solid #e6b65e}.loop-handle.end span{left:auto;right:-2px;border-radius:0 0 0 3px}.playhead{position:absolute;inset-block:26px 0;border-left:2px solid #f9fcff;pointer-events:none}.playhead span{position:absolute;top:-1px;left:-5px;width:8px;height:8px;background:#fff;transform:rotate(45deg)}
   .overview{touch-action:none;user-select:none;cursor:grab}.overview.panning{cursor:grabbing}
   @media(max-height:740px){.overview-wrap{display:none}.wave-field{min-height:90px}}
 </style>

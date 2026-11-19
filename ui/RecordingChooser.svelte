@@ -4,11 +4,13 @@
   import type {ButtonId} from './actions';
   let {keymap,run}:{keymap:Keymap;run:(id:ButtonId)=>void}=$props();
   let dialog:HTMLDialogElement;
-  export function showModal(){dialog.showModal();}
-  export function close(){dialog.close();}
-  export function isOpen(){return dialog?.open??false;}
+  let open=$state(false);
+  export function showModal(){dialog.showModal();open=true;}
+  export function close(){dialog.close();open=false;}
+  /** Reactive, so the menu bar's enabled state follows the dialog. */
+  export function isOpen(){return open;}
 </script>
-<dialog bind:this={dialog} aria-label="Replace reference recording" oncancel={event=>{event.preventDefault();run('replacement_cancel');}}>
+<dialog bind:this={dialog} onclose={()=>{open=false;}} aria-label="Replace reference recording" oncancel={event=>{event.preventDefault();run('replacement_cancel');}}>
   <div class="replacement-heading">
     <button class="icon-button" aria-label={keymap.buttonLabel('replacement_cancel','Close recording replacement')} title={keymap.title('replacement_cancel')} onclick={()=>run('replacement_cancel')}><Icon name="close"/></button>
     <h2>Replace reference recording</h2>

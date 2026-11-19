@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { editing, ordered, range, time, zoom } from './model';
+import { ordered, range, time, zoom } from './model';
 
 describe('waveform interaction coordinates', () => {
   it('selects the same source range when dragging backwards', () => {
@@ -27,10 +27,5 @@ describe('waveform interaction coordinates', () => {
   });
   it('formats minute boundaries without showing 0:60.0', () => {
     expect(time(59.99)).toBe('1:00.0');
-  });
-  it('does not fire transport shortcuts while editing numeric controls or dialogs', () => {
-    const input = document.createElement('input'), button = document.createElement('button'), dialog = document.createElement('dialog');
-    dialog.append(button);
-    expect(editing(input)).toBe(true); expect(editing(button)).toBe(true); expect(editing(document.body)).toBe(false);
   });
 });
