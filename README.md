@@ -42,7 +42,7 @@ Windows and Linux use their platform's Tauri bundle formats. Linux also needs
 the WebKitGTK and desktop integration packages listed in
 [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Use **Library → Import song**. Click the waveform to seek; drag to
+Use **Library → Import song**, or drop one audio file onto the window. Click the waveform to seek; drag to
 choose a temporary loop. The A/B handles adjust the bounds; click the passage card above the waveform
 to type exact seconds.
 Scroll over the waveform to zoom at the pointer; hold the middle mouse button
@@ -92,7 +92,7 @@ The playhead follows native output-frame positions rather than a frontend
 playback timer; adaptive stretching and physical device latency still make
 it an estimate.
 
-`npm run dev` opens a frontend-only development preview with demo fixtures.
+`npm run dev` opens a frontend-only development preview with a synthetic fixture song.
 Audio, analysis and native musical-map edits require `npm run desktop`.
 
 ## Count-in
@@ -142,19 +142,29 @@ CARGO_HOME="$PWD/.cargo-home" cargo test --locked --release -p ohmyloop --test c
 
 ## Music library
 
-Open **Library** from the header to browse your songs. **Import song** copies a
-recording into your selected library and leaves the external original untouched.
-The first import asks you to create an **OhMyLoop Library** subfolder or open an
-existing library; the demo needs no setup. Imports show copy progress and open
-Practice paused. Exact duplicates offer **Open existing song** or **Import separate
-song**; separate imports own independent copies, notes and maps.
+Open **Library** from the header to browse your songs; a first launch shows the
+empty Library with **Import song** (there is no built-in demo). **Import song**
+(⌘O / Ctrl+O), or dropping one audio file onto any view, copies a recording into
+your selected library and leaves the external original untouched. Several files
+or an unsupported file are refused with an explanation. The first import asks
+you to create an **OhMyLoop Library** subfolder or open an existing library.
+Imports show copy progress and open Practice paused. Exact duplicates offer to
+open the existing song or **Import as a separate song**; separate imports own
+independent copies, notes and maps.
 
-Artist, title and album come from embedded tags with filename fallback. **Edit →
-Save details** changes stored metadata without modifying audio. Search title,
-artist, album or file location; sort by those fields, Date added or Last opened.
-Opening Library pauses playback. Click a song title to reopen its practice state.
-**Library settings** provides Create library and Open existing library. Switching
-saves pending edits and unloads the song without selecting another.
+Each row shows title, artist and length; the loaded song has a blue bar and a
+CURRENT tag. A click selects a row; double-click, **Enter** or the row's **→**
+opens the song in Practice, paused. The loaded song's → (or **Esc**) returns to
+Practice as you left it. Arrow keys, Home/End and Page Up/Down move the
+selection; **⌘F** (Ctrl+F) finds a song by title, artist, album or file
+location; sort by last opened, title, artist, length or date added, and reverse
+the order. Opening a song never shows its edit fields: **⋯** or **⌘I** (Ctrl+I)
+opens the details panel, where title, artist and album (from embedded tags with
+filename fallback) can be corrected without modifying audio. Opening Library
+pauses playback. **Settings** in the Library header (⌘, / Ctrl+,) currently
+opens the library dialog with Create library and Open existing library, until
+app-wide Settings exist. Switching saves pending edits and unloads the song
+without selecting another.
 
 The selected folder owns recordings and authoritative song documents under
 `songs/<song-uuid>/`; `catalogue.json` is a rebuildable projection. App data holds
@@ -162,12 +172,12 @@ the selected library and last-song pointer. To move or back up a library, close
 the app and move/copy the whole folder, then open it at its new location.
 
 Opening a song checks its recording's content hash. Missing/changed audio uses
-**Library → Edit → Replace recording…**, below **File location**. Explicit
+**Library → ⋯ → Replace recording…** in the song's details panel. Explicit
 unchanged-timing confirmation requires matching decoded rate/frame count and
 preserves annotations; changed timing clears the map, sections, loop and saved
 position. Notes, controls and song UUID survive. No recording/map history.
 
-**Delete song** appears only in the Library edit panel and permanently deletes
+**Delete song…** appears only in the Library details panel and permanently deletes
 managed song files after confirmation. External originals remain untouched.
 No trash/restore, journaling/restart recovery, locking, import cancellation,
 storage-size UI or in-app move command. Assume one instance accesses a library.

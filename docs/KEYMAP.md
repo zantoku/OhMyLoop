@@ -233,18 +233,52 @@ rewind or playback toggle.
 
 ## Library actions
 
-Library actions have stable identities and no default keys: `show_library`,
-`library_close`, `library_open`, `library_edit`, `library_save`, `library_cancel`,
-`library_retry`, `library_sort` and `library_reverse`. Library-only commands are
-scoped to the catalogue screen. Opening/editing require a song-key payload and
-column sorting requires a field payload, so those contextual actions cannot be
-bound to keyboard chords. Their buttons use the central action bindings and hover
-descriptions. `show_library` can be assigned a global shortcut.
+Library actions have stable identities: `show_library`, `library_close`,
+`library_open`, `library_edit`, `library_save`, `library_cancel`,
+`library_retry`, `library_sort`, `library_reverse`, `library_find` and
+`library_clear_search`. Library-only commands are scoped to the Library screen.
+Defaults there: **Esc** → `library_close` (back to the current song, as it was
+left), **⌘I / Ctrl+I** → `library_edit` (edit the selected song's details) and
+**⌘F / Ctrl+F** → `library_find` (focus the search). Esc keeps its
+`disable_loop` binding on the song screens: that action's scope is `song`
+(every screen but the Library), so the two don't conflict. `library_open` and
+`library_replace` need a song-key payload and `library_sort` a field payload,
+so those contextual actions can't be bound to keys. `show_library` can be
+assigned a global shortcut.
 
-The global Open song command (Cmd/Ctrl+O) first opens the library, then the file
-picker. Cancelling keeps the library visible. The header navigation binds
-`show_library` in practice and mapping, and `library_close` in the library.
-Its default label is Library, becoming Practice while browsing the library.
+The song list owns ↑/↓, Home/End, Page Up/Down and **Enter** (open the selected
+song) while focused; every other key reaches the shortcuts. Esc unwinds one
+level per press: a search or details field returns focus to the list, then the
+details panel closes (discarding unsaved edits, like Cancel), then the Library
+returns to Practice. Every other way out of the Library, and quitting, saves
+pending details first; a failed save keeps you on the Library.
+
+`show_settings` (**⌘, / Ctrl+,**, button `settings`) opens Settings from any
+screen; it is the macOS app menu's "Settings…". Until app-wide Settings exist
+it opens the library dialog, and `managed_settings` (library settings) is an
+alias with the same availability. The macOS menu also lists `library_edit` (File →
+Edit Song Details…) and `library_find` (Edit → Find Song).
+
+The global Import song command (`open_song`, Cmd/Ctrl+O) first opens the
+library, then the file picker. Cancelling keeps the library visible. Dropping
+one audio file onto the window runs the same action with the dropped file. The
+built-in demo and its `load_demo` action (button `demo`) were removed.
+
+### Older configuration files
+
+A `keymap.json` written for an older version still loads:
+
+- Removed identities (`keys.load_demo`, `descriptions.load_demo`,
+  `buttons.demo`, or a button mapped to `load_demo`) are ignored, with a
+  warning naming each one.
+- Where your own binding uses a key that a newer default now claims (Esc for
+  `library_close`, ⌘I/Ctrl+I for `library_edit`, ⌘F/Ctrl+F for `library_find`,
+  ⌘,/Ctrl+, for `show_settings`), your binding wins: that default is dropped
+  and a warning names it. Bind the action to another key to get it back.
+
+Unknown identities that never existed, and two of your own bindings that
+collide (or a binding against an older default), still reject the whole file
+and restore the default keymap.
 The X beside the mapping panel title binds `show_practice`.
 
 ## Notes actions

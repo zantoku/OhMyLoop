@@ -1,5 +1,15 @@
 // Stable action identities and presentation metadata. No UI or device access.
-export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'stems';
+/** A screen whose actions and shortcuts are active. */
+export type ActionContext = 'practice' | 'mapping' | 'library' | 'stems';
+/** Where an action works: every screen, the song screens (all but Library), or one screen. */
+export type ActionScope = 'all' | 'song' | ActionContext;
+export function inScope(scope: ActionScope, context: ActionContext): boolean {
+  return scope === 'all' || scope === context || (scope === 'song' && context !== 'library');
+}
+/** True when some screen has both scopes active, so their bindings would collide. */
+export function scopesOverlap(a: ActionScope, b: ActionScope): boolean {
+  return (['practice', 'mapping', 'library', 'stems'] as const).some(context => inScope(a, context) && inScope(b, context));
+}
 export type Requirement = 'none' | 'song' | 'range' | 'sections' | 'audio' | 'loop_on' | 'undo' | 'editor' | 'help' | 'zoom_out';
 export type PayloadKind = 'command' | 'section' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort' | 'stem_gain';
 function define(description: string, keys: readonly string[] = [], requires: Requirement = 'song', payload: PayloadKind = 'command', repeat = false) {
@@ -76,6 +86,7 @@ export const ACTIONS = {
   mute_piano:practice('Mute / unmute piano',['4']),
   mute_vocals:practice('Mute / unmute vocals',['5']),
   mute_other:practice('Mute / unmute other',['6']),
+  show_settings: define('Open Settings', ['Mod+,'], 'none'),
   managed_settings: define('Open library settings', [], 'none'),
   managed_close: define('Close library dialog', [], 'none'),
   managed_create: define('Create library in the chosen folder', [], 'none'),
@@ -97,15 +108,17 @@ export const ACTIONS = {
   close_notes: define('Close notes'),
   retry_notes: define('Retry saving song notes'),
   show_library: define('Open the music library', [], 'none'),
-  library_close: library('Back to practice', [], 'none'),
-  library_replace: library('Replace this library song recording', [], 'none', 'library_song'),
-  library_open: library('Open this library song for practice', [], 'none', 'library_song'),
-  library_edit: library('Edit the song details stored in your library', [], 'none', 'library_song'),
+  library_close: library('Back to the current song in Practice, as you left it', ['Escape']),
+  library_replace: library('Replace this song’s recording', [], 'none', 'library_song'),
+  library_open: library('Open in Practice, paused', [], 'none', 'library_song'),
+  library_edit: library('Edit the selected song’s details', ['Mod+i'], 'none'),
   library_save: library('Save song details without changing the audio file', [], 'none'),
-  library_cancel: library('Cancel editing song details', [], 'none'),
-  library_retry: library('Reload the music library', [], 'none'),
-  library_sort: library('Sort the library by this column; click again to reverse', [], 'none', 'library_sort'),
-  library_reverse: library('Reverse the library sort order', [], 'none'),
+  library_cancel: library('Close the song details without saving', [], 'none'),
+  library_retry: library('Reload the song list', [], 'none'),
+  library_sort: library('Sort the song list by this field', [], 'none', 'library_sort'),
+  library_reverse: library('Reverse the sort order', [], 'none'),
+  library_find: library('Find a song by title, artist, album or file location', ['Mod+f'], 'none'),
+  library_clear_search: library('Clear the search', [], 'none'),
   ...MAPPING_ACTIONS,
   show_measure_map: define('Open the measure map'),
   show_practice: define('Open Practice'),
@@ -135,10 +148,9 @@ export const ACTIONS = {
   next_section: practice('Next section', [']'], 'sections'),
   add_section: practice('Save a named section', ['s']),
   open_song: define('Import a song', ['Mod+o'], 'none'),
-  disable_loop: define('Turn looping off', ['Escape'], 'loop_on'),
+  disable_loop: { ...define('Turn looping off', ['Escape'], 'loop_on'), scope: 'song' as ActionScope },
   show_shortcuts: { ...define('Show keyboard shortcuts', [], 'none'), duringBusy: true },
   reload_keymap: define('Reload shortcut configuration', [], 'none'),
-  load_demo: define('Try the demo', [], 'none'),
   fit_loop: practice('Fit the A–B passage in the view', [], 'range'),
   zoom_in: practice('Zoom in', ['=']),
   zoom_out: practice('Zoom out', ['-'], 'zoom_out'),
@@ -169,6 +181,7 @@ export type ActionId = keyof typeof ACTIONS;
 // Actions without a label fall back to their description.
 export const ACTION_LABELS: Partial<Record<ActionId, string>> = {
   open_song: 'Import Song…', show_library: 'Music Library', replace_recording: 'Replace Recording…',
+  show_settings: 'Settings…', library_edit: 'Edit Song Details…', library_find: 'Find Song',
   show_practice: 'Practice', show_measure_map: 'Measure Map', show_notes: 'Notes', show_stems: 'Stems',
   zoom_in: 'Zoom In', zoom_out: 'Zoom Out', show_whole_song: 'Show Whole Song',
   play_pause: 'Play / Pause', toggle_loop: 'Loop', practice_count_in: 'Count-In', repeat_count_in: 'Count In Each Repeat', toggle_sections: 'Sections', set_loop_start: 'Set A at Playhead', set_loop_end: 'Set B at Playhead',
@@ -181,6 +194,7 @@ export const BUTTONS = {
   retry_stem_mix:'retry_stem_mix',stem_gain:'stem_gain',show_stems:'show_stems',close_stems:'close_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',
   solo_bass:'solo_bass',  solo_drums:'solo_drums',  solo_guitar:'solo_guitar',  solo_piano:'solo_piano',  solo_vocals:'solo_vocals',  solo_other:'solo_other',
   mute_bass:'mute_bass',mute_drums:'mute_drums',mute_guitar:'mute_guitar',mute_piano:'mute_piano',mute_vocals:'mute_vocals',mute_other:'mute_other',
+  settings:'show_settings',
   managed_settings:'managed_settings',
   managed_close:'managed_close',
   managed_create:'managed_create',
@@ -197,11 +211,11 @@ export const BUTTONS = {
   show_notes:'show_notes',close_notes:'close_notes',retry_notes:'retry_notes',
   show_library:'show_library', library_close:'library_close', library_open:'library_open', library_edit:'library_edit',library_replace:'library_replace',
   library_save:'library_save', library_cancel:'library_cancel', library_retry:'library_retry', library_sort:'library_sort', library_reverse:'library_reverse',
+  library_find:'library_find', library_clear_search:'library_clear_search',
   ...Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id => [id, id])) as { [K in MappingActionId]: K },
   mapping_loop_off: 'disable_loop', show_measure_map: 'show_measure_map', show_practice: 'show_practice',
   previous_measure: 'previous_measure', next_measure: 'next_measure', goto_measure: 'goto_measure',
-  // TODO(library task, #16): remove `demo` with `load_demo` and the demo plumbing.
-  open_song: 'open_song', demo: 'load_demo', shortcuts: 'show_shortcuts',
+  open_song: 'open_song', shortcuts: 'show_shortcuts',
   previous_section: 'previous_section', play: 'play_pause', next_section: 'next_section',
   count_in: 'practice_count_in', repeat_count_in: 'repeat_count_in',
   practice_metronome: 'practice_metronome', loop_snap: 'toggle_loop_snap',

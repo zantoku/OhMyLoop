@@ -1,70 +1,186 @@
 <script lang="ts">
+  // The Library (concept LD, docs/design/library.md): find and open a song,
+  // import, and edit a song's details only through an explicit edit action.
+  // Opening a song never shows its edit fields.
   import Icon from './Icon.svelte';
+  import SongList from './SongList.svelte';
+  import SongEditor from './SongEditor.svelte';
   import type {LibraryStatus} from './types';
-  import {onDestroy} from 'svelte';
+  import {onDestroy,tick} from 'svelte';
   import {LibrarySession,type LibraryState} from './library-session';
-  import {libraryColumns,librarySongs,libraryDate,type LibraryEntry,type LibrarySort,type SongMetadata} from './library';
+  import {librarySorts,librarySongs,sortsDescending,type LibraryEntry,type LibrarySort,type SongMetadata} from './library';
+  import {focusHome} from './home-focus';
+  import {openTransient} from './transient';
   import type {Keymap} from './keymap';
   import type {ActionId,ButtonId} from './actions';
   import type {ActionPayload} from './action-dispatcher';
   let {active,currentKey,keymap,available,run,onchanged,status,epoch=0}:{status:LibraryStatus;epoch?:number;active:boolean;currentKey:string|null;keymap:Keymap;available:(id:ButtonId)=>boolean;run:(id:ButtonId,payload?:ActionPayload)=>void;onchanged:(entry:LibraryEntry)=>void}=$props();
-  let libraryState=$state<LibraryState>({catalogue:null,pending:false,error:''});
-  const session=new LibrarySession(value=>{libraryState=value;});onDestroy(()=>session.dispose());
-  let lastEpoch=-1;
-  $effect(()=>{if(active){if(epoch!==lastEpoch){lastEpoch=epoch;session.invalidate();editing=null;}void session.refresh();}});
+  let libraryState=$state<LibraryState>({catalogue:null,pending:false,error:'',saveError:''});
+  const session=new LibrarySession(value=>{libraryState=value;});
   let query=$state(''),sort=$state<LibrarySort>('last_opened'),descending=$state(true);
-  let editing=$state<string|null>(null),metadata=$state<SongMetadata>({artist:'',title:'',album:''});
+  let selectedKey=$state<string|null>(null),editingKey=$state<string|null>(null),metadata=$state<SongMetadata>({artist:'',title:'',album:''});
+  let searchField=$state<HTMLInputElement>(),editor=$state<SongEditor>();
   const songs=$derived(librarySongs(libraryState.catalogue?.songs??[],query,sort,descending));
-  const selected=$derived(libraryState.catalogue?.songs.find(entry=>entry.song_key===editing)??null);
+  const entryFor=(key:string|null)=>libraryState.catalogue?.songs.find(entry=>entry.song_key===key)??null;
+  const editing=$derived(entryFor(editingKey));
+  const missing=$derived(!!status.selected&&!status.available);
+  const total=$derived(libraryState.catalogue?.songs.length??0);
+  const dirty=$derived(!!editing&&(metadata.title!==editing.metadata.title||metadata.artist!==editing.metadata.artist||metadata.album!==editing.metadata.album));
+
+  // The open editor is one Esc level: Esc at home closes it before leaving the Library.
+  let releaseEditor:(()=>void)|null=null;
+  function closeEditor(){releaseEditor?.();releaseEditor=null;editingKey=null;session.clearSaveError();}
+  /** Shows a song in the editor; only an explicit edit moves focus into its Title. */
+  async function startEditing(key:string,focus:boolean){
+    const entry=entryFor(key);if(!entry)return;
+    editingKey=key;metadata={...entry.metadata};session.clearSaveError();
+    releaseEditor??=openTransient(()=>run('library_cancel'));
+    if(focus){await tick();editor?.focusTitle();}
+  }
+  // Leaving the Library saves the details first (App flushes before every
+  // exit), so the editor stays as it was; only its Esc level is released.
+  let lastEpoch=-1;
+  $effect(()=>{
+    if(!active){releaseEditor?.();releaseEditor=null;return;}
+    if(epoch!==lastEpoch){lastEpoch=epoch;session.invalidate();closeEditor();selectedKey=null;}
+    void session.refresh();
+  });
+  $effect(()=>{if(active&&editingKey&&!releaseEditor)releaseEditor=openTransient(()=>run('library_cancel'));});
+  onDestroy(()=>{releaseEditor?.();session.dispose();});
+
+  /** Selecting another song while editing saves pending edits first; the editor follows. */
+  async function select(key:string){
+    if(editingKey&&editingKey!==key){if(!await flush())return false;selectedKey=key;await startEditing(key,false);return true;}
+    selectedKey=key;return true;
+  }
+  async function edit(key:string){if(await select(key))run('library_edit');}
+
   export function canRun(id:ActionId){
-    if(id==='managed_delete')return !!selected&&!libraryState.pending;
-    if(id==='library_cancel')return !!editing&&!libraryState.pending;
-    if(id==='library_save')return !!selected&&!libraryState.pending&&!!metadata.title.trim();
+    if(id==='managed_delete'||id==='library_replace')return !!editing&&!libraryState.pending;
+    if(id==='library_edit')return !!entryFor(selectedKey)&&!libraryState.pending;
+    if(id==='library_cancel')return !!editingKey&&!libraryState.pending;
+    if(id==='library_save')return !!editing&&!libraryState.pending&&!!metadata.title.trim();
     if(id==='library_retry')return !libraryState.pending;
-    if(id==='library_sort'||id==='library_reverse')return true;
+    if(id==='library_clear_search')return !!query;
+    if(id==='library_sort'||id==='library_reverse'||id==='library_find')return true;
     return !!libraryState.catalogue&&!libraryState.pending;
   }
+  /** Saves pending detail edits; false when they couldn't be saved and are kept. */
   export async function flush(){
-    if(!selected)return true;
+    if(!editing||!dirty)return true;
     if(libraryState.pending)return false;
-    if(metadata.title===selected.metadata.title&&metadata.artist===selected.metadata.artist&&metadata.album===selected.metadata.album)return true;
-    const entry=await session.save(selected.song_key,$state.snapshot(metadata));if(entry){onchanged(entry);editing=null;}return !!entry;
+    const entry=await session.save(editing.song_key,$state.snapshot(metadata));
+    if(entry){onchanged(entry);metadata={...entry.metadata};}
+    return !!entry;
   }
-  export function titleFor(key:string){return libraryState.catalogue?.songs.find(entry=>entry.song_key===key)?.metadata.title??'this song';}
+  export function titleFor(key:string){return entryFor(key)?.metadata.title??'this song';}
   export async function command(id:ActionId,payload:ActionPayload={}){
     if(!canRun(id))return;
-    if(id==='library_edit'){
-      const entry=libraryState.catalogue?.songs.find(entry=>entry.song_key===payload.songKey);
-      if(entry){editing=entry.song_key;metadata={...entry.metadata};}
-    }
-    if(id==='library_cancel')editing=null;
+    if(id==='library_edit'&&selectedKey)await startEditing(selectedKey,true);
+    if(id==='library_cancel'){closeEditor();focusHome();}
+    if(id==='library_save'&&await flush()){closeEditor();focusHome();}
     if(id==='library_retry')await session.refresh();
+    if(id==='library_find'){searchField?.focus();searchField?.select();}
+    if(id==='library_clear_search'){query='';focusHome();}
     if(id==='library_reverse')descending=!descending;
-    if(id==='library_sort'&&payload.librarySort){if(sort===payload.librarySort)descending=!descending;else{sort=payload.librarySort;descending=sort==='date_added'||sort==='last_opened';}}
-    if(id==='library_save'&&selected){const entry=await session.save(selected.song_key,$state.snapshot(metadata));if(entry){onchanged(entry);editing=null;}}
+    if(id==='library_sort'&&payload.librarySort){if(sort===payload.librarySort)descending=!descending;else{sort=payload.librarySort;descending=sortsDescending(sort);}}
   }
   const disabled=(id:ButtonId)=>!active||!available(id);
+  const editShortcut=$derived(keymap.shortcut('library_edit'));
 </script>
 {#if active}
-<main class="library-screen" aria-label="Music library" aria-busy={libraryState.pending}>
-  <div class="library-heading"><div><h2>Your library</h2><p>{libraryState.catalogue?.songs.length??0} {(libraryState.catalogue?.songs.length??0)===1?'song':'songs'} to come back to</p></div><button class="button" disabled={disabled('open_song')} title={keymap.title('open_song')} onclick={()=>run('open_song')}>{keymap.buttonLabel('open_song','Import song')}</button></div>
-  <div class="managed-controls"><button class="text-button" disabled={disabled('managed_settings')} title={keymap.title('managed_settings')} onclick={()=>run('managed_settings')}>Library settings</button>{#if status.selected}<span class="copyable">{status.selected.root}</span>{/if}</div>
-  {#if status.selected&&!status.available}<div class="library-error" role="alert"><span>{status.error??'Your library is unavailable.'}</span><div><button class="text-button" disabled={disabled('managed_retry')} title={keymap.title('managed_retry')} onclick={()=>run('managed_retry')}>Retry</button><button class="text-button" disabled={disabled('managed_locate')} title={keymap.title('managed_locate')} onclick={()=>run('managed_locate')}>Locate library</button><button class="text-button" disabled={disabled('managed_open')} title={keymap.title('managed_open')} onclick={()=>run('managed_open')}>Open another library</button></div></div>{/if}
-  <div class="library-toolbar"><label class="search">Find a song<input type="search" aria-label="Search library" bind:value={query} placeholder="Title, artist, album or file location"/></label><label>Sort by<select aria-label="Sort library by" bind:value={sort} onchange={()=>{descending=sort==='date_added'||sort==='last_opened';}}>{#each libraryColumns as column}<option value={column.field}>{column.label}</option>{/each}</select></label><button class="text-button direction" disabled={disabled('library_reverse')} title={keymap.title('library_reverse')} onclick={()=>run('library_reverse')}>{keymap.buttonLabel('library_reverse',descending?'Descending ↓':'Ascending ↑')}</button></div>
-  {#if libraryState.error}<div class="library-error" role="alert"><span>{libraryState.error}</span><button class="text-button" disabled={disabled('library_retry')} title={keymap.title('library_retry')} onclick={()=>run('library_retry')}>{keymap.buttonLabel('library_retry','Retry')}</button></div>{/if}
-  <div class="library-content" class:with-editor={!!selected}>
-    <div class="library-list" tabindex="-1" data-home>
-      {#if libraryState.pending&&!libraryState.catalogue}<p class="empty" role="status">Loading library…</p>
-      {:else if !libraryState.catalogue?.songs.length&&!libraryState.error}<div class="empty"><h3>Keep your practice songs here.</h3><p>Import a song to add it. Its sections and measure map will be ready next time.</p></div>
-      {:else if !songs.length&&!libraryState.error}<p class="empty">No songs match your search.</p>
-      {:else}<table><caption class="sr-only">Practice songs</caption><thead><tr>{#each libraryColumns as column}<th aria-sort={sort===column.field?(descending?'descending':'ascending'):'none'}><button title={keymap.title('library_sort')} onclick={()=>run('library_sort',{librarySort:column.field})}>{column.label}{sort===column.field?(descending?' ↓':' ↑'):''}</button></th>{/each}<th><span class="sr-only">Song actions</span></th></tr></thead><tbody>{#each songs as entry(entry.song_key)}<tr class:current={entry.song_key===currentKey} class:editing={entry.song_key===editing}><td class="song-cell"><button class="song-title" disabled={disabled(entry.song_key===currentKey?'library_close':'library_open')} title={keymap.title(entry.song_key===currentKey?'library_close':'library_open')} onclick={()=>entry.song_key===currentKey?run('library_close'):run('library_open',{songKey:entry.song_key})}>{entry.metadata.title}</button>{#if entry.song_key===currentKey}<span class="current-label">Current song</span>{/if}</td><td>{entry.metadata.artist||'—'}</td><td>{entry.metadata.album||'—'}</td><td class="location copyable" title={entry.file_location}>{entry.file_location}</td><td class="date"><time datetime={new Date(entry.date_added).toISOString()}>{libraryDate(entry.date_added)}</time></td><td class="date"><time datetime={new Date(entry.last_opened).toISOString()}>{libraryDate(entry.last_opened)}</time></td><td><button class="text-button" aria-label={`Edit details for ${entry.metadata.title}`} disabled={disabled('library_edit')} title={keymap.title('library_edit')} onclick={()=>run('library_edit',{songKey:entry.song_key})}>{keymap.buttonLabel('library_edit','Edit')}</button></td></tr>{/each}</tbody></table>{/if}
+<main class="library" aria-label="Music library" aria-busy={libraryState.pending}>
+  <div class="catalogue">
+    <div class="toolbar">
+      <h2>Your songs{#if total}<span class="count">{total} {total===1?'song':'songs'}</span>{/if}</h2>
+      <label class="search"><span class="search-icon"><Icon name="search" size={15}/></span>
+        <input bind:this={searchField} type="search" aria-label="Find a song" title={keymap.title('library_find')} bind:value={query}
+          placeholder={`Title, artist, album or file${keymap.shortcut('library_find')?` (${keymap.shortcut('library_find')})`:''}`}/></label>
+      <label class="sort"><Icon name="sort" size={14}/><span class="sr-only">Sort by</span>
+        <select aria-label="Sort by" title={keymap.title('library_sort')} value={sort} disabled={disabled('library_sort')}
+          onchange={event=>run('library_sort',{librarySort:event.currentTarget.value as LibrarySort})}>{#each librarySorts as option}<option value={option.field}>{option.label}</option>{/each}</select></label>
+      <button class="direction" aria-label={descending?'Descending order':'Ascending order'} disabled={disabled('library_reverse')} title={keymap.title('library_reverse')} onclick={()=>run('library_reverse')}>{descending?'↓':'↑'}</button>
+      <button class="button primary import" disabled={disabled('open_song')} title={`${keymap.title('open_song')}, or drop an audio file anywhere`} onclick={()=>run('open_song')}><Icon name="plus" size={15}/>{keymap.buttonLabel('open_song','Import song')}</button>
     </div>
-    {#if selected}<aside class="library-details" aria-label="Song details"><div class="detail-heading"><button class="icon-button" aria-label="Close song details" disabled={disabled('library_cancel')} title={keymap.title('library_cancel')} onclick={()=>run('library_cancel')}><Icon name="close" size={16}/></button><h3>Song details</h3></div><form onsubmit={event=>{event.preventDefault();run('library_save');}}><label>Title<input aria-label="Library song title" bind:value={metadata.title} required maxlength="1024"/></label><label>Artist<input aria-label="Library song artist" bind:value={metadata.artist} maxlength="1024"/></label><label>Album<input aria-label="Library song album" bind:value={metadata.album} maxlength="1024"/></label><div class="details-actions"><button class="button primary" disabled={disabled('library_save')} title={keymap.title('library_save')}>{keymap.buttonLabel('library_save','Save details')}</button></div></form><p class="details-note">These details are saved in your library. Your audio file stays unchanged.</p><dl><dt>File location</dt><dd class="detail-location copyable">{selected.file_location}<div class="recording-action"><button class="text-button" aria-label={`Replace recording for ${selected.metadata.title}`} disabled={disabled('library_replace')} title={keymap.title('library_replace')} onclick={()=>run('library_replace',{songKey:selected.song_key})}>{keymap.buttonLabel('library_replace','Replace recording…')}</button></div></dd><dt>Date added</dt><dd>{libraryDate(selected.date_added)}</dd><dt>Last opened</dt><dd>{libraryDate(selected.last_opened)}</dd></dl><button class="text-button delete-song" disabled={disabled('managed_delete')} title={keymap.title('managed_delete')} onclick={()=>run('managed_delete',{songKey:selected.song_key})}>Delete song</button></aside>{/if}
+    <div class="pane">
+      {#if missing}
+        <div class="notice missing" role="alert">
+          <strong><Icon name="warning" size={16}/>Your library can’t be found</strong>
+          <p>Your library was at <code class="copyable">{status.selected?.root}</code>. If it’s on a drive, connect it and retry. If you moved the folder, locate it.</p>
+          {#if status.error}<p class="detail copyable">{status.error}</p>{/if}
+          <div class="buttons">
+            <button class="button primary" disabled={disabled('managed_retry')} title={keymap.title('managed_retry')} onclick={()=>run('managed_retry')}>Retry</button>
+            <button class="button" disabled={disabled('managed_locate')} title={keymap.title('managed_locate')} onclick={()=>run('managed_locate')}>Locate library…</button>
+            <button class="button ghost" disabled={disabled('managed_open')} title={keymap.title('managed_open')} onclick={()=>run('managed_open')}>Open another library…</button>
+          </div>
+        </div>
+      {:else if libraryState.error}
+        <div class="notice failed" role="alert"><Icon name="warning" size={16}/><span class="copyable">Couldn’t read the song list: {libraryState.error}</span>
+          <button class="button" disabled={disabled('library_retry')} title={keymap.title('library_retry')} onclick={()=>run('library_retry')}>{keymap.buttonLabel('library_retry','Reload')}</button></div>
+      {:else if libraryState.pending&&!libraryState.catalogue}<p class="message" role="status">Loading your songs…</p>
+      {:else if !total}
+        <div class="empty">
+          <span class="music"><Icon name="music" size={30}/></span>
+          <h3>Bring in the songs you’re working on</h3>
+          <p>Import a recording, or drop an audio file here. It’s copied into your library; the original stays where it is. Its sections, measure map and notes will be ready next time.</p>
+          <button class="button primary" disabled={disabled('open_song')} title={keymap.title('open_song')} onclick={()=>run('open_song')}><Icon name="plus" size={15}/>{keymap.buttonLabel('open_song','Import song')}</button>
+          <span class="formats">WAV, MP3, FLAC, M4A, AAC, AIFF and Ogg</span>
+        </div>
+      {:else if !songs.length}
+        <div class="message"><span>No songs match “{query.trim()}”.</span><button class="button ghost" disabled={disabled('library_clear_search')} title={keymap.title('library_clear_search')} onclick={()=>run('library_clear_search')}>Clear search</button></div>
+      {:else}
+        <div class="columns" aria-hidden="true"><span></span><span>Title</span><span>Artist</span><span class="right">Length</span><span></span></div>
+        <SongList {songs} selected={selectedKey} editing={editingKey} current={currentKey} {keymap} {available} {run} onselect={key=>{void select(key);}} onedit={key=>{void edit(key);}}/>
+        <p class="hint fine">Double-click a song or press Enter to practise it · ⋯{editShortcut?` or ${editShortcut}`:''} edits its details</p>
+        <p class="hint coarse">Tap a song to practise it · ⋯ or a long press edits its details</p>
+      {/if}
+    </div>
   </div>
+  {#if editing}<SongEditor bind:this={editor} entry={editing} bind:metadata saveError={libraryState.saveError} {keymap} {available} {run}/>{/if}
 </main>
 {/if}
 <style>
-  .managed-controls{display:flex;gap:16px;align-items:center;padding:0 25px 18px;font-size:12px}.managed-controls span{color:var(--muted);overflow-wrap:anywhere}.detail-heading{display:flex;align-items:center;gap:8px}.delete-song{margin-top:28px;color:var(--error-text)}
-  .library-screen{display:flex;flex-direction:column;flex:1;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:9px;overflow:hidden}.library-heading{display:flex;align-items:center;justify-content:space-between;padding:22px 25px 16px;gap:16px}.library-heading h2{font-size:23px;font-weight:500;letter-spacing:-.5px}.library-heading p{font-size:12px;color:var(--muted);margin-top:4px}.library-toolbar{display:flex;gap:16px;align-items:end;padding:0 25px 20px;border-bottom:1px solid var(--border)}.library-toolbar .search{flex:1}.library-toolbar label{min-width:150px}.direction{white-space:nowrap;margin-bottom:5px}.library-content{display:flex;flex:1;min-height:0}.library-list{flex:1;min-width:0;overflow:auto}.library-details{width:290px;flex-shrink:0;padding:22px 20px;border-left:1px solid var(--border);background:var(--sidebar);overflow:auto}label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-secondary)}input,select{min-width:0;width:100%;padding:8px 10px;background:var(--surface);border:1px solid var(--border-strong);border-radius:4px;font:inherit;font-size:13px;color:var(--text)}.library-details label{margin-top:16px}.details-actions{display:flex;gap:7px;margin-top:20px;align-items:center}.details-actions .button{font-size:12px}.details-note{font-size:11px;color:var(--muted);line-height:1.6;margin-top:15px}dl{font-size:11px;line-height:1.6;margin-top:24px}dt{color:var(--muted);margin-top:14px}dd{margin:4px 0}.detail-location{overflow-wrap:anywhere}.recording-action{margin-top:8px}table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}thead{position:sticky;top:0;background:var(--sidebar);z-index:1}th{font-size:11px;font-weight:500;white-space:nowrap;border-bottom:1px solid var(--border)}th button{border:0;background:transparent;padding:14px 16px;width:100%;text-align:left;color:var(--text-secondary)}td{padding:17px 16px;border-bottom:1px solid var(--border);vertical-align:top}.song-cell{min-width:180px}.song-title{border:0;background:transparent;padding:0;text-align:left;font-size:13px;font-weight:600;color:var(--text)}.song-title:hover{text-decoration:underline}.current-label{display:block;font-size:10px;color:var(--success-text);margin-top:5px}.current{background:var(--success-bg)}.editing{background:var(--hover)}.location{max-width:240px;min-width:160px;overflow-wrap:anywhere;color:var(--muted);font-size:11px}.date{min-width:140px;color:var(--muted);font-size:11px}.empty{padding:70px 25px;text-align:center;color:var(--muted);font-size:13px}.empty h3{font-size:20px;font-weight:500;color:var(--text)}.empty p{margin:10px auto 22px;max-width:45ch}.library-error{display:flex;gap:15px;align-items:center;justify-content:space-between;padding:12px 25px;background:var(--error-bg);color:var(--error-text);font-size:12px}.library-error span{overflow-wrap:anywhere}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-  @media(max-width:1000px){.library-heading,.library-toolbar{padding-left:17px;padding-right:17px}.library-details{width:250px;padding:18px 15px}.library-toolbar{gap:10px}.library-toolbar label{min-width:120px}}
+  .library{flex:1;min-height:0;display:flex;background:var(--page)}
+  .catalogue{flex:1;min-width:0;display:flex;flex-direction:column;--song-columns:32px minmax(0,1.4fr) minmax(0,1fr) 64px 32px}
+  .toolbar{flex:none;display:flex;align-items:center;gap:10px;padding:16px 24px 12px}
+  h2{margin:0 12px 0 0;font-size:20px;font-weight:600;letter-spacing:-.3px;white-space:nowrap}
+  .count{margin-left:8px;font-size:13px;font-weight:400;color:var(--text-secondary);letter-spacing:0}
+  .search{flex:1;min-width:180px;max-width:380px;position:relative;display:flex;align-items:center}
+  .search-icon{position:absolute;left:10px;display:flex;color:var(--text-secondary);pointer-events:none}
+  input,select{height:34px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);color:var(--text);font:inherit;font-size:13px}
+  input{width:100%;padding:0 8px 0 32px}
+  .sort{display:flex;align-items:center;gap:6px;color:var(--text-secondary)}
+  select{padding:0 8px}
+  .direction{width:34px;height:34px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-secondary);font-size:14px}
+  .direction:hover:not(:disabled){background:var(--hover);color:var(--text)}
+  .import{margin-left:auto}
+  .button{height:34px;padding:0 14px;font-size:12px;font-weight:600}
+  .button.ghost{border-color:transparent;background:transparent;color:var(--link)}
+  .button.ghost:hover:not(:disabled){background:var(--hover)}
+  /* The song list scrolls; the column header and the hint stay put. */
+  .pane{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 24px 24px;display:flex;flex-direction:column}
+  .columns,.hint{flex:none}
+  .columns{display:grid;grid-template-columns:var(--song-columns);gap:12px;padding:0 10px 6px 12px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary)}
+  .right{text-align:right}
+  .hint{margin:10px 0 0;font-size:11px;line-height:1.45;color:var(--text-secondary)}
+  .coarse{display:none}
+  @media (pointer:coarse){.coarse{display:block}.fine{display:none}}
+  .message{margin:40px 0;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:var(--text-secondary)}
+  .empty{margin:8px 0 0;flex:1;min-height:320px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border:2px dashed var(--border-strong);border-radius:14px;color:var(--text-secondary);text-align:center}
+  .music{display:flex;color:var(--blue)}
+  .empty h3{margin:0;font-size:20px;color:var(--text)}
+  .empty p{margin:0;max-width:420px;line-height:1.5}
+  .empty .button{height:36px;padding:0 16px;margin-top:6px}
+  .formats{font-size:11px}
+  .notice{margin:24px auto;max-width:560px;border-radius:12px;text-align:left}
+  .missing .button:not(.primary,.ghost){color:var(--text)}
+  .missing{display:flex;flex-direction:column;gap:12px;padding:20px 22px;border:1px solid var(--amber-border);background:var(--amber-bg);color:var(--amber-text)}
+  .missing strong{display:flex;align-items:center;gap:8px;font-size:15px}
+  .missing p{margin:0;line-height:1.5;color:var(--text)}
+  .missing code{font-size:12px;overflow-wrap:anywhere}
+  .missing .detail{font-size:12px;color:var(--text-secondary)}
+  .buttons{display:flex;gap:8px}
+  .failed{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid var(--error-border);border-radius:10px;background:var(--error-bg);color:var(--error-text);font-size:13px}
+  .failed span{flex:1;overflow-wrap:anywhere}
+  .failed :global(svg){flex:none}
 </style>

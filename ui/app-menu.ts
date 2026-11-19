@@ -14,11 +14,10 @@ export type MenuEntry =
 export type MenuSection = { title: string; entries: MenuEntry[] };
 
 const LAYOUT: { title: string; entries: (ActionId | EditCommand | NativeItem)[] }[] = [
-  // TODO: add "Settings… ⌘," here once the app has a settings action.
-  { title: 'OhMyLoop', entries: ['About', 'Separator', 'Services', 'Separator', 'Hide', 'HideOthers', 'ShowAll', 'Separator', 'Quit'] },
-  { title: 'File', entries: ['open_song', 'show_library', 'Separator', 'replace_recording'] },
+  { title: 'OhMyLoop', entries: ['About', 'Separator', 'show_settings', 'Separator', 'Services', 'Separator', 'Hide', 'HideOthers', 'ShowAll', 'Separator', 'Quit'] },
+  { title: 'File', entries: ['open_song', 'show_library', 'Separator', 'library_edit', 'replace_recording'] },
   // Undo/Redo are custom so they reach the app's undo outside text fields.
-  { title: 'Edit', entries: ['undo', 'redo', 'Separator', 'Cut', 'Copy', 'Paste', 'SelectAll'] },
+  { title: 'Edit', entries: ['undo', 'redo', 'Separator', 'Cut', 'Copy', 'Paste', 'SelectAll', 'Separator', 'library_find'] },
   { title: 'View', entries: ['show_practice', 'show_measure_map', 'show_notes', 'show_stems', 'Separator', 'toggle_sections', 'Separator', 'zoom_in', 'zoom_out', 'show_whole_song', 'Separator', 'Fullscreen'] },
   { title: 'Playback', entries: ['play_pause', 'jump_song_start', 'Separator', 'practice_count_in', 'Separator', 'toggle_loop', 'repeat_count_in', 'set_loop_start', 'set_loop_end', 'jump_loop_start', 'jump_loop_end', 'clear_loop', 'Separator', 'add_section'] },
   { title: 'Window', entries: ['Minimize', 'Maximize', 'Separator', 'BringAllToFront'] },

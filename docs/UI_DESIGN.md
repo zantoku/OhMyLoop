@@ -171,7 +171,7 @@ with an accessible name describing what closes, a hover description and visible
 keyboard focus. Avoid a footer Cancel button when its only purpose is dismissal.
 Keep cancellation of running work distinct from closing its presentation.
 
-Replacement opens from **Library → Edit**, below File location. Its dialog has
+Replacement opens from the Library's details panel (**⋯ → Replace recording…**). Its dialog has
 one leading X, clear spacing between the heading, explanation and choices, and
 stacked actions that fit narrow windows. Explain that unchanged timing preserves
 the current annotations, while changed timing clears the map, sections, loop and
@@ -242,28 +242,61 @@ remains mounted, so WebKit accessibility follows panel changes reliably.
 
 ## Music library
 
-The Library breadcrumb at the top left of the header opens a full-width
-catalogue screen and pauses playback. The Library header has no song views and
-no Notes button; the current song's title in the list returns to Practice
-without reloading. Import song is in the library panel heading. Library settings owns Create library and Open existing library. Delete song appears only in the song edit panel and requires permanent-deletion confirmation.
-Measure map, Stems and Practice are the header's view segments. The header's
-Notes button toggles the notes drawer on Practice; Measure map and Stems keep an
-X beside their panel titles that returns to practice. Shortcut help is the
-header's keyboard button.
-Use the existing Avenir/Segoe/Noto family, navy text (#24314c), pale background
-(#f3f5fa), white surface (#ffffff), blue controls (#526fc0) and sage current-song
-indicator (#66877a). One searchable table is the focus; avoid artwork cards or a
-second sidebar navigation hierarchy in this first pass.
+The Library is concept **LD, "open without editing"** ([brief](design/library.md)):
+opening a song never shows its edit fields. The Library breadcrumb at the top
+left of the header opens it as a full screen and pauses playback. Its header has
+no song views and no Notes button; it holds the save state, the **Settings**
+button (`show_settings`, ⌘, / Ctrl+,; the home of app-wide Settings) and the
+keyboard-shortcuts button. Until Settings exist (task 4), the Settings button
+opens the library dialog (create or open a library, where the open one lives,
+how to move it), and appearance and the audio device stay parked in this header.
 
-A left-aligned heading/count sits above Search, Sort by and direction controls.
-Column buttons expose ascending/descending state and cover title, artist, album,
-file location, date added and last opened. A title button opens practice; a row
-Edit button opens a compact right-side details panel. Keep precise file location
-and local timestamps visible, with overflow scrolling on narrow screens. Current
-song uses a quiet sage label. Empty and failed states explain how to open a song
-or retry, respectively. The details form edits only artist/title/album and retains
-input on failed save; dates and path are read-only. Native screenshot review and
-verification evidence are in IMPLEMENTATION_STATUS.md.
+```
+Library                                      ✓ Saved  ⚙ Settings  ⌨
+Your songs 12 songs  [🔍 Find by title, artist…  (⌘F)] ⇅[Last opened] ↓     [+ Import song]
+     TITLE                     ARTIST                LENGTH
+ →  Autumn Leaves  CURRENT     Cannonball Adderley    10:58   ⋯ │ EDIT DETAILS (⋯ / ⌘I)
+    Blue Bossa                 Kenny Dorham            6:44     │ Title / Artist / Album
+ …                                                              │ Length · Added · Last opened · File
+Double-click a song or press Enter to practise it · ⋯ or ⌘I edits its details │ Replace recording… · Delete song…
+```
+
+- **Rows** (`SongList.svelte`, a single-select listbox and the screen's home
+  focus) show title, artist and length, 46 px tall. The loaded song has a blue
+  bar and a CURRENT tag. Hover shows → before the title and ⋯ at the end; the
+  loaded song always shows its →, which returns to Practice as it was left
+  (`library_close`, also **Esc**) without reloading. Any other → opens the song
+  in Practice, paused (`library_open`).
+- **Mouse and keyboard:** a click selects; double-click or **Enter** opens. ↑/↓,
+  Home/End and Page Up/Down move the selection; the list owns only those keys
+  and Enter, so everything else reaches the shortcuts. Keyboard focus shows as a
+  ring on the selected row. **Touch** (coarse pointer): → and ⋯ are always
+  visible, a tap opens and a long press edits.
+- **Editing** (`SongEditor.svelte`): ⋯ or **⌘I** (`library_edit`) opens a 340 px
+  panel beside the list with Title, Artist and Album fields, Save details and
+  Cancel once something changed, read-only length, dates and file, and at the
+  bottom Replace recording… and Delete song…. A failed save keeps the edits and
+  says so in the panel. Selecting another song while editing saves first and
+  the panel follows, with focus staying in the list; only an explicit edit
+  focuses Title. Leaving the Library by any route, or quitting, saves pending
+  details first, and a failed save keeps the Library open. Esc unwinds: the
+  field returns to the list, the next Esc closes the panel (discarding unsaved
+  edits), the next returns to Practice.
+- **Scrolling:** the song list scrolls inside the pane; the column header and
+  the hint stay in place.
+- **Toolbar:** "Your songs" with the count, search (**⌘F**, `library_find`;
+  title, artist, album or file location), sort (last opened, title, artist,
+  length, date added) with a reverse button, and Import song.
+- **States:** loading; empty (also first launch: a dashed drop area with Import
+  song and the supported formats); no match with Clear search; list failed with
+  Reload; library missing (amber notice with its last location, Retry, Locate
+  library…, Open another library…).
+- **Drop to import** (`DropOverlay.svelte`, `file-drop.ts`): dragging files
+  over any view shows a dashed drop target; one file imports through the same
+  flow as Import song, several are refused with a toast.
+- **Dialogs** (`ManagedLibraryDialog.svelte`): first-import setup ("Where should
+  your songs live?"), the one-time copy notice, the duplicate choice and the
+  delete confirmation ("Keep song" is the default button). The leading X closes.
 
 ## Song notes
 

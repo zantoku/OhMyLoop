@@ -7,16 +7,20 @@ import type { Action, PracticeDocument, Snapshot, Song, Transport, LibraryStatus
 import type { KeymapFile } from './keymap';
 import type { MapEdit, MeasureMap, MapPreview, MapView, AnalysisStatus, Candidates } from './timing';
 
+/** A drag of files over the window; `enter` and `drop` carry the files' paths. */
+export type FileDrop = { type: 'enter' | 'drop'; paths: string[] } | { type: 'over' | 'leave' };
+
 export const native = isTauri();
 const empty: Transport = { song_key: null, reference_token: null, position: 0, playing: false, finished: false, audio_error: null, save_error: null, device: null };
 
 // The browser adapter exists for UI development and interaction testing only.
 // It intentionally never pretends to play audio; the shipping app uses Rust.
+// `npm run dev` starts with a synthetic fixture song (the app has no demo).
 let previewSong: Song | null = null;
 let previewDocument: PracticeDocument | null = null;
 let previewTransport = { ...empty };
 const snapshot = (include = false): Snapshot => ({ song: include ? previewSong : null, document: structuredClone(previewDocument), transport: { ...previewTransport } });
-function demo(): Snapshot {
+function previewFixture(): Snapshot {
   previewSong = { key: 'builtin-demo', reference_token:'builtin-demo', asset_id:'preview',timeline_id:'preview',reference_revision:1,session_id:'preview',  title: 'Practice sketch', path: null, duration: 12, rate: 48000,
     peaks: Array.from({ length: 4096 }, (_, i) => { const t = i / 4096 * 12; const level = 0.06 + 0.21 * Math.exp(-5 * (t % .5)); return [-level, level]; }) };
   const saved = localStorage.getItem('ohmyloop-ui-preview');
@@ -50,12 +54,15 @@ export const bridge = {
   retryLibrary:()=>native?invoke<Snapshot>('retry_library'):Promise.reject(new Error('Retry libraries in the desktop app.')),
   acknowledgeImportNotice:()=>native?invoke<void>('acknowledge_import_notice'):Promise.resolve(),
   pickImportSong:()=>native?invoke<ImportSelection|null>('pick_import_song'):Promise.reject(new Error('Import songs in the desktop app.')),
+  inspectImportSong:(path:string)=>native?invoke<ImportSelection>('inspect_import_song',{path}):Promise.reject(new Error('Import songs in the desktop app.')),
+  /** Files dragged over and dropped onto the window; the desktop app delivers their paths. */
+  onFileDrop:(handler:(event:FileDrop)=>void)=>native?import('@tauri-apps/api/webview').then(({getCurrentWebview})=>getCurrentWebview().onDragDropEvent(event=>handler(event.payload.type==='enter'||event.payload.type==='drop'?{type:event.payload.type,paths:event.payload.paths}:{type:event.payload.type==='over'?'over':'leave'}))):Promise.resolve(()=>{}),
   importSong:(path:string)=>native?invoke<Snapshot>('import_song',{path}):Promise.reject(new Error('Import songs in the desktop app.')),
   deleteLibrarySong:(songKey:string)=>native?invoke<Snapshot>('delete_library_song',{songKey}):Promise.reject(new Error('Delete songs in the desktop app.')),
   onImportProgress:(handler:(progress:ImportProgress)=>void)=>native?listen<ImportProgress>('import-progress',event=>handler(event.payload)):Promise.resolve(()=>{}),
   onExitRequested:(handler:(activeProcessing?:boolean)=>void)=>native?listen<{active_processing:boolean}>('prepare-exit',event=>handler(event.payload?.active_processing)):Promise.resolve(()=>{}),
   finishExit:()=>native?invoke<void>('finish_exit'):Promise.resolve(),
-  readLibrary:()=>native?invoke<Catalogue>('read_library'):Promise.resolve({version:1,songs:[]}),
+  readLibrary:()=>native?invoke<Catalogue>('read_library'):Promise.resolve({version:2,songs:previewSong?[{song_key:previewSong.key,metadata:{title:previewSong.title,artist:'',album:''},file_location:'Interface preview',date_added:0,last_opened:0,duration_ms:previewSong.duration*1000}]:[]}),
   openLibrarySong:(songKey:string)=>native?invoke<Snapshot>('open_library_song',{songKey}):Promise.reject(new Error('Open library songs in the desktop app.')),
   updateLibrarySong:(songKey:string,metadata:SongMetadata)=>native?invoke<Catalogue>('update_library_song',{songKey,metadata}):Promise.reject(new Error('Save library details in the desktop app.')),
   countIn:(referenceToken:string,enabled:boolean,repeat:boolean,volume:number)=>native?invoke<Transport>('set_count_in',{referenceToken,enabled,repeat,volume}):Promise.reject(new Error('Count-in is available in the desktop app.')),
@@ -68,8 +75,7 @@ export const bridge = {
   previewMap: (referenceToken: string, map: MeasureMap | null, edit: MapEdit) => native ? invoke<MapPreview>('preview_measure_map', { referenceToken, map, edit }) : Promise.reject(new Error('Musical map editing is available in the desktop app.')),
   mapView: (map: MeasureMap) => native ? invoke<MapView>('measure_map_view', { map }) : Promise.reject(new Error('Musical map editing is available in the desktop app.')),
   readKeymap: () => native ? invoke<KeymapFile>('read_keymap') : Promise.resolve({ path: null, configuration: null, warning: null }),
-  initialize: () => native ? invoke<Snapshot>('initialize') : Promise.resolve(snapshot()),
-  loadDemo: () => native ? invoke<Snapshot>('load_demo') : Promise.resolve(demo()),
+  initialize: () => native ? invoke<Snapshot>('initialize') : Promise.resolve(previewFixture()),
   libraryReference:(songKey:string)=>native?invoke<string>('library_reference',{songKey}):Promise.reject(new Error('Replace recordings in the desktop app.')),
   replaceLibraryReference:(songKey:string,referenceToken:string,timingUnchanged:boolean)=>native?invoke<Snapshot|null>('replace_library_reference',{songKey,referenceToken,timingUnchanged}):Promise.reject(new Error('Replace recordings in the desktop app.')),
   replaceRecording:(referenceToken:string,timingUnchanged:boolean)=>native?invoke<Snapshot|null>('replace_recording',{referenceToken,timingUnchanged}):Promise.reject(new Error('Replace recordings in the desktop app.')),

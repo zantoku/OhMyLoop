@@ -42,6 +42,10 @@ fn managed_desktop_import_replace_restart_switch_and_delete() {
     let first = desktop.import_managed(source.clone(), |_, _| {}).unwrap();
     let song = first.song.unwrap();
     assert!(!first.transport.playing);
+    let rows = desktop.library().unwrap();
+    assert_eq!(rows.songs[0].duration_ms, 4000);
+    let stored = fs::read_to_string(std::path::Path::new(&root).join("catalogue.json")).unwrap();
+    assert!(stored.contains(&song.key) && !stored.contains("duration_ms"));
     assert_ne!(song.path.as_deref(), Some(source.as_str()));
     let mut document = first.document.unwrap();
     document.notes = "stay with UUID".into();

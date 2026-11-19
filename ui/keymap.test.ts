@@ -73,7 +73,49 @@ it('allows the same key in different screens and matches only the active screen'
   expect(()=>new Keymap(false,{version:1,keys:{map_beat:['Space']}})).toThrow(/conflict/);
 });
 
-it('provides configurable library actions with no default shortcut and validates contextual bindings',()=>{
+it('binds Esc, ⌘I and ⌘F on the Library only, and ⌘, to Settings everywhere',()=>{
+  const keymap=new Keymap(true);
+  expect(keymap.match(key('Escape'),'library')).toBe('library_close');
+  for(const context of ['practice','mapping','stems'] as const)expect(keymap.match(key('Escape'),context)).toBe('disable_loop');
+  expect(keymap.match(key('i',{metaKey:true}),'library')).toBe('library_edit');
+  expect(keymap.match(key('f',{metaKey:true}),'library')).toBe('library_find');
+  expect(keymap.match(key('i',{metaKey:true}),'practice')).toBeUndefined();
+  expect(keymap.match(key('f',{metaKey:true}),'practice')).toBeUndefined();
+  for(const context of ['practice','mapping','library','stems'] as const)expect(keymap.match(key(',',{metaKey:true}),context)).toBe('show_settings');
+  expect(new Keymap(false).shortcut('show_settings')).toBe('Ctrl + ,');
+  // Esc on the song screens and on the Library may not both claim a key for every screen.
+  expect(()=>new Keymap(false,{version:1,keys:{show_shortcuts:['Escape']}})).toThrow(/conflict/);
+});
+
+it('lets an older configuration keep its keys when newer defaults would take them',()=>{
+  const keymap=new Keymap(true,{version:1,keys:{show_shortcuts:['Mod+,'],show_library:['Mod+i'],reload_keymap:['Mod+f']}});
+  expect(keymap.match(key(',',{metaKey:true}),'library')).toBe('show_shortcuts');
+  expect(keymap.match(key('i',{metaKey:true}),'library')).toBe('show_library');
+  expect(keymap.match(key('f',{metaKey:true}),'library')).toBe('reload_keymap');
+  expect(keymap.shortcut('show_settings')).toBe('');expect(keymap.shortcut('library_edit')).toBe('');expect(keymap.shortcut('library_find')).toBe('');
+  expect(keymap.warnings).toEqual([
+    expect.stringMatching(/show_shortcuts replaces the default ⌘ \+ , of show_settings/),
+    expect.stringMatching(/show_library replaces the default ⌘ \+ I of library_edit/),
+    expect.stringMatching(/reload_keymap replaces the default ⌘ \+ F of library_find/)]);
+  const esc=new Keymap(false,{version:1,keys:{library_find:['Escape']}});
+  expect(esc.match(key('Escape'),'library')).toBe('library_find');expect(esc.match(key('Escape'),'practice')).toBe('disable_loop');
+  expect(esc.warnings).toEqual([expect.stringMatching(/library_find replaces the default Esc of library_close/)]);
+  // Two of the person's own bindings, or a binding against an older default, still conflict.
+  expect(()=>new Keymap(false,{version:1,keys:{library_find:['Mod+j'],library_edit:['Mod+j']}})).toThrow(/conflict/);
+  expect(()=>new Keymap(false,{version:1,keys:{library_find:['l']}})).not.toThrow();
+  expect(()=>new Keymap(false,{version:1,keys:{show_shortcuts:['l']}})).toThrow(/conflict/);
+});
+
+it('ignores removed actions and buttons with a warning instead of rejecting the file',async()=>{
+  const configuration={version:1,keys:{load_demo:['d'],play_pause:['p']},buttons:{demo:'load_demo',play:'play_pause'},descriptions:{load_demo:'Demo'}};
+  const loaded=await loadKeymap(async()=>({path:'/k.json',configuration,warning:null}),false);
+  expect(loaded.model.match(key('p'))).toBe('play_pause');expect(loaded.model.match(key('d'))).toBeUndefined();
+  expect(loaded.warning).toMatch(/Ignored keys\.load_demo.*Ignored buttons\.demo.*Ignored descriptions\.load_demo/);
+  expect(()=>new Keymap(false,{version:1,keys:{typo:['q']}})).toThrow(/Unknown/);
+  expect(()=>new Keymap(false,{version:1,buttons:{play:'load_demo'}})).not.toThrow();
+});
+
+it('provides configurable library actions and validates contextual bindings',()=>{
   const keymap=new Keymap(false,{version:1,keys:{show_library:['Mod+k'],library_close:['q']}});
   expect(keymap.match(key('k',{ctrlKey:true}),'practice')).toBe('show_library');
   expect(keymap.match(key('q'),'library')).toBe('library_close');

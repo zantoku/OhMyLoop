@@ -1,10 +1,14 @@
 # Managed music library
 
-Implemented issue #3 on 2026-10-13. The demo works without setup. **Import song**
+Implemented issue #3 on 2026-10-13; the screen was redesigned as concept LD
+("open without editing", [brief](design/library.md)) on 2026-11-19, which also
+removed the built-in demo (#16). A first launch shows the empty Library with
+**Import song**. **Import song**, or one audio file dropped onto the window,
 asks for a library on the first import, then remembers it. Create library chooses
 a parent and creates an **OhMyLoop Library** subfolder; it never overwrites an
 existing folder. **Open existing library** selects an existing library root.
-Both actions are also in Library settings.
+Both actions are also in the library dialog that the Library header's
+**Settings** button (⌘, / Ctrl+,) opens until app-wide Settings exist.
 
 ## Import and practice
 
@@ -18,13 +22,21 @@ cleanup; cleanup failures are included in the error.
 
 Exact-copy detection offers **Open existing song** or **Import separate song**.
 Each separate import owns a physical copy and independent UUID, notes and map.
-Successful imports and library opens enter Practice paused. Search and sorting
-retain title, artist, album, file location, date added and last opened. Initial
-metadata comes from tags with filename fallback; **Edit → Save details** persists
-user overrides in the song document. File paths and dates are read-only.
+A dropped file is checked like a picked one: exactly one file, with a WAV, MP3,
+FLAC, Ogg, M4A, AAC or AIFF extension (`inspect_import_song`); anything else is
+refused with an explanation. Successful imports and library opens enter Practice
+paused. Rows show title, artist and length. The length (`duration_ms`) is
+computed when the list is read, from each song's recording frames and rate in
+`song.json` (or the app-data song record for the pre-managed store), and returned
+in a UI-only `LibraryRow`; it is never written to `catalogue.json` or
+`library.json`, so those stay readable by older builds. An unreadable record
+shows —. Search matches title, artist, album and file location; sorting
+covers title, artist, length, date added and last opened. Initial metadata comes
+from tags with filename fallback; **⋯ / ⌘I → Save details** persists user
+overrides in the song document. File paths and dates are read-only.
 
-A song has one reference recording/map. **Replace recording…** appears only below
-File location in the Library edit panel. The leading X closes its dialog.
+A song has one reference recording/map. **Replace recording…** appears only in
+the Library details panel. The leading X closes its dialog.
 Explicit unchanged-timing replacement requires identical decoded rate/frame count
 and preserves positional annotations. Changed timing clears sections, map, loop
 and saved position; UUID, notes, metadata and controls survive. After the new
@@ -35,7 +47,7 @@ Opening a song hashes its managed recording outside the audio callback. Missing
 recordings and unexpected content changes are reported; changed audio requires
 explicit replacement before playback. There is no background watcher.
 
-**Delete song** appears only in the Library edit panel. Its confirmation explains
+**Delete song…** appears only in the Library details panel. Its confirmation explains
 permanent deletion of the song's recording, notes, map and any future stem assets.
 External originals remain untouched. Active deletion stops and unloads the song
 and stays on Library. There is no Trash or Restore.
@@ -47,7 +59,7 @@ playback and unloads the song. The new library opens without selecting a song.
 A failed switch leaves the previous selection; a failed pending save blocks it.
 Normal restart restores the last song using both the selected library UUID and
 song UUID. A missing selected root offers Retry, Locate library and Open another
-library, while the demo remains available. Locate requires the same library UUID.
+library on the Library screen. Locate requires the same library UUID.
 No empty library is silently substituted.
 
 To move or back up a library, close the app and copy/move the **whole folder**.
@@ -89,7 +101,9 @@ multi-file transactions or guaranteed durability on every filesystem.
 - `src/desktop/managed.rs`: worker preparation and controller commit orchestration.
 - `src/library.rs`: shared metadata/catalogue DTOs and tag probing.
 - `ui/managed-library-session.ts`: setup, settings, import and duplicate dialog state.
-- `ui/LibraryScreen.svelte`: catalogue, metadata edit and sole deletion entry point.
+- `ui/LibraryScreen.svelte`: toolbar, list states and commands; `ui/SongList.svelte`
+  the selectable song list (home focus); `ui/SongEditor.svelte` the details panel
+  and sole deletion entry point; `ui/file-drop.ts` the drop-to-import target.
 - Tauri blocking tasks run copy/hash/decode outside the desktop control thread.
 
 Generated native fixtures cover copies, independent duplicates, failure cleanup,

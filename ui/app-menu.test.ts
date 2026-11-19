@@ -50,10 +50,19 @@ describe('menu layout from the action model', () => {
   it('takes labels and accelerators from the keymap, including custom bindings', () => {
     expect(action(find(new Keymap(true), 'File'), 'open_song')).toEqual({ action: 'open_song', text: 'Import Song…', accelerator: 'Cmd+O' });
     expect(action(find(new Keymap(true), 'Playback'), 'play_pause').accelerator).toBeNull();
-    const custom = new Keymap(true, { version: 1, keys: { open_song: ['Mod+i'], show_library: ['Mod+l'] } });
-    expect(action(find(custom, 'File'), 'open_song').accelerator).toBe('Cmd+I');
+    const custom = new Keymap(true, { version: 1, keys: { open_song: ['Mod+u'], show_library: ['Mod+l'] } });
+    expect(action(find(custom, 'File'), 'open_song').accelerator).toBe('Cmd+U');
     expect(action(find(custom, 'File'), 'show_library').accelerator).toBe('Cmd+L');
     expect(action(find(new Keymap(true), 'Help'), 'show_shortcuts').text).toBe('Keyboard Shortcuts');
+  });
+
+  it('puts Settings… ⌘, in the app menu, and the Library’s ⌘I and ⌘F in File and Edit', () => {
+    const keymap = new Keymap(true);
+    const app = find(keymap, 'OhMyLoop');
+    expect(action(app, 'show_settings')).toEqual({ action: 'show_settings', text: 'Settings…', accelerator: 'Cmd+,' });
+    expect(app.findIndex(entry => 'action' in entry)).toBe(2);
+    expect(action(find(keymap, 'File'), 'library_edit')).toEqual({ action: 'library_edit', text: 'Edit Song Details…', accelerator: 'Cmd+I' });
+    expect(action(find(keymap, 'Edit'), 'library_find')).toEqual({ action: 'library_find', text: 'Find Song', accelerator: 'Cmd+F' });
   });
 });
 

@@ -1,6 +1,6 @@
 import {beforeEach,expect,it,vi} from 'vitest';
 import {ManagedLibrarySession,type ManagedState} from './managed-library-session';
-const mock=vi.hoisted(()=>({libraryStatus:vi.fn(),chooseLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),importSong:vi.fn(),openLibrarySong:vi.fn(),deleteLibrarySong:vi.fn()}));
+const mock=vi.hoisted(()=>({libraryStatus:vi.fn(),chooseLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),inspectImportSong:vi.fn(),importSong:vi.fn(),openLibrarySong:vi.fn(),deleteLibrarySong:vi.fn()}));
 vi.mock('./bridge',()=>({bridge:mock}));
 let state:ManagedState;let session:ManagedLibrarySession;
 const available={selected:{id:'lib',root:'/music'},available:true,error:null,import_notice_seen:true};
@@ -25,3 +25,15 @@ it('separate duplicate imports the selected source directly',async()=>{mock.pick
 it('does not substitute an unavailable library',async()=>{mock.libraryStatus.mockResolvedValue({...available,available:false,error:'Drive disconnected'});await expect(session.beginImport()).rejects.toThrow('Drive disconnected');expect(mock.chooseLibrary).not.toHaveBeenCalled();expect(mock.pickImportSong).not.toHaveBeenCalled();});
 it('deletion requires confirmation and a closed dialog does not delete',async()=>{session.delete('song','Title');expect(mock.deleteLibrarySong).not.toHaveBeenCalled();session.close();expect(state.dialog).toBeNull();session.delete('song','Title');await session.confirmDelete();expect(mock.deleteLibrarySong).toHaveBeenCalledWith('song');});
 it('ignores import replies after disposal',async()=>{let finish!:(value:unknown)=>void;mock.pickImportSong.mockReturnValue(new Promise(resolve=>{finish=resolve;}));const pending=session.beginImport();await vi.waitFor(()=>expect(mock.pickImportSong).toHaveBeenCalledOnce());session.dispose();finish({path:'/song.wav',candidates:[]});expect(await pending).toBeNull();expect(mock.importSong).not.toHaveBeenCalled();});
+it('imports a dropped file without the picker, after first-import setup when needed',async()=>{
+ mock.inspectImportSong.mockResolvedValue({path:'/dropped.flac',candidates:[]});mock.importSong.mockResolvedValue({transport:{song_key:'new'}});
+ await session.beginImport('/dropped.flac');expect(mock.inspectImportSong).toHaveBeenCalledExactlyOnceWith('/dropped.flac');expect(mock.pickImportSong).not.toHaveBeenCalled();expect(mock.importSong).toHaveBeenCalledWith('/dropped.flac');
+ vi.clearAllMocks();mock.libraryStatus.mockResolvedValue({...available,import_notice_seen:false});mock.inspectImportSong.mockResolvedValue({path:'/second.wav',candidates:[]});
+ await session.beginImport('/second.wav');expect(state.dialog).toBe('notice');expect(mock.inspectImportSong).not.toHaveBeenCalled();
+ await session.continueImport();expect(mock.inspectImportSong).toHaveBeenCalledExactlyOnceWith('/second.wav');expect(mock.pickImportSong).not.toHaveBeenCalled();
+});
+it('forgets a dropped file when its setup is closed',async()=>{
+ mock.libraryStatus.mockResolvedValue({...available,import_notice_seen:false});await session.beginImport('/dropped.wav');session.close();
+ mock.libraryStatus.mockResolvedValue(available);mock.pickImportSong.mockResolvedValue(null);await session.beginImport();
+ expect(mock.pickImportSong).toHaveBeenCalledOnce();expect(mock.inspectImportSong).not.toHaveBeenCalled();
+});
