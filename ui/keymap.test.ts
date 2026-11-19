@@ -91,3 +91,12 @@ it('uses the registered batch grouping action for buttons, help and configured m
   expect(map.shortcuts('mapping').find(row=>row.action==='map_grouping')?.description).toBe(map.description('map_grouping'));
   expect(map.title('map_grouping')).toBe(`${map.description('map_grouping')} (G)`);
 });
+
+it('toggles the notes drawer with N on every song view and saves a section with S',()=>{
+  const map=new Keymap();
+  for(const context of ['practice','mapping','stems'] as const)expect(map.match(key('n'),context)).toBe('show_notes');
+  expect(map.match(key('N',{shiftKey:true}))).toBe('show_notes');
+  expect(map.match(key('s'),'practice')).toBe('add_section');expect(map.match(key('s'),'mapping')).toBeUndefined();
+  expect(map.title('show_notes')).toBe('Show or hide notes (N)');expect(map.title('save_selection')).toBe('Save a named section (S)');
+  expect(map.keysFor('close_notes')).toEqual([]);expect(map.keysFor('retry_notes')).toEqual([]);
+});

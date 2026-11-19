@@ -1,5 +1,5 @@
 // Stable action identities and presentation metadata. No UI or device access.
-export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'notes' | 'stems';
+export type ActionScope = 'all' | 'practice' | 'mapping' | 'library' | 'stems';
 export type Requirement = 'none' | 'song' | 'range' | 'sections' | 'audio' | 'loop_on' | 'undo' | 'editor' | 'help' | 'zoom_out';
 export type PayloadKind = 'command' | 'section' | 'editor_submit' | 'editor_close' | 'help_close' | 'library_song' | 'library_sort' | 'stem_gain';
 function define(description: string, keys: readonly string[] = [], requires: Requirement = 'song', payload: PayloadKind = 'command', repeat = false) {
@@ -93,9 +93,9 @@ export const ACTIONS = {
   replacement_same_timing: define('Replace the recording and explicitly confirm unchanged timing', [], 'none'),
   replacement_new_timeline: define('Replace the recording and clear the measure map, sections, loop and position', [], 'none'),
   replacement_cancel: define('Close recording replacement', [], 'none'),
-  show_notes: define('Open song notes'),
-  close_notes: {...define('Close notes and return to practice'),scope:'notes' as ActionScope},
-  retry_notes: {...define('Retry saving song notes'),scope:'notes' as ActionScope},
+  show_notes: define('Show or hide notes', ['n']),
+  close_notes: define('Close notes'),
+  retry_notes: define('Retry saving song notes'),
   show_library: define('Open the music library', [], 'none'),
   library_close: library('Back to practice', [], 'none'),
   library_replace: library('Replace this library song recording', [], 'none', 'library_song'),
@@ -133,7 +133,7 @@ export const ACTIONS = {
   seek_forward_fine: define('Seek forward 0.1 seconds', ['Shift+ArrowRight'], 'song', 'command', true),
   previous_section: practice('Previous section', ['['], 'sections'),
   next_section: practice('Next section', [']'], 'sections'),
-  add_section: practice('Save a named section', ['n']),
+  add_section: practice('Save a named section', ['s']),
   open_song: define('Import a song', ['Mod+o'], 'none'),
   disable_loop: define('Turn looping off', ['Escape'], 'loop_on'),
   show_shortcuts: { ...define('Show keyboard shortcuts', [], 'none'), duringBusy: true },

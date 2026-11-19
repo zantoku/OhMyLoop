@@ -1,15 +1,16 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import StemsScreen from './StemsScreen.svelte';
   import {SeparationSession} from './separation-session';
   import {separationFrozen,type SeparationState} from './separation';
   import {StemsSession,type StemsState} from './stems-session';
   import {completedProcessing,processingLabel,type StemRole,type StemProgress} from './stems';
   import ThemeControl from './ThemeControl.svelte';
-  import NotesScreen from './NotesScreen.svelte';
+  import NotesDrawer from './NotesDrawer.svelte';
+  import { readNotesFont } from './notes-font';
   import RecordingChooser from './RecordingChooser.svelte';
   import {RecordingReplacement} from './recording-replacement';
-  import {NotesSession,type NotesState} from './notes-session';
+  import {NotesSession,notesUnsaved,type NotesState} from './notes-session';
   import LibraryScreen from './LibraryScreen.svelte';
   import ManagedLibraryDialog from './ManagedLibraryDialog.svelte';
   import {ManagedLibrarySession,type ManagedState} from './managed-library-session';
@@ -56,7 +57,7 @@
   let keymapPath = $state<string | null>(null);
   let keymapWarning = $state<string | null>(null);
   let keymapLoading = $state(false);
-  let screen = $state<'practice' | 'mapping' | 'library' | 'notes' | 'stems'>('practice');
+  let screen = $state<'practice' | 'mapping' | 'library' | 'stems'>('practice');
   let separationState=$state<SeparationState>({status:null,pending:false,error:''});
   let quitConfirmation=$state(false);
   let exiting=$state(false);
@@ -69,7 +70,7 @@
   async function startSeparation(){if(separationAdmission)return;separationAdmission=true;try{await transportActions;flushControls();await saves;await stemsSession.flush();await countInSession.flush();await clickSession.flush();if(song){await separationSession.separate(song.reference_token);const status=await bridge.status();if(status.reference_token===song.reference_token)transport=status;}}finally{separationAdmission=false;}}
   async function finishExit(){
     if(exiting)return;exiting=true;quitConfirmation=false;
-    try{flushControls();if(await notesSession.flush()){await stemsSession.flush();await saves;await bridge.finishExit();}}
+    try{flushControls();if(await notesSession.flush()){await stemsSession.flush();await saves;await bridge.finishExit();}else showNotesFailure();}
     catch(e){error=String(e);}finally{exiting=false;}
   }
   let stemsState=$state<StemsState>({snapshot:null,pending:false,error:''});
@@ -98,7 +99,11 @@
   let libraryEpoch=$state(0);
   let managedState=$state<ManagedState>({status:{selected:null,available:false,error:null,import_notice_seen:false},dialog:null,selection:null,pendingImport:false,deleteKey:null,deleteTitle:''});
   const managed=new ManagedLibrarySession(value=>{managedState=value;});
-  let notesState=$state<NotesState>({text:'',dirty:false,pending:false,error:''});
+  let notesState=$state<NotesState>({text:'',dirty:false,pending:false,slow:false,tooLong:false,error:''});
+  // The notes drawer belongs to Practice and stays open across views and songs.
+  let notesOpen=$state(false);
+  let notesPanel=$state<NotesDrawer>();
+  const notesFont=readNotesFont();
   const notesSession=new NotesSession(async(key,text)=>{
     if(song?.reference_token!==key)throw new Error('The song changed before notes could be saved.');
     await update({notes:text},true);
@@ -180,7 +185,7 @@
     if(snapshot.startup_notice)startupNotice=snapshot.startup_notice;
     if(snapshot.library_error)error=snapshot.library_error;
     if(!snapshot.song&&!song&&screen!=='library')screen='library';
-    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){stemProgress=null;void reloadStems(snapshot.song.reference_token);countInEnabled=false;repeatCountIn=false;notesSession.reset(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
+    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){stemProgress=null;void reloadStems(snapshot.song.reference_token);countInEnabled=false;repeatCountIn=false;resetNotes(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
@@ -203,10 +208,10 @@
   }
   async function prepareChange(){
     await stemsSession.flush();
-    if(!await notesSession.flush())throw new Error('Song notes could not be saved. Close this dialog to review and retry.');
+    if(!await notesSession.flush()){showNotesFailure();throw new Error('Notes aren’t saved yet. Review them in the notes drawer.');}
     if(libraryScreen&&!await libraryScreen.flush())throw new Error('Song details could not be saved. Close this dialog to review and retry.');
     flushControls();await saves;
-    if(!saved){await update({},true);if(!saved)return false;}return true;
+    if(!saved){await update({},true).catch(e=>{throw new Error(`Changes could not be saved: ${String(e)}`);});if(!saved)return false;}return true;
   }
   async function managedWork(label:string,job:()=>Promise<void>){
     if(busy)return;stemProgress=null;busy=label;error='';try{await job();}catch(e){if(mounted)error=String(e);}finally{if(mounted){busy='';stemProgress=null;}}
@@ -235,7 +240,7 @@
       try {
         const snapshot = await bridge.update(document); apply(snapshot, thisRevision);
         if (thisRevision === revision) saved = true;
-      } catch (e) { error = `Changes could not be saved: ${String(e)}`;if(throwOnError)throw e; }
+      } catch (e) { if(throwOnError)throw e;error = `Changes could not be saved: ${String(e)}`; }
     });
     return saves;
   }
@@ -384,15 +389,28 @@
     if(target){if(screen==='mapping')measureEditor?.selectMeasure(target.id);return action({type:'seek',seconds:target.start/song.rate});}
   }
   const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
-  async function closeNotes(){const reference=song?.reference_token;if(await notesSession.flush()&&screen==='notes'&&song?.reference_token===reference)screen='practice';}
-  async function showView(next:'practice'|'mapping'|'notes'|'stems'){
-    const reference=song?.reference_token;
-    if(screen==='notes'&&next!=='notes'&&!await notesSession.flush())return;
-    if(song?.reference_token===reference)screen=next;
+  // Notes that can't be saved block leaving the song. The drawer opens to show
+  // why and offer Retry, and a blocked Library or quit brings Practice forward.
+  function showNotesFailure(){if(song&&screen!=='library')screen='practice';}
+  // Every song change flushes notes first (prepareChange, recordingChange) and
+  // the text is read-only while busy, so nothing should be pending here. The
+  // engine has already switched songs and rejects stale saves, so pending text
+  // can't be saved any more; say so instead of dropping it silently.
+  function resetNotes(key:string,text:string){
+    if(notesState.dirty)error='Notes typed while the song was changing could not be saved.';
+    notesSession.reset(key,text);
   }
+  // Closing saves first; a failed save keeps the drawer open with its alert.
+  async function closeNotes(){const reference=song?.reference_token;if(await notesSession.flush()&&song?.reference_token===reference)notesOpen=false;}
+  // From another view, Notes opens Practice with the drawer.
+  async function toggleNotes(){
+    if(screen!=='practice'){screen='practice';if(notesOpen){await tick();notesPanel?.focusText();}else notesOpen=true;}
+    else if(notesOpen)await closeNotes();else notesOpen=true;
+  }
+  function showView(next:'practice'|'mapping'|'stems'){screen=next;}
   async function showLibrary(){
     await transportActions;
-    if(!await notesSession.flush())return;
+    if(!await notesSession.flush()){showNotesFailure();return;}
     if(transport.playing)await action({type:'pause'});
     screen='library';
   }
@@ -421,7 +439,7 @@
     managed_duplicate_open:({songKey})=>managedWork('Opening song…',async()=>{if(songKey)loaded(await managed.openDuplicate(songKey));}),
     managed_delete:({songKey})=>{if(songKey)managed.delete(songKey,libraryScreen?.titleFor(songKey)??'this song');},
     managed_confirm_delete:()=>managedWork('Deleting song…',async()=>{if(!await prepareChange())return;const snapshot=await managed.confirmDelete();if(snapshot&&mounted){if(!snapshot.transport.song_key)unloaded(snapshot);else{apply(snapshot);libraryEpoch++;screen='library';}}}),
-    show_notes:()=>showView('notes'),close_notes:closeNotes,retry_notes:async()=>{await notesSession.flush();},
+    show_notes:toggleNotes,close_notes:closeNotes,retry_notes:async()=>{await notesSession.flush();},
     library_replace:({songKey})=>replaceLibrary(songKey),
     show_library:showLibrary,library_close:()=>{screen='practice';},library_open:({songKey})=>open(false,songKey),
     library_edit:payload=>libraryScreen?.command('library_edit',payload),library_save:()=>libraryScreen?.command('library_save'),
@@ -469,7 +487,7 @@
   }
   function runButton(id: ButtonId, payload: ActionPayload = {}) { return runAction(keymap.actionFor(id), payload); }
   // Moving between screens and the global dialogs work on every screen.
-  const NAVIGATION_ACTIONS:ActionId[]=['show_library','show_practice','show_measure_map','show_notes','show_stems','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'];
+  const NAVIGATION_ACTIONS:ActionId[]=['show_library','show_practice','show_measure_map','show_notes','close_notes','retry_notes','show_stems','show_shortcuts','close_shortcuts','reload_keymap','dismiss_error'];
   function actionAvailable(id:ActionId) {
     if(!dispatcher.available(id))return false;
     if(separationActive&&separationFrozen(id))return false;
@@ -480,8 +498,9 @@
     if(id==='show_stems'||id==='attach_stems')return native&&!!song?.path;
     if(id==='remove_stems')return native&&!!stemsState.snapshot?.set_id;
     if(screen==='stems'&&!['retry_stem_mix','close_stems','attach_stems','remove_stems',...NAVIGATION_ACTIONS].includes(id))return false;
-    if(screen==='notes'&&!['close_notes','retry_notes','open_song',...NAVIGATION_ACTIONS].includes(id))return false;
-    if(id==='retry_notes')return notesState.dirty&&!notesState.pending;
+    if(id==='show_notes')return screen!=='library';
+    if(id==='close_notes')return notesOpen&&screen==='practice';
+    if(id==='retry_notes')return !!notesState.error&&!notesState.pending;
     if(id.startsWith('managed_')){
       if(id==='managed_close')return !!managedState.dialog;
       if(id==='managed_confirm_delete')return managedState.dialog==='delete';
@@ -572,16 +591,15 @@
 <svelte:window onkeydown={keyboard}/>
 <div class="app-shell">
   <AppHeader title={song?.title ?? null} inLibrary={screen==='library'} views={viewSegments} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}>
-    {#if song}<span class="save-state" class:failed={!!transport.save_error} role="status">{#if transport.save_error}Not saved{:else if saved}<Icon name="check" size={13}/>Saved{:else}Saving…{/if}</span>{/if}
+    {#if song}<span class="save-state" class:failed={!!transport.save_error||notesUnsaved(notesState)} role="status">{#if transport.save_error}Not saved{:else if notesUnsaved(notesState)}<Icon name="warning" size={13}/>Notes not saved{:else if saved}<Icon name="check" size={13}/>Saved{:else}Saving…{/if}</span>{/if}
     {#if screen==='library'}<span class="copyable">{transport.device ?? (native ? 'No audio output' : 'Browser preview')}</span><ThemeControl/>{/if}
-    {#if song&&screen!=='library'}{@const notes=screen==='notes'?'close_notes':'show_notes'}<button class="header-button" aria-pressed={screen==='notes'} disabled={!buttonAvailable(notes)} title={keymap.title(notes)} onclick={()=>runButton(notes)}><Icon name="notes" size={15}/>Notes</button>{/if}
+    {#if song&&screen!=='library'}<button class="header-button" aria-controls={notesOpen&&screen==='practice'?'notes':undefined} aria-pressed={notesOpen&&screen==='practice'} disabled={!buttonAvailable('show_notes')} title={keymap.title('show_notes')} onclick={()=>runButton('show_notes')}><Icon name="notes" size={15}/>{keymap.buttonLabel('show_notes','Notes')}</button>{/if}
     <button class="header-button icon" aria-label={keymap.buttonLabel('shortcuts','Keyboard shortcuts')} title={keymap.title('shortcuts')} onclick={()=>runButton('shortcuts')}><Icon name="keyboard" size={16}/></button>
   </AppHeader>
   <Toasts notices={noticeList} {keymap} run={id=>{void runButton(id);}}/>
 
   <div class="screen-frame" hidden={screen==='practice'}>
     <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} status={managedState.status} epoch={libraryEpoch} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
-    {#if song}<NotesScreen active={screen==='notes'} state={notesState} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/if}
     <StemsScreen active={screen==='stems'} state={stemsState} separation={separationState} processingBytes={separationEstimate} progress={stemProgress} busy={!!busy||stemsLoading} operation={busy||'Processing stems'} failed={stemProgressFailed} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}/>
     {#if song}
       {#key song.reference_token}
@@ -600,10 +618,11 @@
   <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
 
   {#if song && project}
+    {#snippet notesDrawer()}<NotesDrawer bind:this={notesPanel} notes={notesState} readonly={!!busy} font={notesFont} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/snippet}
     <PracticeScreen bind:this={practiceScreen} bind:measureNumber active={screen==='practice'} {song} controls={playbackControls} {sections} selectedSection={project.selected_section}
       {selection} looping={project.loop_enabled} repeatCountIn={repeatCountIn&&hasMeasureMap} {transport} {mapView} {view} {snapToMeasures} frozen={separationActive} busy={!!busy}
       {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onseek={seconds=>action({type:'seek',seconds})} onselection={chooseLoop}
-      onview={next=>{view=next;}} oncontrols={controls}/>
+      onview={next=>{view=next;}} oncontrols={controls} drawer={notesOpen?notesDrawer:undefined}/>
     {#if screen==='practice'}
       <PlaybackBar>
         <TransportButtons playing={transport.playing} mapped={!!mapView?.measures.length} frozen={separationActive} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}}/>

@@ -5,7 +5,7 @@
     keyboard: 'M4 6h16a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 18H4a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 4 6zM6 10h1M10 10h1M14 10h1M7 14h10',
     sidebar: 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 4v16',
     magnet: 'M6 3v8a6 6 0 0 0 12 0V3M6 7h4M14 7h4M10 3v8a2 2 0 0 0 4 0V3',
-    notes: 'M6 3h9l4 4v14H6zM9 11h7M9 15h7M9 7h4',
+    notes: 'M6 3h9l4 4v14H6zM9 11h7M9 15h7M9 7h4', warning: 'M12 4 2.5 20h19zM12 10v4M12 17.2v.3',
     play: 'M8 5v14l11-7z', pause: 'M8 5v14M16 5v14', folder: 'M3 8V5h6l2 3h10v11H3z',
     loop: 'M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4', plus: 'M12 5v14M5 12h14',
     minus: 'M5 12h14', reset: 'M5 8a8 8 0 1 1-1 8M5 3v5h5',

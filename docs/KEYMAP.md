@@ -46,8 +46,11 @@ from the measure readout; `show_passage_bounds` (button `passage`) opens exact
 A/B seconds entry from the passage card. `seek_backward` and `seek_forward` also back the
 transport's step buttons (`step_back`, `step_forward`): a measure with a map,
 5 seconds without one. `show_practice`, `show_measure_map` and `show_stems` are
-the header's view segments and `show_notes` its Notes button; they work on
-every song screen.
+the header's view segments and `show_notes` (**N**) its Notes button, which
+toggles the notes drawer; they work on every song screen, and from Measure map
+or Stems `show_notes` opens Practice with the drawer. `add_section` (**S**,
+button `save_selection`) saves the passage as a named section; it moved from N
+when N became the notes toggle.
 
 The mapping actions `map_metronome` and `map_follow` control authored-map clicks
 and waveform paging. They have button/help metadata and no default keyboard
@@ -240,15 +243,25 @@ descriptions. `show_library` can be assigned a global shortcut.
 
 The global Open song command (Cmd/Ctrl+O) first opens the library, then the file
 picker. Cancelling keeps the library visible. The header navigation binds
-`show_library` in practice, mapping and notes, and `library_close` in the library.
+`show_library` in practice and mapping, and `library_close` in the library.
 Its default label is Library, becoming Practice while browsing the library.
-The X beside the mapping panel title binds `show_practice`; the notes X binds `close_notes`.
+The X beside the mapping panel title binds `show_practice`.
 
 ## Notes actions
 
-`show_notes` belongs to practice; `close_notes` and `retry_notes` belong to the
-`notes` scope. They have no default keys. Buttons, hover descriptions and optional
-keymap overrides use these same stable identities. Closing notes flushes edits
-before returning to practice; failed saves keep notes open. Global Library,
-Open song and shortcut/configuration actions remain available. Transport and
-loop shortcuts are inactive in notes, and editing a textarea suppresses shortcuts.
+Notes is a drawer on Practice, not a screen, so there is no `notes` scope.
+`show_notes` (**N**) toggles the drawer on every song screen; `close_notes`
+closes it and `retry_notes` retries a failed save (the drawer's Retry save
+button). Those two have no default keys or buttons of their own besides Retry.
+Buttons, hover descriptions and optional keymap overrides use these same stable
+identities. Closing flushes edits first; a failed save keeps the drawer open.
+The notes text owns every key while focused, so no shortcut fires while typing;
+**Esc** in it returns focus to the waveform, and the next key reaches the
+shortcuts again. ⌘Z/⇧⌘Z (Ctrl elsewhere) undo and redo in the text. The text
+is read-only while the app is busy (opening, importing), so nothing typed then
+is lost when the song changes.
+
+N now belongs to `show_notes` in every screen. An existing `keymap.json` that
+binds `n` to another action must also unbind it, `"show_notes": []` under
+`keys` (or give `show_notes` another key); otherwise the file is rejected as a
+conflict and all default shortcuts are used.

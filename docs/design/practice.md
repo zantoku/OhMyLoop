@@ -67,7 +67,7 @@ follow settings last for the app session.
 
 | # | Story | Freq. | Actions |
 | --- | --- | --- | --- |
-| D1 | Save the current passage as a named section (e.g. "Solo, bars 33–40"). | song | `add_section` (N), `save_section`, `close_editor` |
+| D1 | Save the current passage as a named section (e.g. "Solo, bars 33–40"). | song | `add_section` (S; N toggles the notes drawer, [Notes](notes.md#chosen-concept-tall-drawer)), `save_section`, `close_editor` |
 | D2 | See all sections in song order with their times, and where they lie on the timeline. Sections may overlap or nest. | session | — |
 | D3 | Jump to a section; with looping on, it becomes the loop. | session | `select_section` |
 | D4 | Step to the previous or next section. | session | `previous_section` ([), `next_section` (]) |

@@ -74,7 +74,7 @@ export class Keymap {
     }
   }
 
-  match(event: Input, context:'practice'|'mapping'|'library'|'notes'|'stems'='practice'): ActionId | undefined {
+  match(event: Input, context:'practice'|'mapping'|'library'|'stems'='practice'): ActionId | undefined {
     if (event.isComposing) return;
     return this.bindings.find(({ action, chord }) => (ACTIONS[action].scope==='all'||ACTIONS[action].scope===context) && chord.key === keyName(event.key) &&
       chord.ctrl === event.ctrlKey && chord.meta === event.metaKey && chord.alt === event.altKey &&
@@ -94,7 +94,7 @@ export class Keymap {
   buttonLabel(button: ButtonId, defaultLabel: string): string {
     return this.actionFor(button) === BUTTONS[button] ? defaultLabel : this.description(this.actionFor(button));
   }
-  shortcuts(context?:'practice'|'mapping'|'library'|'notes'|'stems'): { action: ActionId; keys: string; description: string }[] {
+  shortcuts(context?:'practice'|'mapping'|'library'|'stems'): { action: ActionId; keys: string; description: string }[] {
     return (Object.keys(ACTIONS) as ActionId[]).filter(id => this.keys[id].length && (!context || ACTIONS[id].scope==='all' || ACTIONS[id].scope===context)).map(action => ({ action, keys: this.shortcut(action), description: this.description(action) }));
   }
   private display(text: string): string {

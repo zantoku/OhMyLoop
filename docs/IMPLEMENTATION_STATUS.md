@@ -174,9 +174,8 @@ writes now live in `storage.rs`. Details and remaining scope are in [LIBRARY.md]
 
 ## Song notes and navigation
 
-Notes sits left of Measure map above the practice waveform and opens a plain-text
-editor. Both notes and mapping have an X beside their white-panel titles returning to practice, while
-Library remains top right. In Library that button still becomes Practice.
+Notes is a drawer on Practice's right edge, toggled by the header's Notes button
+and N (redesigned 2026-11-19; it used to be a separate screen with a close X).
 `NotesSession` owns debounced writes, pending-text retention and retry; the App
 connects it to the serialized document-save queue. Normal close/quit uses a Tauri
 exit handshake to flush pending edits. Song documents are version 4 with empty

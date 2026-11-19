@@ -52,8 +52,14 @@ beat 2 · 1:24.6/3:48  │ m. 33 – 40   │                   −10 −5 +5 +1
 
 - **Header** (`AppHeader.svelte`): a breadcrumb from the Library to the open
   song, the song's views as a segmented control (`ViewSwitcher.svelte`), the
-  save state, a Notes button and the keyboard-shortcuts button. Without a song
-  the app shows the Library and the views don't exist.
+  save state, a Notes button (N) that toggles the notes drawer, and the
+  keyboard-shortcuts button. The save state covers notes too and reads
+  "⚠ Notes not saved" when a notes save fails. Without a song the app shows the
+  Library and the views don't exist.
+- **Notes drawer** (`NotesDrawer.svelte`): 320 px on Practice's right edge,
+  from below the header to the playback bar, beside the readout band and the
+  waveform, which narrow (the readout's gaps tighten) while it's open. See
+  [Song notes](#song-notes).
 - **Toasts** (`Toasts.svelte`, `notices.ts`) replace the old notice rows and
   status bar: errors needing action persist until resolved or dismissed,
   informational notices time out after 6 s, progress (opening, importing,
@@ -136,7 +142,8 @@ Interaction defaults:
   comma jumps to A, period jumps to B, and Enter rewinds to song start;
   seeking to B turns looping off while preserving play/pause state;
   X clears the temporary A–B range and turns looping off;
-  arrow keys seek; brackets navigate sections; Cmd/Ctrl+O opens a song.
+  arrow keys seek; brackets navigate sections; S saves the passage as a section;
+  N shows or hides notes; Cmd/Ctrl+O opens a song.
 - Shortcuts do not fire while typing into an input or dialog.
 - Timeline focus outlines appear during keyboard navigation; pointer clicks
   and dragging keep the minimap and waveform free of focus outlines.
@@ -239,10 +246,10 @@ The Library breadcrumb at the top left of the header opens a full-width
 catalogue screen and pauses playback. The Library header has no song views and
 no Notes button; the current song's title in the list returns to Practice
 without reloading. Import song is in the library panel heading. Library settings owns Create library and Open existing library. Delete song appears only in the song edit panel and requires permanent-deletion confirmation.
-Measure map, Stems and Practice are the header's view segments. Notes opens
-from the header's Notes button; Notes, Measure map and Stems keep an X beside
-their panel titles that returns to practice. Shortcut help is the header's
-keyboard button.
+Measure map, Stems and Practice are the header's view segments. The header's
+Notes button toggles the notes drawer on Practice; Measure map and Stems keep an
+X beside their panel titles that returns to practice. Shortcut help is the
+header's keyboard button.
 Use the existing Avenir/Segoe/Noto family, navy text (#24314c), pale background
 (#f3f5fa), white surface (#ffffff), blue controls (#526fc0) and sage current-song
 indicator (#66877a). One searchable table is the focus; avoid artwork cards or a
@@ -260,16 +267,27 @@ verification evidence are in IMPLEMENTATION_STATUS.md.
 
 ## Song notes
 
-Place Notes immediately left of Measure map above the practice waveform. Its
-screen has a single full-height plain textarea on a white surface, with a Song
-notes heading and save status. Keep line breaks and whitespace; Markdown syntax
-is displayed as text. An X beside the Song notes title inside the white panel returns to practice after
-saving; mapping uses the same placement. Library remains at the top right on
-both screens. Opening Library pauses playback, while switching between notes
-and practice preserves transport. A failed save keeps the text with Retry save.
+Notes is a tall drawer (concept NC, [brief](design/notes.md)) on the right edge
+of Practice, from below the header down to the playback bar, beside both the
+readout band and the waveform. The sections sidebar on the left is unaffected,
+and the minimum window (1180 × 680) fits both side panels. The header's Notes
+button and N toggle it; there is no close X. A "Notes" heading sits above a
+full-height plain textarea in the UI font (monospace later from Settings →
+Appearance, read through `notes-font.ts`), with a placeholder when empty and a
+one-line hint below: "Typing · Esc returns to the waveform, so Space plays
+again" while typing, "Saved as you type" otherwise. Keep line breaks and
+whitespace; Markdown syntax is displayed as text.
 
-Inactive Library and Notes markup is removed while session state remains mounted,
-so WebKit accessibility updates correctly when switching between screens.
+The header's save state covers notes. The drawer shows "Saving…" beside its
+heading only when a save is slow, an alert with Retry save when a save fails,
+and an alert without Retry when the notes exceed 1 MiB. Opening the drawer
+focuses the text; closing it returns focus to where it was, or home. Opening
+Library pauses playback after notes have saved, while opening or closing the
+drawer never changes the transport.
+
+Inactive Library markup is removed while session state remains mounted, so
+WebKit accessibility updates correctly when switching between screens. The
+closed drawer is removed the same way.
 
 ## Practice mixer
 

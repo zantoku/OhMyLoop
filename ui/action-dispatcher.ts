@@ -4,7 +4,7 @@ import type { Section } from './types';
 export type ActionPayload = {role?:import('./stems').StemRole;gain?:number; section?: Section; songKey?:string; librarySort?:import('./library').LibrarySort };
 export type ActionHandlers = Record<ActionId, (payload: ActionPayload) => void | Promise<void>>;
 export type ActionState = {
-  context?: 'practice' | 'mapping' | 'library' | 'notes' | 'stems'; busy: boolean; song: boolean; range: boolean; sections: boolean; audio: boolean;
+  context?: 'practice' | 'mapping' | 'library' | 'stems'; busy: boolean; song: boolean; range: boolean; sections: boolean; audio: boolean;
   loop_on: boolean; undo: boolean; editor: boolean; help: boolean; zoom_out: boolean;
 };
 

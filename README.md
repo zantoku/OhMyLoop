@@ -63,7 +63,7 @@ Comma jumps to A, period jumps to B, and Enter jumps to the first mapped measure
 (including a pickup), or the song start without a map.
 Jumping to B turns looping off; seeking preserves play/pause state.
 X clears the A–B range and turns looping off, brackets navigate sections,
-N adds a section, and Cmd/Ctrl+O opens a song. Arrow keys
+S saves the passage as a section, N shows or hides notes, and Cmd/Ctrl+O opens a song. Arrow keys
 jump to the preceding/following measure start when a map has measures, or seek
 five seconds without one. Shift+arrows always seek 0.1 seconds. Shortcuts are suspended while
 editing fields or dialogs. The in-app shortcut panel lists these controls.
@@ -175,10 +175,15 @@ See [docs/LIBRARY.md](docs/LIBRARY.md) for behavior and failure limits.
 
 ## Song notes
 
-Open **Notes** from the header for a plain-text editor. Notes are saved with
-the song, including line breaks and whitespace. The **X** beside the Song notes
-title, or the Notes button again, saves and returns to practice. Edits autosave, and normal app quit flushes pending text.
-Failed writes retain the text and offer Retry save. Markdown rendering is deferred.
+The header's **Notes** button, or **N**, opens a notes drawer on the right
+edge of Practice, beside the readout and the waveform; the same button or N
+saves and closes it. Notes are plain text saved with the song, including line
+breaks and whitespace. Playback keeps running while you write: shortcuts don't
+fire while typing, and **Esc** returns focus to the waveform so Space plays
+again. Edits autosave, and normal app quit flushes pending text. The header's
+save state shows "Notes not saved" when a write fails; the drawer keeps the text
+and offers Retry save. Notes over 1 MiB are kept in the drawer but not saved.
+Markdown rendering is deferred. Saving a named section moved from N to **S**.
 See [docs/NOTES.md](docs/NOTES.md) for persistence and lifecycle details.
 
 ## Measure mapping
