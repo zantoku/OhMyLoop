@@ -34,13 +34,14 @@ function compositeKeys(element: Element): readonly string[] | null {
 }
 
 /**
- * True when the focused target handles `key` itself, so global shortcuts must
+ * True when the focused target handles `key` itself. Open dialogs and
+ * popovers (`data-popover`) own every key pressed inside them, so global shortcuts must
  * not run. Only keyboard-focused buttons and toggles own Space and Enter;
  * after a click (pointer modality) those keys reach the shortcuts.
  */
 export function ownsKey(target: EventTarget | null, key: string, modality: Modality): boolean {
   if (!(target instanceof Element)) return false;
-  if (target.closest('dialog[open]')) return true;
+  if (target.closest('dialog[open], [data-popover]')) return true;
   if (isTextEntry(target)) return true;
   if (compositeKeys(target)?.includes(key)) return true;
   return modality === 'keyboard' && ACTIVATION_KEYS.includes(key) && target.closest(ACTIVATABLE) !== null;

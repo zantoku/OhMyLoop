@@ -1,31 +1,53 @@
 # Actions and shortcut configuration
 
 Default endpoint navigation is `,` → A, `.` → B, and Enter → song start.
-The A/B labels beside the time fields also invoke the same actions when clicked.
+The A and B buttons in the passage bar below the waveform invoke the same
+actions (`jump_loop_start`, `jump_loop_end`) when clicked; exact seconds are
+entered from the passage card (`show_passage_bounds`).
 
 Seeking to B turns looping off because B is the exclusive end. Seeking to
 the song start also turns looping off when it lies outside the enabled range.
 Seeking preserves play/pause state; reaching the file's natural end can finish
 playback. A range remains saved when looping is turned off.
 
-The practice action `practice_follow` and its same-named button toggle paged
-playhead following. It defaults on, has no default key, and accepts configured
-shortcuts. Its preference is independent of mapping’s `map_follow`; each screen
-retains its setting across screen changes. Panning and zoom never turn it off,
-and explicit seeks reveal the playhead even with continuous following off.
+Practice always pages the waveform to follow the playhead while playing (on
+start, at the page's right edge, and on wraps; a manual pan holds until then); its
+former `practice_follow` toggle is removed, and a `keymap.json` that still names
+it is rejected like any unknown action. Mapping keeps its own `map_follow`.
+Explicit seeks reveal the playhead even while paused.
+
+Zoom has no buttons on Practice: the mouse wheel zooms at the pointer. The
+keyboard zooms with `zoom_in` (**=**), `zoom_out` (**-**) and `show_whole_song`
+(**0**), so zoom works on Windows and Linux, which have no View menu.
 
 The practice actions `practice_metronome` and `toggle_loop_snap` control the
-shared authored-map metronome and default-on loop snapping. Their buttons are
-`practice_metronome` and `loop_snap`; neither has a default key. Enable/level
+shared authored-map metronome (the On/Off button under the Click knob at the
+start of the mixer) and default-on loop snapping (the magnet button beside the
+passage bounds). Their buttons are `practice_metronome` and `loop_snap`;
+neither has a default key. Both need an accepted measure map. Enable/level
 persist across practice/mapping screen changes. Practice uses the accepted map;
 mapping can use an unapplied draft. With snapping on, A/B use the nearest
 barline, and without an existing loop they select the containing measure. Exact
 loop-time inputs and saved sections preserve their source coordinates.
 
-The Practice action `practice_count_in` uses **C** to toggle count-in on/off,
-sharing the `count_in` button’s accepted-map requirement and on-state highlight.
-The shortcut appears in Practice help and is inactive on other screens. The
-`repeat_count_in` checkbox remains a separate action without a default key.
+Count-in and looping are independent toggles. The Practice action
+`practice_count_in` (**C**, button `count_in`) counts in one measure before
+Play. `toggle_loop` (**L**, button `loop`) turns looping on or off and never
+changes either count-in. `repeat_count_in` (button `repeat_count_in`, no default
+key) counts in before each loop repeat; it is the "each" segment joined to the
+Loop button and is available only while looping is on. Both count-ins need an
+accepted measure map and are inactive on other screens.
+
+Other Practice actions without default keys: `toggle_sections` (button
+`sections`) shows or hides the sections list; `show_pitch` (button `pitch`)
+opens the pitch popover with transposition and the recording's reference
+tuning; `show_goto_measure` (button `measure_readout`) opens "Go to measure"
+from the measure readout; `show_passage_bounds` (button `passage`) opens exact
+A/B seconds entry from the passage card. `seek_backward` and `seek_forward` also back the
+transport's step buttons (`step_back`, `step_forward`): a measure with a map,
+5 seconds without one. `show_practice`, `show_measure_map` and `show_stems` are
+the header's view segments and `show_notes` its Notes button; they work on
+every song screen.
 
 The mapping actions `map_metronome` and `map_follow` control authored-map clicks
 and waveform paging. They have button/help metadata and no default keyboard
@@ -123,19 +145,21 @@ in [ui/actions.ts](../ui/actions.ts); the documentation does not maintain a seco
 action catalog.
 
 Key ownership is decided by the key (`ui/key-routing.ts`). Text fields,
-selects, open dialogs and IME composition own every key. Composite controls
-(waveform and map seek sliders, loop handles, map lines, stem knobs, range
-inputs) own only their documented keys, such as the arrows and Home/End;
+selects, open dialogs and popovers, and IME composition own every key. Composite controls
+(waveform and map seek sliders, loop handles, map lines, the click and stem
+knobs, range inputs) own only their documented keys, such as the arrows and Home/End;
 letters, Space, Enter and Esc still reach the shortcuts from them. Clicking a
 button or toggle leaves keyboard focus where it was, so Space keeps playing;
 only a Tab-focused button activates with Space or Enter. Holding a transport
 toggle does not repeatedly toggle it; seek actions permit key repeat.
 
-Esc unwinds one level per press: an open dialog closes, a number or text field
-restores its value and returns focus to the screen's workspace, any other
-focused control returns focus to the workspace, and only then does Esc run its
-shortcut (`disable_loop`). Enter in a field commits and returns to the
-workspace.
+Esc unwinds one level per press: an open popover closes (focus returns to where
+it was), then an open dialog closes, a number or text field restores its value
+and returns focus to the screen's workspace, any other focused control returns
+focus to the workspace, and only then does Esc run its shortcut
+(`disable_loop`). Enter in a field commits and returns to the workspace. An
+open popover (`data-popover`, such as Pitch or Go to measure) owns the keys
+pressed inside it; while focus is elsewhere, shortcuts keep working.
 
 `Mod+z` undoes the last measure-map edit (mapping) or restores a removed section
 (practice); `Mod+Shift+z` redoes a measure-map edit. In text fields these keys
@@ -167,6 +191,8 @@ shortcuts go through the same webview handler.
   workspace's home focus, field commit/revert, and app-wide pointer behaviour
   (no focus on click, no browser context menu, no dragging out).
 - `ui/app-menu.ts`: macOS menu bar layout and accelerators from the action model.
+- `ui/transient.ts`: open popovers, newest first, so Esc closes them before
+  anything else.
 - `ui/undo-routing.ts`: Undo/Redo to the focused text field, otherwise the screen's app undo.
 - `ui/App.svelte`: state-aware handler adapters and presentation. Its keyboard
   handler resolves a binding and dispatches an action; it contains no key list.

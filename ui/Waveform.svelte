@@ -5,11 +5,12 @@
   import { adjacentMeasure, type MapView } from './timing';
   import type { Loop, Section, View } from './types';
   import { clamp, range, sectionColor, time } from './model';
+  import { laneRows } from './section-layout';
 
   import { drawWaveform, sourcePoint, panView, overviewView, wheelView } from './timeline';
 
-  let { peaks, duration, sections, selection, position, view, mapView = null, rate = 48000, snapToMeasures = true, onseek, onselection, onsection, onview }:
-    { peaks: [number, number][]; duration: number; sections: Section[]; selection: Loop | null;
+  let { peaks, duration, sections, selectedSection = null, selection, position, view, mapView = null, rate = 48000, snapToMeasures = true, onseek, onselection, onsection, onview }:
+    { peaks: [number, number][]; duration: number; sections: Section[]; selectedSection?: string | null; selection: Loop | null;
       position: number; view: View; mapView?: MapView | null; rate?: number; snapToMeasures?: boolean; onseek: (value: number) => void; onselection: (value: Loop) => void;
       onsection: (section: Section) => void; onview: (view: View) => void } = $props();
   function seekKey(event: KeyboardEvent) {
@@ -42,6 +43,8 @@
   const percent = (seconds: number) => (seconds - view.start) / span * 100;
   const measures = $derived(mapView?.measures ?? []);
   const playheadShown = $derived(position >= view.start && position <= view.end);
+  const rows = $derived(laneRows(sections));
+  const laneHeight = $derived(Math.max(1, ...[...rows.values()].map(row => row + 1)));
 
   $effect(() => { void width; void height; void peaks; drawWaveform(canvas, peaks, duration, view.start, view.end); drawWaveform(overview, peaks, duration, 0, duration, true); });
   onMount(() => {
@@ -153,16 +156,17 @@
     aria-label="Move waveform view" title="Click or drag to move the detailed view">
     <canvas bind:this={overview}></canvas>
     <span class="viewport" style:left={`${view.start / duration * 100}%`} style:width={`${span / duration * 100}%`}></span>
+    {#each sections as section (section.id)}<span class="overview-section" style:left={`${section.start / duration * 100}%`} style:width={`${(section.end - section.start) / duration * 100}%`} style:background={sectionColor(section.id)}></span>{/each}
+    {#if selection}<span class="overview-loop" style:left={`${selection.start / duration * 100}%`} style:width={`${(selection.end - selection.start) / duration * 100}%`}></span>{/if}
     <span class="overview-playhead" style:left={`${position / duration * 100}%`}></span>
   </button>
-  <div class="overview-caption"><span class="overview-label">Click to seek. Drag to loop. Scroll to zoom; middle-drag to pan.</span><span class="overview-duration">{time(duration, 0)}</span></div>
 </div>
 
-<div class="section-lane" aria-label="Sections on timeline">
+<div class="section-lane" aria-label="Sections on timeline" style:height={`${laneHeight * 21 - 3}px`}>
   {#each sections.filter(s => s.end > view.start && s.start < view.end) as section (section.id)}
-    <button title={`${section.name}: ${time(section.start)} – ${time(section.end)}`} onclick={() => onsection(section)}
+    <button class:selected={section.id === selectedSection} title={`${section.name}: ${time(section.start)} – ${time(section.end)}`} onclick={() => onsection(section)}
       style:left={`${Math.max(0, percent(section.start))}%`} style:width={`${Math.min(100, percent(section.end)) - Math.max(0, percent(section.start))}%`}
-      style:background={sectionColor(section.id)}>{section.name}</button>
+      style:top={`${(rows.get(section.id) ?? 0) * 21}px`} style:background={sectionColor(section.id)}>{section.name}</button>
   {/each}
 </div>
 
@@ -196,7 +200,6 @@
   :global([data-modality=keyboard]) .seek-surface:focus-visible ~ .playhead{outline:2px solid var(--focus);outline-offset:1px}
   .wave-field.panning,.wave-field.panning .loop-handle{cursor:grabbing}
   .seek-surface{position:absolute;inset:0}.wave-canvas{pointer-events:none}
-  .overview-wrap{position:relative;margin-bottom:8px;flex-shrink:0}.overview{display:block;width:100%;height:42px;border:0;padding:5px 0;background:var(--overview-bg);position:relative;overflow:hidden;border-radius:5px}.overview canvas{width:100%;height:100%;display:block}.viewport{position:absolute;inset-block:0;border:1px solid var(--blue);background:var(--blue-wash);pointer-events:none;min-width:3px}.overview-playhead{position:absolute;inset-block:0;border-left:2px solid var(--blue)}.overview-caption{display:flex;align-items:start;justify-content:space-between;gap:12px;margin-top:6px;color:var(--muted);font-size:11px;line-height:1.5}.overview-label{min-width:0}.overview-duration{flex-shrink:0;font-variant-numeric:tabular-nums}.section-lane{position:relative;height:25px;flex-shrink:0;background:var(--sidebar);border-radius:4px 4px 0 0;overflow:hidden}.section-lane button{position:absolute;height:100%;padding:0 9px;border:0;border-right:2px solid var(--page);text-align:left;font:500 11px inherit;color:#27334c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wave-field{position:relative;height:auto;flex:1;min-height:120px;background:var(--wave-bg);border-radius:0 0 6px 6px;overflow:hidden;touch-action:none;cursor:crosshair;user-select:none}.wave-canvas{position:absolute;left:0;top:31px;width:100%;height:calc(100% - 46px)}.loop-shade{position:absolute;inset-block:30px 0;background:#dda54e29;pointer-events:none}.loop-handle{position:absolute;top:29px;bottom:0;width:20px;padding:0;border:0;border-left:2px solid #e6b65e;background:transparent;cursor:ew-resize;touch-action:none;border-radius:0;color:#233552}.loop-handle span{position:absolute;top:1px;left:-2px;background:#e6b65e;border-radius:0 0 3px 0;font-size:10px;font-weight:700;padding:3px 5px}.loop-handle.end{transform:translateX(-18px);border-left:0;border-right:2px solid #e6b65e}.loop-handle.end span{left:auto;right:-2px;border-radius:0 0 0 3px}.playhead{position:absolute;inset-block:26px 0;border-left:2px solid #f9fcff;pointer-events:none}.playhead span{position:absolute;top:-1px;left:-5px;width:8px;height:8px;background:#fff;transform:rotate(45deg)}
+  .overview-wrap{position:relative;flex-shrink:0}.overview{display:block;width:100%;height:34px;border:0;padding:4px 0;background:var(--overview-bg);position:relative;overflow:hidden;border-radius:6px}.overview-section{position:absolute;bottom:0;height:4px;opacity:.9}.overview-loop{position:absolute;top:0;height:4px;background:#dda54e}.overview canvas{width:100%;height:100%;display:block}.viewport{position:absolute;inset-block:0;border:1px solid var(--blue);background:var(--blue-wash);pointer-events:none;min-width:3px}.overview-playhead{position:absolute;inset-block:0;border-left:2px solid var(--text)}.section-lane{position:relative;flex-shrink:0;min-height:18px}.section-lane button{position:absolute;height:18px;padding:0 8px;border:0;border-radius:4px;text-align:left;font-size:11px;font-weight:600;color:#27334c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.section-lane button.selected{outline:2px solid var(--text);outline-offset:1px;z-index:1}.wave-field{position:relative;height:auto;flex:1;min-height:100px;background:var(--wave-bg);border-radius:8px;overflow:hidden;touch-action:none;cursor:crosshair;user-select:none}.wave-canvas{position:absolute;left:0;top:31px;width:100%;height:calc(100% - 46px)}.loop-shade{position:absolute;inset-block:30px 0;background:#dda54e29;pointer-events:none}.loop-handle{position:absolute;top:29px;bottom:0;width:20px;padding:0;border:0;border-left:2px solid #e6b65e;background:transparent;cursor:ew-resize;touch-action:none;border-radius:0;color:#233552}.loop-handle span{position:absolute;top:1px;left:-2px;background:#e6b65e;border-radius:0 0 3px 0;font-size:10px;font-weight:700;padding:3px 5px}.loop-handle.end{transform:translateX(-18px);border-left:0;border-right:2px solid #e6b65e}.loop-handle.end span{left:auto;right:-2px;border-radius:0 0 0 3px}.playhead{position:absolute;inset-block:26px 0;border-left:2px solid #f9fcff;pointer-events:none}.playhead span{position:absolute;top:-1px;left:-5px;width:8px;height:8px;background:#fff;transform:rotate(45deg)}
   .overview{touch-action:none;user-select:none;cursor:grab}.overview.panning{cursor:grabbing}
-  @media(max-height:740px){.overview-wrap{display:none}.wave-field{min-height:90px}}
 </style>

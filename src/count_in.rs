@@ -8,7 +8,9 @@ use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Settings {
+    /// Count in one measure before Play.
     pub enabled: bool,
+    /// Count in one measure before each loop repeat, independently of `enabled`.
     pub repeat: bool,
     pub volume: f32,
 }
@@ -22,6 +24,10 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    /// Either count-in needs an accepted measure map.
+    pub fn active(&self) -> bool {
+        self.enabled || self.repeat
+    }
     pub fn validate(self) -> Result<Self> {
         ensure!(
             self.volume.is_finite() && (0.0..=1.0).contains(&self.volume),

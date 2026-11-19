@@ -19,8 +19,8 @@ const LAYOUT: { title: string; entries: (ActionId | EditCommand | NativeItem)[] 
   { title: 'File', entries: ['open_song', 'show_library', 'Separator', 'replace_recording'] },
   // Undo/Redo are custom so they reach the app's undo outside text fields.
   { title: 'Edit', entries: ['undo', 'redo', 'Separator', 'Cut', 'Copy', 'Paste', 'SelectAll'] },
-  { title: 'View', entries: ['show_practice', 'show_measure_map', 'show_notes', 'show_stems', 'Separator', 'zoom_in', 'zoom_out', 'show_whole_song', 'Separator', 'Fullscreen'] },
-  { title: 'Playback', entries: ['play_pause', 'jump_song_start', 'Separator', 'toggle_loop', 'set_loop_start', 'set_loop_end', 'jump_loop_start', 'jump_loop_end', 'clear_loop', 'Separator', 'add_section'] },
+  { title: 'View', entries: ['show_practice', 'show_measure_map', 'show_notes', 'show_stems', 'Separator', 'toggle_sections', 'Separator', 'zoom_in', 'zoom_out', 'show_whole_song', 'Separator', 'Fullscreen'] },
+  { title: 'Playback', entries: ['play_pause', 'jump_song_start', 'Separator', 'practice_count_in', 'Separator', 'toggle_loop', 'repeat_count_in', 'set_loop_start', 'set_loop_end', 'jump_loop_start', 'jump_loop_end', 'clear_loop', 'Separator', 'add_section'] },
   { title: 'Window', entries: ['Minimize', 'Maximize', 'Separator', 'BringAllToFront'] },
   { title: 'Help', entries: ['show_shortcuts', 'reload_keymap'] }
 ];

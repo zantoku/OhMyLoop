@@ -39,7 +39,7 @@ beforeEach(() => {
   mock.countIn.mockResolvedValue({});
   mock.onExitRequested.mockResolvedValue(()=>{});mock.finishExit.mockResolvedValue(undefined);
   mock.readCachedAnalysis.mockResolvedValue(null);
-  mock.readLibrary.mockResolvedValue({version:1,songs:[]});
+  mock.readLibrary.mockResolvedValue({version:1,songs:[libraryEntry('test','Workshop take','Player',1,2)]});
   mock.analysisStatus.mockResolvedValue({id:0,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:false,reference_token:null,map_revision:0,error:null,result:null});
   mock.readKeymap.mockResolvedValue({ path: '/test/keymap.json', configuration: null, warning: null });
   document = { version: 4, notes:'', song_key: 'test',reference_token:'test', controls: { speed: 1, semitones: 0, tuning_cents: 0 },
@@ -67,19 +67,44 @@ async function shown(seconds: number, name = 'Song position') {
   await waitFor(() => expect(screen.getByRole('slider', { name }).getAttribute('aria-valuenow')).toBe(String(seconds)));
 }
 
+const speedField = () => within(screen.getByRole('group', { name: 'Speed' })).getByLabelText('Speed percent') as HTMLInputElement;
+async function openPitch() {
+  if (!screen.queryByRole('dialog', { name: 'Pitch' })) await fireEvent.click(screen.getByRole('button', { name: /^Pitch / }));
+  return screen.getByRole('dialog', { name: 'Pitch' });
+}
+
+// The Library header has no song views; the current song's row returns to Practice.
+async function backToPractice(title = 'Workshop take') {
+  const row = await screen.findByRole('button', { name: title });
+  await waitFor(() => expect(row.hasAttribute('disabled')).toBe(false));
+  await fireEvent.click(row);
+  await screen.findByRole('main', { name: 'Practice workspace' });
+}
+
+async function openBounds() {
+  if (!screen.queryByRole('dialog', { name: 'Passage bounds' })) await fireEvent.click(screen.getByRole('button', { name: /^(Looping|Passage · loop off) / }));
+  return screen.getByRole('dialog', { name: 'Passage bounds' });
+}
+
 async function ready() {
   render(App);
   await screen.findByRole('heading', { name: 'Workshop take' });
-  await screen.findByText('Practice settings saved');
+  await screen.findByText('Saved');
+  await waitFor(() => expect(screen.queryByText('Restoring practice…')).toBeNull());
 }
 
 describe('single-song practice workflow', () => {
-  it('keeps the appearance toggle next to shortcut help in the bottom bar', async () => {
+  it('shows save state and shortcut help in the header, and appearance and the audio device in the Library header', async () => {
     await ready();
-    const footer = screen.getByRole('contentinfo');
-    const appearance = within(footer).getByRole('button', { name: /^UI: / });
-    const shortcuts = within(footer).getByRole('button', { name: /^Shortcuts/ });
-    expect(appearance.closest('.statusbar-tools')).toBe(shortcuts.parentElement);
+    const header = screen.getByRole('banner');
+    expect(within(header).getByRole('status').textContent).toBe('Saved');
+    expect(within(header).getByRole('button', { name: 'Keyboard shortcuts' })).toBeTruthy();
+    expect(within(header).queryByRole('button', { name: /^UI: / })).toBeNull();
+    expect(screen.queryByRole('contentinfo')).toBeNull();
+    await fireEvent.click(within(header).getByRole('button', { name: 'Library' }));
+    const appearance = await within(header).findByRole('button', { name: /^UI: / });
+    expect(within(header).getByText('Test output')).toBeTruthy();
+    mock.action.mockClear(); mock.update.mockClear();
     await fireEvent.click(appearance);
     expect(mock.action).not.toHaveBeenCalled();
     expect(mock.update).not.toHaveBeenCalled();
@@ -100,13 +125,13 @@ describe('single-song practice workflow', () => {
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     expect(document.loop_selection).toEqual({ start: 3, end: 6, fade_ms: 5 });
     expect(document.loop_enabled).toBe(false);
-    await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Loop', pressed: false }));
     await waitFor(() => expect(document.loop_enabled).toBe(true));
     expect(document.loop_selection?.start).toBe(3);
   });
   it('moves an enabled loop to a selected section without starting playback', async () => {
-    await ready(); await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
-    await screen.findByRole('button', { name: 'Loop on' });
+    await ready(); await fireEvent.click(screen.getByRole('button', { name: 'Loop', pressed: false }));
+    await screen.findByRole('button', { name: 'Loop', pressed: true });
     await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     expect(document.loop_selection).toEqual({ start: 3, end: 6, fade_ms: 5 });
@@ -114,31 +139,43 @@ describe('single-song practice workflow', () => {
   });
   it('preserves a pitch adjustment when changing speed quickly afterwards', async () => {
     await ready();
-    await fireEvent.change(screen.getByLabelText('Pitch semitones'), { target: { value: '-3' } });
+    const pitch = await openPitch();
+    for (let i = 0; i < 3; i++) await fireEvent.click(within(pitch).getByRole('button', { name: 'Transpose down' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Slower by 10 percent' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Slower by 5 percent' }));
     await waitFor(() => expect(document.controls).toEqual({ speed: .85, semitones: -3, tuning_cents: 0 }));
-    expect((screen.getByLabelText('Pitch semitones') as HTMLInputElement).value).toBe('-3');
+    expect(screen.getByRole('button', { name: /^Pitch / }).getAttribute('aria-label')).toBe('Pitch −3 st, recording tuned to A = 440 Hz');
   });
-  it('keeps tuning separate from whole-semitone transposition and resets each on its own', async () => {
+  it('keeps the reference tuning separate from whole-semitone transposition and resets each on its own', async () => {
     await ready();
-    await fireEvent.change(screen.getByLabelText('Tuning cents'), { target: { value: '31.8' } });
-    await fireEvent.click(screen.getByRole('button', { name: 'Transpose up' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Transpose up' }));
-    await fireEvent.change(within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent'), { target: { value: '87.5' } });
+    const pitch = await openPitch();
+    const hz = within(pitch).getByLabelText('Recording tuned to A (Hz)') as HTMLInputElement;
+    expect(hz.value).toBe('440');
+    await fireEvent.change(hz, { target: { value: '432' } });
+    await fireEvent.click(within(pitch).getByRole('button', { name: 'Transpose up' }));
+    await fireEvent.click(within(pitch).getByRole('button', { name: 'Transpose up' }));
+    await fireEvent.change(speedField(), { target: { value: '87.5' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Faster by 5 percent' }));
-    await waitFor(() => expect(document.controls).toEqual({ speed: .93, semitones: 2, tuning_cents: 31.8 }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Reset pitch' }));
-    await waitFor(() => expect(document.controls).toEqual({ speed: .93, semitones: 0, tuning_cents: 31.8 }));
-    await fireEvent.change(screen.getByLabelText('Tuning cents'), { target: { value: '80' } });
+    await waitFor(() => expect(document.controls).toEqual({ speed: .93, semitones: 2, tuning_cents: 1200 * Math.log2(440 / 432) }));
+    // The tile shows both changes; the popover explains the correction.
+    expect(screen.getByRole('button', { name: /^Pitch / }).getAttribute('aria-label')).toBe('Pitch +2 st, recording tuned to A = 432 Hz');
+    expect(pitch.textContent).toContain('Plays +31.8 ¢ to match A = 440 Hz');
+    await fireEvent.click(within(pitch).getByRole('button', { name: 'Reset transpose' }));
+    await waitFor(() => expect(document.controls.semitones).toBe(0));
+    expect(document.controls.tuning_cents).toBeCloseTo(31.77, 2);
+    // The engine accepts ±50 ¢ (about A = 427.5–452.9 Hz); entries outside clamp.
+    await fireEvent.change(hz, { target: { value: '400' } });
     await waitFor(() => expect(document.controls.tuning_cents).toBe(50));
-    await fireEvent.change(within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent'), { target: { value: '' } });
-    expect((within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent') as HTMLInputElement).value).toBe('93');
-    await fireEvent.click(screen.getByRole('button', { name: 'Reset tuning' }));
+    await fireEvent.change(speedField(), { target: { value: '' } });
+    expect(speedField().value).toBe('93');
+    await fireEvent.change(hz, { target: { value: 'abc' } });
+    expect(hz.value).toBe('427.5');
+    await fireEvent.click(within(pitch).getByRole('button', { name: 'Reset tuning' }));
     await waitFor(() => expect(document.controls).toEqual({ speed: .93, semitones: 0, tuning_cents: 0 }));
+    expect(pitch.textContent).toContain('Standard tuning');
   });
   it('creates a named phrase inside a longer section', async () => {
-    await ready(); await fireEvent.click(screen.getByRole('button', { name: 'Add section' }));
+    await ready(); await fireEvent.keyDown(window, { key: 'n', code: 'KeyN' });
     await fireEvent.input(screen.getByLabelText('Section name'), { target: { value: 'Bend and release' } });
     await fireEvent.input(screen.getByLabelText('Start (seconds)'), { target: { value: '2.1' } });
     await fireEvent.input(screen.getByLabelText('End (seconds)'), { target: { value: '2.6' } });
@@ -153,7 +190,7 @@ describe('single-song practice workflow', () => {
     await waitFor(() => expect(document.sections.find(s => s.id === 'chorus')).toEqual({ id: 'chorus', name: 'Chorus', start: 3, end: 6 }));
   });
   it('keeps transport shortcuts out of numeric fields', async () => {
-    await ready(); await fireEvent.keyDown(screen.getByLabelText('Pitch semitones'), { key: ' ', code: 'Space' });
+    await ready(); await fireEvent.keyDown(speedField(), { key: ' ', code: 'Space' });
     expect(mock.action).not.toHaveBeenCalled();
     await fireEvent.keyDown(window, { key: ' ', code: 'Space' });
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' },'test'));
@@ -179,24 +216,24 @@ describe('single-song practice workflow', () => {
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
     mock.action.mockClear();
     const decimal = new KeyboardEvent('keydown', { key: '.', code: 'Period', bubbles: true, cancelable: true });
-    await fireEvent(screen.getByLabelText('Loop start seconds'), decimal);
+    await fireEvent(within(await openBounds()).getByLabelText('Loop start seconds'), decimal);
     expect(decimal.defaultPrevented).toBe(false);
-    await fireEvent.click(screen.getByRole('button', { name: 'Add section' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save as section' }));
     await fireEvent.keyDown(window, { key: '.', code: 'Period' });
     expect(mock.action).not.toHaveBeenCalled();
   });
   it('clears the A–B range with X while preserving saved sections and ongoing playback', async () => {
     await ready(); await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Loop', pressed: false }));
     await waitFor(() => expect(document.loop_enabled).toBe(true));
     await fireEvent.keyDown(window, { key: ' ', code: 'Space' });
     await waitFor(() => expect(transport.playing).toBe(true));
     const sections = structuredClone(document.sections);
     mock.action.mockClear(); mock.update.mockClear();
-    await fireEvent.keyDown(screen.getByLabelText('Pitch semitones'), { key: 'x', code: 'KeyX' });
+    await fireEvent.keyDown(speedField(), { key: 'x', code: 'KeyX' });
     expect(mock.update).not.toHaveBeenCalled(); expect(document.loop_selection).not.toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: 'Add section' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save as section' }));
     await fireEvent.keyDown(window, { key: 'x', code: 'KeyX' });
     expect(mock.update).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -205,12 +242,12 @@ describe('single-song practice workflow', () => {
     expect(document.loop_enabled).toBe(false);
     expect(document.sections).toEqual(sections); expect(document.selected_section).toBe('chorus');
     expect(transport.playing).toBe(true); expect(mock.action).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'Clear loop selection' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Clear passage' })).toBeNull();
   });
   it('jumps to B and turns looping off without pausing playback or clearing the range', async () => {
     await ready(); await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
     await waitFor(() => expect(transport.position).toBe(3));
-    await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Loop', pressed: false }));
     await waitFor(() => expect(document.loop_enabled).toBe(true));
     await fireEvent.keyDown(window, { key: ' ', code: 'Space' });
     await waitFor(() => expect(transport.playing).toBe(true));
@@ -222,7 +259,7 @@ describe('single-song practice workflow', () => {
   it('rewinds to the song start with Enter, including outside an active loop', async () => {
     await ready(); await fireEvent.click(screen.getByRole('button', { name: /Chorus 0:03/ }));
     await waitFor(() => expect(transport.position).toBe(3));
-    await fireEvent.click(screen.getByRole('button', { name: 'Loop off' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Loop', pressed: false }));
     await waitFor(() => expect(document.loop_enabled).toBe(true));
     await fireEvent.keyDown(window, { key: 'Enter', code: 'Enter' });
     await waitFor(() => expect(transport.position).toBe(0));
@@ -241,11 +278,11 @@ describe('single-song practice workflow', () => {
     expect(mock.action).not.toHaveBeenCalled();
     await fireEvent.keyDown(window, { key: 'q', code: 'KeyQ' });
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
-    const previous = within(screen.getByRole('group', { name: 'Playback controls' })).getByRole('button', { name: 'Back to the riff' });
+    const previous = within(screen.getByRole('complementary', { name: 'Sections' })).getByRole('button', { name: 'Back to the riff' });
     expect(previous.getAttribute('title')).toBe('Back to the riff (Q)');
     mock.action.mockClear(); await fireEvent.click(previous);
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 3 },'test'));
-    await fireEvent.click(screen.getByRole('button', { name: /^Shortcuts/ }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Keyboard shortcuts' }));
     expect(screen.getByText('Back to the riff', { selector: 'dd' })).toBeTruthy();
     expect(screen.getByText('Q', { selector: 'dt' })).toBeTruthy();
   });
@@ -846,7 +883,8 @@ it.each([
   vi.spyOn(overview,'getBoundingClientRect').mockReturnValue(box);
   const viewport=overview.querySelector(context==='mapping'?'.map-viewport':'.viewport') as HTMLElement;
   const width=parseFloat(viewport.style.width);
-  await fireEvent.click(screen.getByRole('button',{name:'Follow playhead on'}));
+  // Practice always follows; the measure map keeps its own toggle.
+  if(context==='mapping')await fireEvent.click(screen.getByRole('button',{name:'Follow playhead on'}));
   if(playing){await fireEvent.keyDown(window,{key:' ',code:'Space'});await waitFor(()=>expect(transport.playing).toBe(true));}
   await fireEvent.keyDown(window,{key:'ArrowRight',code:'ArrowRight'});
   await waitFor(()=>expect(transport.position).toBe(5));await waitFor(()=>expect(parseFloat(viewport.style.left)).toBeGreaterThan(0));
@@ -859,7 +897,9 @@ it.each([
   await waitFor(()=>expect(transport.position).toBe(0));await waitFor(()=>expect(viewport.style.left).toBe('0%'));
   // Rewind must also reveal zero when the playhead is already there and the
   // user has manually panned elsewhere with continuous following toggled off.
-  await fireEvent.click(overview,{clientX:300});expect(parseFloat(viewport.style.left)).toBeGreaterThan(0);
+  // In Practice a manual pan holds while playing until the playhead next leaves the page.
+  await fireEvent.click(overview,{clientX:300});
+  expect(parseFloat(viewport.style.left)).toBeGreaterThan(0);
   if(context==='mapping')expect(screen.getByRole('button',{name:'Follow playhead off'}).getAttribute('aria-pressed')).toBe('false');
   await fireEvent.keyDown(window,{key:'Enter',code:'Enter'});
   await waitFor(()=>expect(viewport.style.left).toBe('0%'));
@@ -894,8 +934,11 @@ it('shares metronome enable/level across screens and listens to saved map on ret
   mock.previewMap.mockResolvedValue(draft);
   await ready();
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.5,original.map]));
-  await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
-  await fireEvent.input(screen.getByLabelText('Metronome volume'),{target:{value:'65'}});
+  const click=within(screen.getByRole('group',{name:'Click track'}));
+  expect(click.getByRole('button',{name:'On'}).getAttribute('aria-pressed')).toBe('true');
+  await fireEvent.click(click.getByRole('button',{name:'On'}));
+  for(let i=0;i<15;i++)await fireEvent.keyDown(click.getByRole('slider',{name:'Click gain'}),{key:'ArrowUp'});
+  expect(click.getByRole('slider',{name:'Click gain'}).getAttribute('aria-valuenow')).toBe('65');
   await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   expect(screen.getByRole('button',{name:'Metronome off'}).getAttribute('aria-pressed')).toBe('false');
   expect((screen.getByLabelText('Metronome volume') as HTMLInputElement).value).toBe('65');
@@ -904,24 +947,25 @@ it('shares metronome enable/level across screens and listens to saved map on ret
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.65,draft.map]));
   await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,.65,original.map]));
-  expect(screen.getByRole('button',{name:'Metronome on'}).getAttribute('aria-pressed')).toBe('true');
+  expect(within(screen.getByRole('group',{name:'Click track'})).getByRole('button',{name:'On'}).getAttribute('aria-pressed')).toBe('true');
   expect(document.measure_map).toEqual(original.map);
 });
 
 it('defaults to measure loops and snaps A/B shortcuts, with exact inputs and a free selection option',async()=>{
   const original=timingFixture(48000);document.measure_map=original.map;transport.position=5;
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
-  await ready();expect((screen.getByRole('checkbox',{name:'Snap to measures'}) as HTMLInputElement).checked).toBe(true);
-  await fireEvent.click(screen.getByRole('button',{name:'Loop off'}));
+  await ready();expect(screen.getByRole('button',{name:'Snap to measures'}).getAttribute('aria-pressed')).toBe('true');
+  await fireEvent.click(screen.getByRole('button',{name:'Loop',pressed:false}));
   await waitFor(()=>expect(document.loop_selection).toEqual({start:4,end:8,fade_ms:5}));
   await fireEvent.keyDown(window,{key:'Enter'});await waitFor(()=>expect(transport.position).toBe(0));
   await fireEvent.keyDown(window,{key:'a'});await waitFor(()=>expect(document.loop_selection?.start).toBe(0));
   await fireEvent.keyDown(window,{key:'ArrowRight'});await shown(4);
   await fireEvent.keyDown(window,{key:'ArrowRight',shiftKey:true});await shown(4.1);
   await fireEvent.keyDown(window,{key:'b'});await waitFor(()=>expect(document.loop_selection?.end).toBe(4));
-  await fireEvent.change(screen.getByLabelText('Loop end seconds'),{target:{value:'5.25'}});
+  await fireEvent.change(within(await openBounds()).getByLabelText('Loop end seconds'),{target:{value:'5.25'}});
   await waitFor(()=>expect(document.loop_selection?.end).toBe(5.25));
-  await fireEvent.click(screen.getByRole('checkbox',{name:'Snap to measures'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Snap to measures'}));
+  expect(screen.getByRole('button',{name:'Snap to measures'}).getAttribute('aria-pressed')).toBe('false');
   await fireEvent.keyDown(window,{key:'b'});await waitFor(()=>expect(document.loop_selection?.end).toBe(4.1));
 });
 
@@ -938,29 +982,31 @@ it('sets an initial mapped loop to one measure near a barline, preserving free-t
 });
 
 
+
 it.each([false,true])('pages practice playback with mapped=%s, retaining zoom through boundaries, loop wraps and EOF',async(mapped)=>{
   if(mapped){
     const fixture=timingFixture(48000);document.measure_map=fixture.map;
     mock.initialize.mockResolvedValue({...response(),map_view:fixture.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   }
   await ready();
-  expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
-  await fireEvent.click(screen.getByRole('button',{name:'Zoom in'})); // 0..6 s.
+  expect(screen.queryByRole('button',{name:/Follow playhead/})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Zoom in'})).toBeNull();
+  await fireEvent.keyDown(window,{key:'='}); // 0..6 s.
   const viewport=screen.getByRole('button',{name:'Move waveform view'}).querySelector('.viewport') as HTMLElement;
   expect(viewport.style.width).toBe('50%');expect(viewport.style.left).toBe('0%');
-  transport.position=7;await screen.findByText('0:07.0');
+  transport.position=7;await shown(7);
   expect(viewport.style.left).toBe('0%'); // Paused playback does not follow.
   await fireEvent.click(screen.getByRole('button',{name:'Play'}));
   await waitFor(()=>expect(viewport.style.left).toBe('50%'));
   transport.position=5.999;await waitFor(()=>expect(viewport.style.left).toBe('0%')); // Backwards wrap.
   transport.position=6;await waitFor(()=>expect(viewport.style.left).toBe('50%')); // Exclusive page end.
-  transport.position=12;await waitFor(()=>expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.position-clock strong')?.textContent).toBe('0:12.0'));
+  transport.position=12;await shown(12);
   expect(viewport.style.left).toBe('50%');expect(viewport.style.width).toBe('50%');
   expect(mock.action.mock.calls.map(c=>c[0].type)).toEqual(['toggle_play']); // Paging never seeks audio.
 });
 
-it('keeps practice following through gestures until manually switched off, and preserves its preference across screens',async()=>{
-  await ready();await fireEvent.click(screen.getByRole('button',{name:'Zoom in'}));
+it('follows the playing playhead in Practice by pages, after panning, zooming and other screens',async()=>{
+  await ready();await fireEvent.keyDown(window,{key:'='}); // 0..6 s.
   const overview=screen.getByRole('button',{name:'Move waveform view'}),field=screen.getByRole('region',{name:/^Waveform/});
   const box={left:0,width:1000,height:200,top:0,right:1000,bottom:200,x:0,y:0,toJSON(){}};
   for(const element of [overview,field])vi.spyOn(element,'getBoundingClientRect').mockReturnValue(box);
@@ -970,20 +1016,27 @@ it('keeps practice following through gestures until manually switched off, and p
   for(const [type,x] of [['pointerdown',500],['pointermove',700],['pointerup',700]] as const){
     const event=new MouseEvent(type,{bubbles:true,cancelable:true,clientX:x,button:1});Object.defineProperty(event,'pointerId',{value:1});await fireEvent(field,event);
   }
-  expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
-  await fireEvent(field,new WheelEvent('wheel',{bubbles:true,cancelable:true,deltaY:-60,clientX:500}));
-  expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
-  await fireEvent.click(screen.getByRole('button',{name:'Follow playhead on'}));
-  await fireEvent.click(overview,{clientX:900});const manual=viewport.style.left,width=viewport.style.width;
-  await fireEvent.click(screen.getByRole('button',{name:'Play'}));transport.position=1;
-  await screen.findByText('0:01.0');expect(viewport.style.left).toBe(manual);
   await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
-  expect(screen.getByRole('button',{name:'Follow playhead on'}).getAttribute('aria-pressed')).toBe('true');
-  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
-  expect(screen.getByRole('button',{name:'Follow playhead off'}).getAttribute('aria-pressed')).toBe('false');
-  expect(viewport.style.left).toBe(manual);
-  await fireEvent.click(screen.getByRole('button',{name:'Follow playhead off'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Practice'}));
+  // Starting playback off-page reveals the playhead, keeping the zoom.
+  const width=viewport.style.width;
+  await fireEvent.click(screen.getByRole('button',{name:'Play'}));
   await waitFor(()=>expect(viewport.style.left).toBe('0%'));expect(viewport.style.width).toBe(width);
+  // Crossing the page's right edge turns the page.
+  transport.position=6.5;await waitFor(()=>expect(parseFloat(viewport.style.left)).toBeCloseTo(50));
+});
+
+it('keeps a minimap move made during playback until the playhead next leaves the page',async()=>{
+  await ready();await fireEvent.keyDown(window,{key:'='}); // 0..6 s.
+  const overview=screen.getByRole('button',{name:'Move waveform view'});
+  vi.spyOn(overview,'getBoundingClientRect').mockReturnValue({left:0,width:1000,height:34,top:0,right:1000,bottom:34,x:0,y:0,toJSON(){}});
+  const viewport=overview.querySelector('.viewport') as HTMLElement;
+  await fireEvent.click(screen.getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
+  transport.position=1;await shown(1);
+  await fireEvent.click(overview,{clientX:900});expect(viewport.style.left).toBe('50%');
+  transport.position=2;await shown(2);transport.position=3;await shown(3);
+  expect(viewport.style.left).toBe('50%'); // The pan sticks while playing.
+  transport.position=.5;await waitFor(()=>expect(viewport.style.left).toBe('0%')); // A wrap reveals the playhead.
 });
 
 it('shares epsilon between measure creation and default shift refitting, with one Undo',async()=>{
@@ -1064,13 +1117,14 @@ it('opens the searchable library, pauses playback, sorts columns and edits metad
   await fireEvent.click(within(list).getByRole('button',{name:'Artist'}));expect(within(list).getAllByRole('row')[1].textContent).toContain('Riff 2');
   await fireEvent.input(screen.getByRole('searchbox',{name:'Search library'}),{target:{value:'Zed Workshop'}});expect(screen.queryByRole('button',{name:'Riff 2'})).toBeNull();
   await fireEvent.click(screen.getByRole('button',{name:'Edit details for Workshop take'}));await fireEvent.input(screen.getByRole('textbox',{name:'Library song title'}),{target:{value:'My guitar take'}});
-  await fireEvent.click(screen.getByRole('button',{name:'Save details'}));await screen.findByRole('heading',{name:'My guitar take'});expect(mock.updateLibrarySong).toHaveBeenCalledExactlyOnceWith('test',{title:'My guitar take',artist:'Zed',album:'Workshop'});
+  await fireEvent.click(screen.getByRole('button',{name:'Save details'}));await waitFor(()=>expect(mock.updateLibrarySong).toHaveBeenCalled());await backToPractice('My guitar take');await screen.findByRole('heading',{name:'My guitar take'});expect(mock.updateLibrarySong).toHaveBeenCalledExactlyOnceWith('test',{title:'My guitar take',artist:'Zed',album:'Workshop'});
   expect(screen.queryByRole('textbox',{name:'Library song title'})).toBeNull();expect(mock.update).not.toHaveBeenCalled();
 });
 it('reopens a song from the library and leaves existing practice intact on open failure',async()=>{
-  const entry=libraryEntry('other','Another take','Player',1000,2000);mock.readLibrary.mockResolvedValue({version:1,songs:[entry]});mock.openLibrarySong.mockRejectedValueOnce(new Error('File missing; use Open song'));
-  await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('button',{name:'Another take'});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByText(/File missing/);expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();expect(mock.openLibrarySong).toHaveBeenCalledWith('other');
-  mock.openLibrarySong.mockResolvedValue({...response(),song:{key:'other', reference_token:'other',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Another take',path:entry.file_location,duration:12,rate:48000,peaks:[[-.2,.2]]}});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByRole('heading',{name:'Another take'});expect(screen.getByRole('region',{name:'Practice workspace'})).toBeTruthy();
+  const entry=libraryEntry('other','Another take','Player',1000,2000);mock.readLibrary.mockResolvedValue({version:1,songs:[libraryEntry('test','Workshop take','Player',1,2),entry]});mock.openLibrarySong.mockRejectedValueOnce(new Error('File missing; use Open song'));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('button',{name:'Another take'});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByText(/File missing/);expect(mock.openLibrarySong).toHaveBeenCalledWith('other');
+  await backToPractice();expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('button',{name:'Another take'});
+  mock.openLibrarySong.mockResolvedValue({...response(),song:{key:'other', reference_token:'other',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Another take',path:entry.file_location,duration:12,rate:48000,peaks:[[-.2,.2]]}});await fireEvent.click(screen.getByRole('button',{name:'Another take'}));await screen.findByRole('heading',{name:'Another take'});expect(screen.getByRole('main',{name:'Practice workspace'})).toBeTruthy();
 });
 it('shows library load failures with retry and preserves typed metadata after a failed save',async()=>{
   mock.readLibrary.mockRejectedValueOnce(new Error('Invalid library; original file left intact'));
@@ -1087,11 +1141,12 @@ it.each(['practice','mapping','library'] as const)('routes opening a song throug
   await fireEvent.keyDown(window,{key:'o',ctrlKey:true});
   await waitFor(()=>expect(mock.openSong).toHaveBeenCalledOnce());
   await screen.findByRole('main',{name:'Music library'});
-  expect(screen.getByRole('button',{name:'Practice'})).toBeTruthy();
+  expect(screen.queryByRole('group',{name:'Song views'})).toBeNull();
+  expect(within(screen.getByRole('banner')).queryByRole('button',{name:'Notes'})).toBeNull();
   expect(screen.getAllByRole('button',{name:'Import song'})).toHaveLength(1);
-  expect(transport.playing).toBe(false);expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();
-  await fireEvent.click(screen.getByRole('button',{name:'Practice'}));
-  expect(screen.getByRole('region',{name:'Practice workspace'})).toBeTruthy();
+  expect(transport.playing).toBe(false);
+  await backToPractice();
+  expect(screen.getByRole('main',{name:'Practice workspace'})).toBeTruthy();expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();
 });
 
 it('saves plain-text notes before closing and keeps transport shortcuts out of the textarea',async()=>{
@@ -1099,7 +1154,7 @@ it('saves plain-text notes before closing and keeps transport shortcuts out of t
   const notes=screen.getByRole('textbox',{name:'Notes for this song'});mock.action.mockClear();
   const text='  Guitar in drop D\n\nWork on measures 15–17. **Plain text**  ';
   await fireEvent.input(notes,{target:{value:text}});await fireEvent.keyDown(notes,{key:'Enter'});expect(mock.action).not.toHaveBeenCalled();
-  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await screen.findByRole('region',{name:'Practice workspace'});
+  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await screen.findByRole('main',{name:'Practice workspace'});
   expect(document.notes).toBe(text);expect(document.sections).toHaveLength(2);
   await fireEvent.click(screen.getByRole('button',{name:'Notes'}));expect((screen.getByRole('textbox',{name:'Notes for this song'}) as HTMLTextAreaElement).value).toBe(text);
   expect(screen.getByRole('button',{name:'Library'})).toBeTruthy();
@@ -1109,7 +1164,7 @@ it('keeps notes open and retains text on failed save, then closes after retry',a
   mock.update.mockRejectedValueOnce(new Error('Disk full'));await fireEvent.input(screen.getByRole('textbox',{name:'Notes for this song'}),{target:{value:'Do not lose this'}});
   await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await within(main).findByRole('alert');expect((screen.getByRole('textbox',{name:'Notes for this song'}) as HTMLTextAreaElement).value).toBe('Do not lose this');
   await fireEvent.click(screen.getByRole('button',{name:'Retry save'}));await waitFor(()=>expect(document.notes).toBe('Do not lose this'));
-  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));expect(await screen.findByRole('region',{name:'Practice workspace'})).toBeTruthy();
+  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));expect(await screen.findByRole('main',{name:'Practice workspace'})).toBeTruthy();
 });
 it('flushes pending notes before a normal app exit and keeps the app open on save failure',async()=>{
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Notes'}));
@@ -1123,47 +1178,72 @@ it('loads stored notes and flushes them when navigating to the library',async()=
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await screen.findByRole('main',{name:'Music library'});expect(document.notes).toBe('Remember the bridge\nRepeat slowly');
 });
 
-it('requires an accepted measure map for count-in and highlights enabled metronome controls',async()=>{
+it('requires an accepted measure map for count-in, count-in each repeat and the click, and says so',async()=>{
   await ready();
-  const count=screen.getByRole('button',{name:'Count-in off'});
-  expect(count.hasAttribute('disabled')).toBe(true);
-  expect(count.getAttribute('aria-pressed')).toBe('false');
-  const playback=screen.getByRole('group',{name:'Playback controls'});
-  expect(playback.contains(count)).toBe(true);
-  expect(screen.queryByRole('checkbox',{name:'Before each loop repetition'})).toBeNull();
-  expect(playback.contains(screen.getByRole('button',{name:'Loop off'}))).toBe(true);
-  expect(screen.getByRole('button',{name:'Metronome on'}).classList.contains('active')).toBe(true);
-  await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
-  expect(screen.getByRole('button',{name:'Metronome off'}).classList.contains('active')).toBe(false);
+  const playback=screen.getByRole('region',{name:'Playback'});
+  const modes=within(playback).getByRole('group',{name:'Practice modes'});
+  const count=within(modes).getByRole('button',{name:'Count-in'});
+  // Unavailable for want of a map, but focusable with its reason, and clicks do nothing.
+  expect(count.getAttribute('aria-disabled')).toBe('true');expect(count.hasAttribute('disabled')).toBe(false);expect(count.getAttribute('aria-pressed')).toBe('false');
+  expect(count.title).toBe('Count-in needs a measure map');
+  const each=within(modes).getByRole('button',{name:'Count in before each repeat'});
+  expect(each.getAttribute('aria-disabled')).toBe('true');expect(each.title).toBe('Count-in needs a measure map');
+  expect(within(modes).getByRole('button',{name:'Loop',pressed:false}).hasAttribute('disabled')).toBe(false);
+  const click=within(within(playback).getByRole('group',{name:'Click track'}));
+  expect(click.getByRole('button',{name:'Off'}).getAttribute('aria-disabled')).toBe('true');
+  count.focus();expect(window.document.activeElement).toBe(count);
+  const calls=mock.countIn.mock.calls.length,clicks=mock.metronome.mock.calls.length;
+  for(const button of [count,each,click.getByRole('button',{name:'Off'})])await fireEvent.click(button);
+  await new Promise(resolve=>setTimeout(resolve,20));
+  expect(mock.countIn.mock.calls.length).toBe(calls);expect(mock.metronome.mock.calls.length).toBe(clicks);
+  expect(count.getAttribute('aria-pressed')).toBe('false');expect(each.getAttribute('aria-pressed')).toBe('false');
+  expect(click.getByRole('button',{name:'Off'})).toBeTruthy();
+  expect(click.getByRole('button',{name:'Off'}).title).toBe('The click needs a measure map');
+  expect(click.getByRole('slider',{name:'Click gain'}).getAttribute('aria-disabled')).toBe('true');
+  // The step buttons jump 5 s, and the readout offers to add a map.
+  expect(within(playback).getByRole('button',{name:'Back 5 seconds'})).toBeTruthy();
+  await fireEvent.click(screen.getByRole('button',{name:'Add a measure map ›'}));
+  expect(screen.getByRole('button',{name:'Measure map'}).getAttribute('aria-current')).toBe('page');
   expect(mock.countIn.mock.lastCall).toEqual(['test',false,false,.5]);
 });
 
-it('offers count-in and independent loop repetitions only in Practice, using the shared click level',async()=>{
+it('keeps count-in before Play, Loop and count-in each repeat independent, in Practice only',async()=>{
   const original=timingFixture(48000);document.measure_map=original.map;
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();
+  // The playback bar is rebuilt on returning to Practice, so query it afresh.
+  const modes={getByRole:(...args:Parameters<typeof screen.getByRole>)=>within(screen.getByRole('group',{name:'Practice modes'})).getByRole(...args)};
+  const each=()=>modes.getByRole('button',{name:'Count in before each repeat'});
   await fireEvent.keyDown(window,{key:'c'});
-  const count=screen.getByRole('button',{name:'Count-in on'});
-  expect(count.classList.contains('active')).toBe(true);expect(count.getAttribute('aria-pressed')).toBe('true');
-  await fireEvent.click(screen.getByRole('button',{name:'Loop off'}));
-  await fireEvent.click(screen.getByRole('button',{name:'Loop on'}));
-  expect(screen.getByRole('button',{name:'Loop with count-in'})).toBeTruthy();await fireEvent.input(screen.getByLabelText('Metronome volume'),{target:{value:'70'}});
+  expect(modes.getByRole('button',{name:'Count-in'}).getAttribute('aria-pressed')).toBe('true');
+  expect(each().getAttribute('aria-disabled')).toBe('true'); // Needs looping on.
+  await fireEvent.click(modes.getByRole('button',{name:'Loop',pressed:false}));
+  await waitFor(()=>expect(each().getAttribute('aria-disabled')).toBe('false'));
+  expect(each().getAttribute('aria-pressed')).toBe('false');
+  expect(modes.getByRole('button',{name:'Count-in'}).getAttribute('aria-pressed')).toBe('true');
+  await fireEvent.click(each());
+  expect(each().getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByText(/count-in each repeat/)).toBeTruthy();
+  const level=within(screen.getByRole('group',{name:'Click track'})).getByRole('slider',{name:'Click gain'});
+  for(let i=0;i<20;i++)await fireEvent.keyDown(level,{key:'ArrowUp'});
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,true,.7]));
-  await fireEvent.click(screen.getByRole('button',{name:'Metronome on'}));
-  expect(screen.getByRole('button',{name:'Count-in on'}).classList.contains('active')).toBe(true);
-  await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
-  expect(screen.queryByRole('button',{name:'Count-in on'})).toBeNull();
-  expect(screen.queryByRole('checkbox',{name:'Before each loop repetition'})).toBeNull();
-  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',false,true,.7]));
-  expect(screen.getByRole('button',{name:'Metronome off'}).classList.contains('active')).toBe(false);
-  await fireEvent.click(screen.getByRole('button',{name:'Metronome off'}));
-  expect(screen.getByRole('button',{name:'Metronome on'}).classList.contains('active')).toBe(true);
-  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
-  expect(screen.getByRole('button',{name:'Loop with count-in'})).toBeTruthy();
-  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,true,.7]));
+  // Turning the click off leaves count-in alone; turning count-in off leaves each repeat alone.
+  await fireEvent.click(within(screen.getByRole('group',{name:'Click track'})).getByRole('button',{name:'On'}));
+  expect(modes.getByRole('button',{name:'Count-in'}).getAttribute('aria-pressed')).toBe('true');
   await fireEvent.keyDown(window,{key:'C',shiftKey:true});
-  expect(screen.getByRole('button',{name:'Count-in off'}).classList.contains('active')).toBe(false);
-  expect(screen.getByRole('button',{name:'Loop on'})).toBeTruthy();
+  expect(modes.getByRole('button',{name:'Count-in'}).getAttribute('aria-pressed')).toBe('false');
+  expect(each().getAttribute('aria-pressed')).toBe('true');
+  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',false,true,.7]));
+  await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  expect(screen.queryByRole('group',{name:'Practice modes'})).toBeNull();
+  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',false,false,.7]));
+  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
+  await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',false,true,.7]));
+  // Loop off keeps the each-repeat choice, but disables it.
+  await fireEvent.keyDown(window,{key:'l'});
+  await waitFor(()=>expect(document.loop_enabled).toBe(false));
+  await waitFor(()=>expect(each().getAttribute('aria-disabled')).toBe('true'));
+  expect(each().getAttribute('aria-pressed')).toBe('true');
   expect(document.measure_map).toEqual(original.map);
 });
 
@@ -1172,12 +1252,13 @@ it('waits for native count-in configuration before Play and reports counting wit
   mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await ready();await waitFor(()=>expect(mock.countIn).toHaveBeenCalled());
   let finish!:(value:object)=>void;mock.countIn.mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));
-  await fireEvent.click(screen.getByRole('button',{name:'Count-in off'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Count-in',pressed:false}));
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',true,false,.5]));
   await fireEvent.click(screen.getByRole('button',{name:'Play'}));expect(mock.action).not.toHaveBeenCalled();
   transport.counting_in=true;finish({});await screen.findByRole('button',{name:'Pause'});
+  expect(await screen.findByText('Counting in…')).toBeTruthy();
   expect(screen.getByRole('button',{name:'Pause'})).toBeTruthy();
-  expect(screen.getByRole('region',{name:'Practice workspace'}).querySelector('.position-clock strong')?.textContent).toBe('0:00.0');
+  expect(screen.getByRole('slider',{name:'Song position'}).getAttribute('aria-valuenow')).toBe('0');
   await fireEvent.click(screen.getByRole('button',{name:'Pause'}));await screen.findByRole('button',{name:'Play'});
 });
 
@@ -1230,8 +1311,7 @@ it('offers independent import and closes replacement from its leading icon',asyn
   await fireEvent.click(screen.getByRole('button',{name:'Import song'}));
   const separate=await screen.findByRole('button',{name:'Import separate song'});await waitFor(()=>expect(separate.hasAttribute('disabled')).toBe(false));await fireEvent.click(separate);
   await waitFor(()=>expect(mock.importSong).toHaveBeenCalledWith('/duplicate.wav'));
-  await waitFor(()=>expect(screen.getByRole('button',{name:'Practice'}).hasAttribute('disabled')).toBe(false));
-  await fireEvent.click(screen.getByRole('button',{name:'Practice'}));
+  await backToPractice();
   await openRecordingDetails();
   const chooser=screen.getByRole('dialog',{name:'Replace reference recording'});
   expect(within(chooser).queryByRole('button',{name:'Cancel'})).toBeNull();
@@ -1253,8 +1333,9 @@ it('recovers an unavailable library recording without opening it or changing its
   mock.replaceLibraryReference.mockResolvedValue({song:{key:entry.song_key,reference_token:token,asset_id:'replacement',timeline_id:'new-timeline',reference_revision:2,session_id:'session',title:entry.metadata.title,path:'/replacement.wav',duration:12,rate:48000,peaks:[[-.2,.2]]},document:{...document,song_key:entry.song_key,reference_token:token},transport:{...transport,song_key:entry.song_key,reference_token:token}});
   render(App);
   await screen.findByText('The previous recording is unavailable.');
-  await waitFor(()=>expect(screen.getByRole('button',{name:'Library'}).hasAttribute('disabled')).toBe(false));
-  await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+  // Without a song the app shows the Library; the song views don't exist.
+  await screen.findByRole('main',{name:'Music library'});
+  expect(screen.queryByRole('group',{name:'Song views'})).toBeNull();
   await screen.findByRole('button',{name:'Missing recording'});
   expect(screen.queryByRole('button',{name:'Replace recording for Missing recording'})).toBeNull();
   await fireEvent.click(screen.getByRole('button',{name:'Edit details for Missing recording'}));
@@ -1278,10 +1359,10 @@ it('sets up the library on first import and explains copied originals before cho
 });
 it('keeps the selected song when switching cannot save pending settings',async()=>{
   await ready();mock.update.mockRejectedValue(new Error('Cannot save'));
-  await fireEvent.change(within(screen.getByRole('region',{name:'Playback speed'})).getByLabelText('Speed percent'),{target:{value:'80'}});
+  await fireEvent.change(speedField(),{target:{value:'80'}});
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(screen.getByRole('button',{name:'Library settings'}));
   await fireEvent.click(screen.getByRole('button',{name:'Open existing library'}));
-  await within(screen.getByRole('dialog',{name:'Library settings'})).findByText(/Cannot save/);expect(mock.chooseLibrary).not.toHaveBeenCalled();expect(screen.getByRole('heading',{name:'Workshop take'})).toBeTruthy();
+  await within(screen.getByRole('dialog',{name:'Library settings'})).findByText(/Cannot save/);expect(mock.chooseLibrary).not.toHaveBeenCalled();expect(screen.getByText('Current song')).toBeTruthy();
 });
 it('offers unavailable-root actions without silently creating a library',async()=>{
   mock.libraryStatus.mockResolvedValue({selected:{id:'lib',root:'/missing'},available:false,error:'Drive disconnected',import_notice_seen:true});
@@ -1326,9 +1407,15 @@ it('keeps failed replacement usable, and requires explicit removal confirmation 
 it('offers visible original fallback with disabled saved track controls',async()=>{
  mock.stemsStatus.mockResolvedValue({...attachedStems(),available:false,warning:'Vocals file missing'});await ready();expect(screen.getByText(/Vocals file missing/)).toBeTruthy();expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe('true');await fireEvent.keyDown(window,{key:'1'});expect(mock.setStemMix).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Play'}).hasAttribute('disabled')).toBe(false);
 });
-it('cycles loop and count-in with shared bordered icons through mouse and keyboard',async()=>{
+it('toggles looping on and off with L and the Loop button, never changing count-in',async()=>{
  const original=timingFixture(48000);document.measure_map=original.map;mock.initialize.mockResolvedValue({...response(),map_view:original.view,song:{key:'test',reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}});
- await ready();await fireEvent.keyDown(window,{key:'l'});await screen.findByRole('button',{name:'Loop on'});await fireEvent.keyDown(window,{key:'l'});expect(screen.getByRole('button',{name:'Loop with count-in'}).querySelectorAll('svg')).toHaveLength(2);expect(screen.getByRole('button',{name:'Count-in on'}).getAttribute('aria-pressed')).toBe('true');await fireEvent.keyDown(window,{key:'l'});await screen.findByRole('button',{name:'Loop off'});expect(screen.getByRole('button',{name:'Count-in on'})).toBeTruthy();
+ await ready();await fireEvent.keyDown(window,{key:'l'});await screen.findByRole('button',{name:'Loop',pressed:true});
+ expect(screen.getByText('Looping')).toBeTruthy();
+ await fireEvent.keyDown(window,{key:'l'});await screen.findByRole('button',{name:'Loop',pressed:false});
+ await fireEvent.click(screen.getByRole('button',{name:'Loop',pressed:false}));await screen.findByRole('button',{name:'Loop',pressed:true});
+ expect(screen.getByRole('button',{name:'Count-in'}).getAttribute('aria-pressed')).toBe('false');
+ expect(screen.getByRole('button',{name:'Count in before each repeat'}).getAttribute('aria-pressed')).toBe('false');
+ expect(mock.countIn.mock.lastCall).toEqual(['test',false,false,.5]);
 });
 
 it.each([true,false])('distinguishes cleanup warnings from unavailable stems in Practice and Stems (available=%s)',async available=>{
@@ -1348,7 +1435,7 @@ it('re-prepares attached stems during audio retry and refreshes availability wit
  transport.audio_error='Stem reader failed';transport.position=4;
  mock.initialize.mockImplementation(async()=>({...response(),song:{key:'test',reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}}));
  mock.stemsStatus.mockResolvedValue({...attachedStems(),available:false,warning:'Vocals file missing'});
- await ready();await fireEvent.click(screen.getByRole('button',{name:'Zoom in'}));const practice=screen.getByRole('region',{name:'Practice workspace'});const zoomBefore=practice.querySelector('.zoom-controls')?.textContent;
+ await ready();await fireEvent.keyDown(window,{key:'='});const viewport=screen.getByRole('button',{name:'Move waveform view'}).querySelector('.viewport') as HTMLElement;const zoomBefore=viewport.style.width;expect(zoomBefore).not.toBe('100%');
  let finish!:(value:Snapshot)=>void;mock.action.mockImplementationOnce(()=>new Promise(resolve=>finish=resolve));
  await fireEvent.click(screen.getByRole('button',{name:'Retry audio'}));await waitFor(()=>expect(mock.action).toHaveBeenCalledWith({type:'retry_audio'},'test'));
  expect(screen.getByRole('button',{name:'Library'}).hasAttribute('disabled')).toBe(true);expect(screen.getByRole('button',{name:'Retry audio'}).hasAttribute('disabled')).toBe(true);
@@ -1356,7 +1443,7 @@ it('re-prepares attached stems during audio retry and refreshes availability wit
  report({reference_token:'test',phase:'Scanning headroom',completed:1,total:2,workflow:{completed:.5,total:1,steps:[{id:'levels',label:'Measure shared playback headroom',state:'active',completed:1,total:2}]}});await screen.findByText('Measure shared playback headroom…');
  const restored={...attachedStems(),attenuation:.4,tracks:[{role:'bass' as const,gain:.5,mute:true,solo:false}]};mock.stemsStatus.mockResolvedValue(restored);transport.audio_error=null;finish(response());
  await waitFor(()=>expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe('false'));expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-valuenow')).toBe('50');expect(screen.queryByText(/Vocals file missing/)).toBeNull();
- expect(practice.querySelector('.zoom-controls')?.textContent).toBe(zoomBefore);expect(document.sections).toHaveLength(2);expect(transport.position).toBe(4);
+ expect(viewport.style.width).toBe(zoomBefore);expect(document.sections).toHaveLength(2);expect(transport.position).toBe(4);
  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));expect(screen.getByText('-7.96 dB')).toBeTruthy();
 });
 
@@ -1387,9 +1474,13 @@ describe('integrated separation workflow',()=>{
   expect(mock.installSeparationModel).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Set up stem separation'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
   value.model_ready=true;value.install={...value.install,running:false,phase:'Complete',cancellable:false};const separate=await screen.findByRole('button',{name:'Separate song'});await waitFor(()=>expect((separate as HTMLButtonElement).disabled).toBe(false));expect(mock.startSeparation).not.toHaveBeenCalled();
   await fireEvent.click(separate);await waitFor(()=>expect(mock.startSeparation).toHaveBeenCalledWith('test'));await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
-  expect((screen.getByRole('button',{name:'Play'}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByLabelText('Pitch semitones') as HTMLInputElement).disabled).toBe(true);expect((screen.getByRole('button',{name:'Library'}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByRole('button',{name:/Chorus 0:03/}) as HTMLButtonElement).disabled).toBe(true);const before=structuredClone(document);await fireEvent.click(screen.getByRole('button',{name:/Chorus 0:03/}));expect(document.loop_selection).toEqual(before.loop_selection);
+  expect((screen.getByRole('button',{name:'Play'}) as HTMLButtonElement).disabled).toBe(true);expect(speedField().disabled).toBe(true);
+  for(const name of ['Back 5 seconds','Forward 5 seconds'])expect((screen.getByRole('button',{name}) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole('button',{name:'Play'}).title).toBe('Playback is paused while the song is split into stems');
+  const toast=screen.getByText(/Playback is paused until it finishes/).closest('[role=status]') as HTMLElement;expect(toast.textContent).toContain('Splitting song into stems');
+  expect(within(await openPitch()).getByRole('button',{name:'Transpose up'}).hasAttribute('disabled')).toBe(true);expect((screen.getByRole('button',{name:'Library'}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByRole('button',{name:/Chorus 0:03/}) as HTMLButtonElement).disabled).toBe(true);const before=structuredClone(document);await fireEvent.click(screen.getByRole('button',{name:/Chorus 0:03/}));expect(document.loop_selection).toEqual(before.loop_selection);
   await fireEvent.click(screen.getByRole('button',{name:'Notes'}));await fireEvent.input(screen.getByRole('textbox',{name:'Notes for this song'}),{target:{value:'notes during separation'}});await waitFor(()=>expect(document.notes).toBe('notes during separation'));expect(mock.cancelSeparation).not.toHaveBeenCalled();
-  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await fireEvent.click(screen.getByRole('button',{name:'View stem processing'}));await screen.findByRole('button',{name:'Cancel'});
+  await fireEvent.click(screen.getByRole('button',{name:'Close notes'}));await fireEvent.click(screen.getByRole('button',{name:'Open Stems'}));await screen.findByRole('button',{name:'Cancel'});
   mock.cancelSeparation.mockImplementation(async()=>{value.job={...value.job,phase:'Stopping',cancellable:false};return structuredClone(value);});expect((screen.getByRole('button',{name:'Cancel'}) as HTMLButtonElement).disabled).toBe(false);await fireEvent.click(screen.getByRole('button',{name:'Cancel'}));await waitFor(()=>expect(mock.cancelSeparation).toHaveBeenCalledWith('job'));expect((await screen.findByRole('button',{name:'Stopping…'}) as HTMLButtonElement).disabled).toBe(true);
   value.job={...value.job,running:false,phase:'Cancelled'};await waitFor(()=>expect((screen.getByRole('button',{name:'Retry separation'}) as HTMLButtonElement).disabled).toBe(false));
  });
@@ -1399,7 +1490,7 @@ describe('integrated separation workflow',()=>{
   await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await screen.findByText('Install separation tools');
   for(const name of ['Reinstall separation tools','Remove separation tools…','Reinstall model'])expect((screen.getByRole('button',{name}) as HTMLButtonElement).disabled).toBe(true);
   await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));await fireEvent.click(screen.getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
-  await fireEvent.click(screen.getByRole('button',{name:'View stem processing'}));expect(screen.getByText('Install separation tools')).toBeTruthy();expect(mock.cancelSeparation).not.toHaveBeenCalled();expect(mock.startSeparation).not.toHaveBeenCalled();
+  await fireEvent.click(screen.getByRole('button',{name:'Open Stems'}));expect(screen.getByText('Install separation tools')).toBeTruthy();expect(mock.cancelSeparation).not.toHaveBeenCalled();expect(mock.startSeparation).not.toHaveBeenCalled();
  });
  it('asks about active-work quit and only cancels through confirmed native exit',async()=>{
   const value=separationStatus();value.install={...value.install,id:'download',running:true,phase:'Downloading model',cancellable:true};mock.separationStatus.mockResolvedValue(value);let exit!:()=>void;mock.onExitRequested.mockImplementation(async(handler:()=>void)=>{exit=handler;return ()=>{};});
@@ -1491,17 +1582,17 @@ describe('key routing: owners keep their keys, everything else reaches the dispa
   const modality = (value: 'keyboard' | 'pointer') => { window.document.documentElement.dataset.modality = value; };
   it('plays with Space after clicking a button (button-Space regression)', async () => {
     await ready(); modality('pointer');
-    const loop = screen.getByRole('button', { name: 'Loop off' }); loop.focus();
+    const loop = screen.getByRole('button', { name: 'Loop', pressed: false }); loop.focus();
     await fireEvent.keyDown(loop, { key: ' ', code: 'Space' });
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
   });
   it('lets a Tab-focused button activate with Space instead of playing', async () => {
     await ready(); modality('keyboard');
     const space = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true });
-    await fireEvent(screen.getByRole('button', { name: 'Loop off' }), space);
+    await fireEvent(screen.getByRole('button', { name: 'Loop', pressed: false }), space);
     expect(space.defaultPrevented).toBe(false); expect(mock.action).not.toHaveBeenCalled();
     // Letters still reach the shortcuts from a Tab-focused button.
-    await fireEvent.keyDown(screen.getByRole('button', { name: 'Loop off' }), { key: 'l' });
+    await fireEvent.keyDown(screen.getByRole('button', { name: 'Loop', pressed: false }), { key: 'l' });
     await waitFor(() => expect(document.loop_enabled).toBe(true));
   });
   it('fires letter shortcuts and Space from a focused waveform slider (slider-letter regression)', async () => {
@@ -1526,16 +1617,57 @@ describe('key routing: owners keep their keys, everything else reaches the dispa
     await fireEvent.keyDown(knob, { key: ' ', code: 'Space' });
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
   });
-  it('fires shortcuts from range inputs, but not from number fields', async () => {
-    await ready();
-    const volume = screen.getAllByLabelText('Metronome volume')[0];
-    await fireEvent.keyDown(volume, { key: 'ArrowLeft' });
-    expect(mock.action).not.toHaveBeenCalled();
-    await fireEvent.keyDown(volume, { key: ' ', code: 'Space' });
+  it('fires shortcuts from the click knob but keeps its arrow keys, and none from number fields', async () => {
+    const fixture = timingFixture(48000); document.measure_map = fixture.map;
+    mock.initialize.mockResolvedValue({ ...response(), map_view: fixture.view, song: { key: 'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session', title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
+    await ready(); modality('keyboard');
+    const knob = within(screen.getByRole('group', { name: 'Click track' })).getByRole('slider', { name: 'Click gain' });
+    for (const key of ['ArrowLeft', 'ArrowDown', 'Home']) await fireEvent.keyDown(knob, { key });
+    expect(knob.getAttribute('aria-valuenow')).toBe('0');
+    expect(mock.action).not.toHaveBeenCalled(); expect(transport.position).toBe(0);
+    await fireEvent.keyDown(knob, { key: ' ', code: 'Space' });
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+    await fireEvent.keyDown(knob, { key: 'l' });
+    await waitFor(() => expect(document.loop_enabled).toBe(true));
     mock.action.mockClear();
-    await fireEvent.keyDown(screen.getByLabelText('Pitch semitones'), { key: ' ', code: 'Space' });
+    await fireEvent.keyDown(speedField(), { key: ' ', code: 'Space' });
     expect(mock.action).not.toHaveBeenCalled();
+  });
+  it('lets an open popover own the keys pressed inside it; Esc closes it first and returns focus', async () => {
+    document.loop_selection = { start: 3, end: 6, fade_ms: 5 }; document.loop_enabled = true;
+    mock.initialize.mockResolvedValue({ ...(await mock.initialize()), document: structuredClone(document) });
+    await ready();
+    // Keyboard: focus moves into the popover; its keys stay there.
+    modality('keyboard');
+    const tile = screen.getByRole('button', { name: /^Pitch / }); tile.focus();
+    await fireEvent.click(tile);
+    const pitch = screen.getByRole('dialog', { name: 'Pitch' });
+    await waitFor(() => expect(pitch.contains(window.document.activeElement)).toBe(true));
+    for (const key of [' ', 'l', 'x', ',']) await fireEvent.keyDown(window.document.activeElement!, { key });
+    expect(mock.action).not.toHaveBeenCalled(); expect(document.loop_enabled).toBe(true); expect(document.loop_selection).not.toBeNull();
+    await fireEvent.keyDown(window.document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Pitch' })).toBeNull();
+    expect(window.document.activeElement).toBe(tile);
+    expect(document.loop_enabled).toBe(true);
+    // Pointer: focus stays home, so shortcuts keep working with the popover open,
+    // and Esc unwinds the popover before it turns looping off.
+    modality('pointer');
+    screen.getByRole('region', { name: /^Waveform/ }).focus();
+    await fireEvent.click(screen.getByRole('button', { name: /^Pitch / }));
+    expect(screen.getByRole('dialog', { name: 'Pitch' })).toBeTruthy();
+    await fireEvent.keyDown(window.document.activeElement!, { key: ' ', code: 'Space' });
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
+    await fireEvent.keyDown(window.document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Pitch' })).toBeNull(); expect(document.loop_enabled).toBe(true);
+    await fireEvent.keyDown(window.document.activeElement!, { key: 'Escape' });
+    await waitFor(() => expect(document.loop_enabled).toBe(false));
+  });
+  it('closes a popover on a click outside it', async () => {
+    await ready();
+    await fireEvent.click(screen.getByRole('button', { name: /^Pitch / }));
+    expect(screen.getByRole('dialog', { name: 'Pitch' })).toBeTruthy();
+    await fireEvent.pointerDown(screen.getByRole('region', { name: /^Waveform/ }));
+    expect(screen.queryByRole('dialog', { name: 'Pitch' })).toBeNull();
   });
   it('unwinds Esc to home focus first, then runs the Esc shortcut', async () => {
     document.loop_selection = { start: 3, end: 6, fade_ms: 5 }; document.loop_enabled = true;
@@ -1578,12 +1710,23 @@ describe('fields hand focus back and commit before buttons act', () => {
   });
   it('commits on Enter in a practice field and returns home focus', async () => {
     await ready();
-    const pitch = screen.getByLabelText('Pitch semitones') as HTMLInputElement;
-    await type(pitch, '-2');
-    await fireEvent.keyDown(pitch, { key: 'Enter' });
+    const hz = within(await openPitch()).getByLabelText('Recording tuned to A (Hz)') as HTMLInputElement;
+    await type(hz, '432');
+    await fireEvent.keyDown(hz, { key: 'Enter' });
     expect(window.document.activeElement).toBe(home());
-    await waitFor(() => expect(document.controls.semitones).toBe(-2));
+    await waitFor(() => expect(document.controls.tuning_cents).toBeCloseTo(31.77, 2));
     expect(transport.position).toBe(0);
+  });
+  it('reverts the Hz field on Esc, returns home and closes the Pitch popover without committing', async () => {
+    await ready();
+    const hz = within(await openPitch()).getByLabelText('Recording tuned to A (Hz)') as HTMLInputElement;
+    await type(hz, '432');
+    await fireEvent.keyDown(hz, { key: 'Escape' });
+    expect(hz.value).toBe('440');
+    expect(window.document.activeElement).toBe(home());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Pitch' })).toBeNull());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(document.controls.tuning_cents).toBe(0); expect(mock.update).not.toHaveBeenCalled();
   });
   it('reverts the speed field on Esc and returns home without committing', async () => {
     await ready();
@@ -1632,7 +1775,113 @@ describe('undo and the macOS menu bar', () => {
     window.document.body.dispatchEvent(redo);
     expect(redo.defaultPrevented).toBe(true);
     const inField = new KeyboardEvent('keydown', { key: 'z', metaKey: true, bubbles: true, cancelable: true });
-    screen.getByLabelText('Pitch semitones').dispatchEvent(inField);
+    speedField().dispatchEvent(inField);
     expect(inField.defaultPrevented).toBe(false);
+  });
+});
+
+describe('Stage practice screen', () => {
+  const mapped = () => {
+    const fixture = timingFixture(48000); document.measure_map = fixture.map;
+    mock.initialize.mockResolvedValue({ ...response(), map_view: fixture.view, song: { key: 'test', reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session', title: 'Workshop take', path: '/test/song.wav', duration: 12, rate: 48000, peaks: [[-.2, .2]] } });
+  };
+
+  it('switches song views with the segmented control and keeps the header across them', async () => {
+    await ready();
+    const views = screen.getByRole('group', { name: 'Song views' });
+    expect(within(views).getByRole('button', { name: 'Practice' }).getAttribute('aria-current')).toBe('page');
+    await fireEvent.click(within(views).getByRole('button', { name: 'Stems' }));
+    expect(screen.getByRole('main', { name: 'Stems' })).toBeTruthy();
+    expect(within(views).getByRole('button', { name: 'Stems' }).getAttribute('aria-current')).toBe('page');
+    await fireEvent.click(within(views).getByRole('button', { name: 'Measure map' }));
+    expect(screen.queryByRole('main', { name: 'Stems' })).toBeNull();
+    await fireEvent.click(within(views).getByRole('button', { name: 'Practice' }));
+    expect(screen.getByRole('main', { name: 'Practice workspace' })).toBeTruthy();
+    // Notes opens from the header and closes from the same button.
+    const notes = within(screen.getByRole('banner')).getByRole('button', { name: 'Notes' });
+    await fireEvent.click(notes); expect(screen.getByRole('main', { name: 'Song notes' })).toBeTruthy();
+    expect(within(screen.getByRole('banner')).getByRole('button', { name: 'Notes' }).getAttribute('aria-pressed')).toBe('true');
+    await fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Notes' }));
+    await screen.findByRole('main', { name: 'Practice workspace' });
+    expect(transport.playing).toBe(false); expect(mock.action).not.toHaveBeenCalled();
+  });
+
+  it('reads measure, beat and passage at a distance, with bounds as measure and beat', async () => {
+    mapped(); transport.position = 5.5; document.loop_selection = { start: 0, end: 8, fade_ms: 5 }; document.loop_enabled = true;
+    document.selected_section = 'verse';
+    mock.status.mockImplementation(async () => ({ ...transport, musical_position: { measure: 'map-5', label: '2', beat: 2.5 } }));
+    mock.initialize.mockResolvedValue({ ...(await mock.initialize()), document: structuredClone(document) });
+    await ready();
+    const readout = within(screen.getByRole('region', { name: 'Now playing' }));
+    await readout.findByText('Measure');
+    expect(readout.getByRole('button', { name: /^Measure 2/ })).toBeTruthy();
+    expect(readout.getByLabelText('Beat 2 of 4')).toBeTruthy();
+    expect(readout.getByText('beat 2 · 0:05.5 / 0:12')).toBeTruthy();
+    expect(readout.getByText('Looping')).toBeTruthy();
+    expect(readout.getByText('m. 1 – 2')).toBeTruthy();
+    expect(readout.getByText('2 bars · Verse')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Jump to A' }).textContent).toContain('m. 1 · 1');
+    expect(screen.getByRole('button', { name: 'Jump to B' }).textContent).toBe('B0:08.0'); // Free time after the map: a time.
+    // Exact seconds are entered only from the passage card's popover.
+    expect(screen.queryByLabelText('Loop end seconds')).toBeNull();
+    const bounds = within(await openBounds());
+    expect((bounds.getByLabelText('Loop end seconds') as HTMLInputElement).value).toBe('8.00');
+    await fireEvent.change(bounds.getByLabelText('Loop start seconds'), { target: { value: '0.5' } });
+    await waitFor(() => expect(document.loop_selection).toEqual({ start: .5, end: 8, fade_ms: 5 }));
+    // Sections list as measures, the nested Chorus indented.
+    const sections = within(screen.getByRole('complementary', { name: 'Sections' }));
+    expect(sections.getByRole('button', { name: /Verse m\. 1–2/ })).toBeTruthy();
+    expect(sections.getByRole('button', { name: /^Chorus/ }).closest('.row')?.classList.contains('nested')).toBe(true);
+  });
+
+  it('goes to a measure number from the measure readout', async () => {
+    mapped(); mock.status.mockImplementation(async () => ({ ...transport, musical_position: { measure: 'map-3', label: '1', beat: 1 } }));
+    await ready();
+    await fireEvent.click(await within(screen.getByRole('region', { name: 'Now playing' })).findByRole('button', { name: /^Measure 1/ }));
+    const popover = screen.getByRole('dialog', { name: 'Go to measure' });
+    await fireEvent.input(within(popover).getByLabelText('Go to measure number'), { target: { value: '2' } });
+    await fireEvent.click(within(popover).getByRole('button', { name: 'Go' }));
+    await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'seek', seconds: 4 }, 'test'));
+    expect(screen.queryByRole('dialog', { name: 'Go to measure' })).toBeNull();
+  });
+
+  it('collapses the sections list without losing the lane or the section shortcuts', async () => {
+    await ready();
+    const toggle = screen.getByRole('button', { name: 'Sections' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    await fireEvent.click(toggle);
+    expect(screen.queryByRole('complementary', { name: 'Sections' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Sections' }).getAttribute('aria-expanded')).toBe('false');
+    expect(within(screen.getByLabelText('Sections on timeline')).getByRole('button', { name: 'Chorus' })).toBeTruthy();
+    await fireEvent.keyDown(window, { key: ']' });
+    await waitFor(() => expect(document.selected_section).toBe('verse'));
+  });
+
+  it('zooms with = and -, and shows the whole song with 0, without buttons on screen', async () => {
+    await ready();
+    const viewport = screen.getByRole('button', { name: 'Move waveform view' }).querySelector('.viewport') as HTMLElement;
+    await fireEvent.keyDown(window, { key: '=' }); expect(viewport.style.width).toBe('50%');
+    await fireEvent.keyDown(window, { key: '=' }); expect(viewport.style.width).toBe('25%');
+    await fireEvent.keyDown(window, { key: '-' }); expect(viewport.style.width).toBe('50%');
+    await fireEvent.keyDown(window, { key: '0' }); expect(viewport.style.width).toBe('100%');
+    expect(mock.action).not.toHaveBeenCalled();
+  });
+  it('points to the Stems view from the mixer when the song has no stems, and offers no zoom buttons', async () => {
+    await ready();
+    const mix = within(screen.getByRole('group', { name: 'Mix' }));
+    expect(mix.getByRole('slider', { name: 'Click gain' })).toBeTruthy();
+    expect(mix.queryByRole('slider', { name: /Bass/ })).toBeNull();
+    for (const name of ['Zoom in', 'Zoom out', 'Show whole song']) expect(screen.queryByRole('button', { name })).toBeNull();
+    await fireEvent.click(mix.getByRole('button', { name: 'Split into stems ›' }));
+    expect(screen.getByRole('main', { name: 'Stems' })).toBeTruthy();
+  });
+
+  it('shows six stems after the click and mutes from the keyboard', async () => {
+    mock.stemsStatus.mockResolvedValue({ ...attachedStems(), tracks: (['bass', 'drums', 'guitar', 'piano', 'vocals', 'other'] as const).map(role => ({ role, gain: 1, mute: false, solo: false })) });
+    await ready();
+    const mix = within(screen.getByRole('group', { name: 'Mix' }));
+    await waitFor(() => expect(mix.getAllByRole('slider').map(knob => knob.getAttribute('aria-label'))).toEqual(['Click gain', 'Bass gain', 'Drums gain', 'Guitar gain', 'Piano gain', 'Vocals gain', 'Other gain']));
+    await fireEvent.keyDown(window, { key: '3' });
+    await waitFor(() => expect(mix.getByRole('button', { name: 'Mute Guitar' }).getAttribute('aria-pressed')).toBe('true'));
   });
 });

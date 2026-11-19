@@ -42,11 +42,14 @@ Windows and Linux use their platform's Tauri bundle formats. Linux also needs
 the WebKitGTK and desktop integration packages listed in
 [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Use **Library → Import song**, or try the built-in demo. Click the waveform to seek; drag to
-choose a temporary loop. The A/B handles and numeric fields adjust the bounds.
+Use **Library → Import song**. Click the waveform to seek; drag to
+choose a temporary loop. The A/B handles adjust the bounds; click the passage card above the waveform
+to type exact seconds.
 Scroll over the waveform to zoom at the pointer; hold the middle mouse button
 and drag to pan. Click or drag the whole-song minimap to move the detailed
-view while keeping its zoom level. Zoom buttons also let you adjust the view.
+view while keeping its zoom level; **=**, **-** and **0** zoom in, out and to
+the whole song. While playing, Practice pages the view to follow the playhead;
+a manual move holds until the playhead next leaves the page.
 
 Named sections have explicit start/end ranges and may overlap. Selecting a
 section prepares its range and seeks to its start while preserving play/pause
@@ -94,14 +97,16 @@ Audio, analysis and native musical-map edits require `npm run desktop`.
 
 ## Count-in
 
-On **Practice**, build and apply a measure map, then enable **Count-in on**
+On **Practice**, build and apply a measure map, then enable **Count-in**
 beside the playback buttons (or press **C** to toggle it).
 After each Play/Space start, including resume, it waits one silent mapped beat
 then sounds one full measure: “Space — one — two — three — four — Start” in 4/4.
-The extra beat follows the local pulse and playback speed. Enable
-**Before each loop repetition** separately to add a count-in between loop passes;
-repetitions start their clicks immediately, without the extra silent beat.
-The count-in and metronome buttons highlight when on. Count-in is unavailable
+The extra beat follows the local pulse and playback speed. With looping on,
+enable **each** (joined to the **Loop** button) to add a count-in before every
+loop repeat; repetitions start their clicks immediately, without the extra
+silent beat. Count-in before Play, Loop and count-in before each repeat are
+independent: turning one on or off never changes another.
+The count-in, loop and click buttons highlight when on. Count-in is unavailable
 in measure mapping and uses only the accepted map, never a draft or detected
 beat suggestions. Both count-in options default off when opening a song and are
 session preferences.
@@ -170,25 +175,26 @@ See [docs/LIBRARY.md](docs/LIBRARY.md) for behavior and failure limits.
 
 ## Song notes
 
-Open **Notes**, to the left of Measure map above the practice waveform, for a
-plain-text editor. Notes are saved with the song, including line breaks and
-whitespace. The **X** beside the Song notes title saves and returns to practice; **Library** stays
-at the top right. Edits autosave, and normal app quit flushes pending text.
+Open **Notes** from the header for a plain-text editor. Notes are saved with
+the song, including line breaks and whitespace. The **X** beside the Song notes
+title, or the Notes button again, saves and returns to practice. Edits autosave, and normal app quit flushes pending text.
 Failed writes retain the text and offer Retry save. Markdown rendering is deferred.
 See [docs/NOTES.md](docs/NOTES.md) for persistence and lifecycle details.
 
 ## Measure mapping
 
-Open **Measure map** above the practice waveform; the **X** beside its title returns to the
-player. **Library** stays in the top-right corner. Both screens share transport and retain their own viewports.
+Open **Measure map** from the views in the header (Practice · Measure map ·
+Stems); **Practice** there, or the **X** beside its title, returns to the player.
+**Library** is the breadcrumb at the top left. Both screens share transport and
+retain their own viewports.
 
 In **Measure map**, **Metronome** defaults on to play the displayed authored map,
 including a green draft before applying it. **Click level** adjusts its volume;
 clicks follow the chosen pulse and accent measure/group starts. **Follow playhead**
-also defaults on in both screens and pages the waveform during playback without
-changing zoom. Each screen retains its own follow preference.
-Panning, minimap navigation, zoom and view-fitting preserve this setting; only
-the Follow playhead toggle turns it off. Returning to practice uses accepted-map
+defaults on in Measure map and pages the waveform during playback without
+changing zoom; Practice always follows while playing.
+Panning, minimap navigation, zoom and view-fitting preserve the mapping setting;
+only its Follow playhead toggle turns it off. Returning to practice uses accepted-map
 clicks and preserves the shared metronome enable/level preference.
 Left, Right and Enter also reveal the playhead in
 the waveform while paused, preserving zoom. See [map review behavior and timing limits](docs/MEASURE_MAPPING.md#listening-to-the-displayed-map).

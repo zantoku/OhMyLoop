@@ -100,8 +100,8 @@ placement, and exact time fields and saved sections retain precise bounds.
 
 **Metronome** defaults on with 50% level, shared between both screens for the app
 session. Practice clicks use the accepted map; mapping clicks use the displayed
-authored draft/map, never raw detections. **Follow playhead** defaults on in both screens, with independent session toggles;
-practice pages with or without a map.
+authored draft/map, never raw detections. **Follow playhead** defaults on in Measure map with a session toggle; Practice
+always follows while playing, with or without a map.
 Grouping controls accents; pulse controls click spacing. Click level adjusts
 volume, speed changes spacing, and pitch does not transpose clicks. Paging keeps
 zoom and handles seeks/loop wraps. Manual viewport navigation never disables

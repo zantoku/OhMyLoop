@@ -393,8 +393,9 @@ chosen pulse note value determines the remaining clicks. Pickups keep their
 notated offset; incomplete measures end early and free-time gaps are silent.
 Arbitrary beat anchors change interpolation without becoming extra pulses.
 
-Practice also offers **Count-in on/off** after an accepted map has been built,
-with **Before each loop repetition** as a separate checkbox. Count-in uses only
+Practice also offers **Count-in** after an accepted map has been built, with
+**each** (count in before each loop repeat) as a separate segment of the Loop
+button; the two are independent. Count-in uses only
 the accepted map, shares Click level, and sounds independently of the metronome.
 The controls are absent from measure mapping. See the README Count-in section
 for local tempo, phase, free-time and cancellation rules. Both toggle buttons
@@ -415,14 +416,14 @@ mapping restores accepted-map clicks and transport coordinates without changing
 the shared click enable/level preference. An unapplied draft stays in the editor
 and can be auditioned again on returning to mapping.
 
-Both screens provide Follow playhead, enabled by default with independent
-session preferences. Practice follows playback with or without an authored map.
-Changing screens preserves each viewport and toggle; loading a different song
-starts with following on. Following pages only during playback. Crossing the current
+Measure map provides Follow playhead, enabled by default for the session;
+Practice always follows playback, with or without an authored map.
+Changing screens preserves each viewport and the mapping toggle; loading a
+different song starts with following on. Following pages only during playback. Crossing the current
 window's end advances by a full window, preserving zoom; backwards seeks and loop
 wraps page backwards. The final page clamps to EOF. Manual panning, minimap
 navigation, wheel zoom, Fit measure and Whole song preserve the follow setting.
-Only the Follow playhead action changes it. With following on, playback keeps
+Only the Follow playhead action changes it in Measure map. With following on, playback keeps
 revealing the playhead after navigation. Paused editing keeps the viewport still.
 Left/Right navigate strictly earlier/later mapped measure starts, across free-time
 gaps. Within a measure, Left returns to its start; at its start, Left goes to the

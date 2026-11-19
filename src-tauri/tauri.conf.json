@@ -15,8 +15,8 @@
         "title": "OhMyLoop",
         "width": 1180,
         "height": 810,
-        "minWidth": 820,
-        "minHeight": 620
+        "minWidth": 1180,
+        "minHeight": 680
       }
     ],
     "security": {

@@ -58,6 +58,13 @@ describe('key ownership is decided by the key', () => {
     expect(ownsKey(closed, 'l', 'pointer')).toBe(false);
   });
 
+  it('lets an open popover own every key pressed inside it, but not keys outside it', () => {
+    const inside = element('<div role="dialog" data-popover><button>+</button></div><div tabindex="-1" data-home></div>', 'button');
+    for (const key of [...LETTERS_AND_TRANSPORT, 'ArrowLeft']) expect(ownsKey(inside, key, 'pointer'), key).toBe(true);
+    const home = document.querySelector('[data-home]');
+    for (const key of LETTERS_AND_TRANSPORT) expect(ownsKey(home, key, 'pointer'), key).toBe(false);
+  });
+
   it('leaves keys on the page and on plain containers to the shortcuts', () => {
     expect(ownsKey(document.body, ' ', 'keyboard')).toBe(false);
     expect(ownsKey(element('<div tabindex="-1" data-home></div>', 'div'), 'ArrowLeft', 'keyboard')).toBe(false);

@@ -723,20 +723,21 @@ impl Controller {
                 let settings = settings.validate()?;
                 let map = self.document.as_ref().and_then(|d| d.measure_map.clone());
                 ensure!(
-                    !settings.enabled || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
+                    !settings.active() || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
                     "Build a measure map before enabling count-in"
                 );
                 let result = if let Some(player) = &self.player {
                     player.set_count_in(settings, map)
                 } else {
                     ensure!(
-                        !settings.enabled,
+                        !settings.active(),
                         "Audio output is unavailable; choose Retry audio"
                     );
                     Ok(())
                 };
                 self.count_in = CountInSettings {
                     enabled: settings.enabled && result.is_ok(),
+                    repeat: settings.repeat && result.is_ok(),
                     ..settings
                 };
                 result?;
@@ -853,6 +854,7 @@ impl Controller {
                                 .is_some_and(|m| !m.measures.is_empty())
                             {
                                 self.count_in.enabled = false;
+                                self.count_in.repeat = false;
                             }
                             player.set_count_in(self.count_in, document.measure_map.clone())?;
                         }
