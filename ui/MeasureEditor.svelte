@@ -15,10 +15,11 @@
   import type { Song, Transport, View } from './types';
   import type { Keymap } from './keymap';
   import type { ButtonId, MappingActionId } from './actions';
+  import type { ActionPayload } from './action-dispatcher';
   import { zoom } from './model';
-  let { playbackFrozen=false,song, map, mapView, transport, keymap, active, clickEnabled=$bindable(true), clickLevel=$bindable(50), onreview, playback, oncommit, onseek, run, available }:
-    { playbackFrozen?:boolean;song: Song; map: MeasureMap | null; mapView: MapView | null; transport: Transport; keymap: Keymap; active: boolean; clickEnabled?:boolean; clickLevel?:number; onreview:(map:MeasureMap|null)=>void; playback?:Snippet;
-      oncommit: (value: MapPreview, songKey:string) => Promise<void>; onseek: (seconds:number)=>void; run:(id:ButtonId)=>void; available:(id:ButtonId)=>boolean } = $props();
+  let { playbackFrozen=false,modelDownloading=false,song, map, mapView, transport, keymap, active, clickEnabled=$bindable(true), clickLevel=$bindable(50), onreview, playback, oncommit, onseek, run, available }:
+    { playbackFrozen?:boolean;modelDownloading?:boolean;song: Song; map: MeasureMap | null; mapView: MapView | null; transport: Transport; keymap: Keymap; active: boolean; clickEnabled?:boolean; clickLevel?:number; onreview:(map:MeasureMap|null)=>void; playback?:Snippet;
+      oncommit: (value: MapPreview, songKey:string) => Promise<void>; onseek: (seconds:number)=>void; run:(id:ButtonId,payload?:ActionPayload)=>void; available:(id:ButtonId)=>boolean } = $props();
   let editState = $state<MappingState>({pending:false,error:'',preview:null,undo:0,redo:0});
   let analysis = $state<AnalysisState>({status:null,candidates:null,requesting:false,error:''});
   const analyzer = new AnalysisSession(()=>({key:song.reference_token,revision:map?.revision??0}),value=>{analysis=value;});
@@ -41,9 +42,11 @@
   $effect(()=>{if(analysis.status&&!automaticInitialized){automaticInitialized=true;automaticOpen=!analysis.status.model_ready;}});
   $effect(()=>{
     if(!active)return;
-    void analyzer.refresh();const timer=setInterval(()=>{if(analysis.status?.running||analysis.requesting)void analyzer.refresh();},400);
+    void analyzer.refresh();const timer=setInterval(()=>{if(analysis.status?.running||analysis.requesting||modelDownloading)void analyzer.refresh();},400);
     return()=>clearInterval(timer);
   });
+  // A model download (owned by App) starting or ending changes what this panel offers.
+  $effect(()=>{void modelDownloading;if(active)void untrack(()=>analyzer.refresh());});
   onDestroy(()=>{analyzer.dispose();session.dispose();});
   const session = new MappingSession(()=>({key:song.reference_token,map:map?$state.snapshot(map):null}),value=>oncommit(value,song.reference_token),next=>{editState=next;});
   let view = $state<View>(untrack(()=>({start:0,end:song.duration})));
@@ -79,7 +82,6 @@
     if(id==='map_fit')return !!measure;
     if(id==='map_analyze')return !!analysis.status?.model_ready&&!analysis.status.running&&!analysis.requesting&&!editState.preview;
     if(id==='map_cancel_analysis')return !!analysis.status?.running&&!analysis.requesting;
-    if(id==='map_install_model')return !analysis.status?.running&&!analysis.requesting;
     return true;
   }
   export async function command(id:MappingActionId){
@@ -92,7 +94,7 @@
         map_metronome:()=>{clickEnabled=!clickEnabled;},map_follow:()=>{followingPlayhead=!followingPlayhead;},
         map_show_detected:()=>{detectedVisibility=!showDetected;},
         map_clear:()=>map?.measures.length?edit({type:'clear'},false):session.discard(),
-        map_analyze:()=>analyzer.start(),map_cancel_analysis:()=>analyzer.cancel(),map_install_model:()=>analyzer.start(true),
+        map_analyze:()=>analyzer.start(),map_cancel_analysis:()=>analyzer.cancel(),
         map_apply:()=>session.apply(),map_discard:()=>session.discard(),
         map_undo:()=>session.history('undo'),map_redo:()=>session.history('redo'),
         map_fit:()=>{if(measure){const start=measure.start/song.rate,end=measure.end/song.rate,pad=(end-start)*.15;view={start:Math.max(0,start-pad),end:Math.min(song.duration,end+pad)};}},
@@ -140,7 +142,7 @@
     {#if analysis.status?.running}<AnalysisProgress status={analysis.status}><button class="text-button" disabled={disabled('map_cancel_analysis')} title={title('map_cancel_analysis')} onclick={()=>run('map_cancel_analysis')}>{label('map_cancel_analysis','Cancel')}</button></AnalysisProgress>{/if}
     {#if analysis.error||analysis.status?.error}<p class="mapping-error" role="alert">{analysis.error||analysis.status?.error}</p>{/if}
     {#if candidates}<div class="analysis-summary"><span>{candidates.beats.length} suggested beats · {candidates.elapsed_seconds.toFixed(1)} s analysis</span><span>Use Create measures to group these beats into a draft.</span>{#if candidates.map_revision!==(map?.revision??0)}<span>The map has changed since analysis. Review this draft before applying.</span>{/if}</div>{/if}
-    <details bind:open={automaticOpen}><summary>Analysis model</summary><p>Beat This! suggests beats and downbeats. Meter and accepted corrections stay yours.</p><button class="button full-width" disabled={disabled('map_install_model')} title={title('map_install_model')} onclick={()=>run('map_install_model')}>{label('map_install_model',analysis.status?.model_ready?'Verify / reinstall model':'Download analysis model (83 MB)')}</button>{#if analysis.status?.model_path}<p class="model-location">{analysis.status.model_ready?'Installed model folder':'Model download folder'}<code title={analysis.status.model_path}>{analysis.status.model_path}</code></p>{/if}<p>The model uses the MIT license. Installed models work offline. Manual mapping needs no download.</p></details>
+    <details bind:open={automaticOpen}><summary>Analysis model</summary><p>Beat This! suggests beats and downbeats. Meter and accepted corrections stay yours.</p>{#if analysis.status?.model_ready}<p>The model is installed.</p>{:else}<button class="button full-width" disabled={disabled('map_install_model')} title={title('map_install_model')} onclick={()=>run('map_install_model')}>{label('map_install_model','Download analysis model (83 MB)')}</button><p>Installed models work offline. Manual mapping needs no download.</p>{/if}<button class="text-button" disabled={!available('settings')} title={title('settings')} onclick={()=>run('settings',{settingsSection:'beats'})}>Manage the model in Settings</button></details>
     </details>
     <MeasureBuilder bind:epsilonMs bind:this={builder} {song} {candidates} resultId={analysis.status?.id??0} analysisRunning={!!analysis.status?.running} position={transport.position} preview={editState.preview} pending={editState.pending} {keymap} onpreview={edit} {run} {available}/>
     <BatchTools bind:this={batch} songKey={song.key} {map} editable={active&&!editState.pending&&!editState.preview} {keymap} {run} {available} onedit={edit}/>
@@ -150,7 +152,6 @@
 <style>
   .review-listening{display:flex;gap:15px;align-items:center;flex-wrap:wrap;flex-shrink:0;margin-bottom:8px;font-size:11px;color:var(--text-secondary)}.review-listening .text-button{margin-left:auto;font-size:11px}
   .analysis-panel .analysis-summary{display:block;margin-top:10px}.analysis-panel .analysis-summary span{display:block;margin-top:5px}.analysis-panel details{border-bottom:0;padding-bottom:0;margin-top:15px}.analysis-panel details summary{font-size:11px;font-weight:500}.analysis-panel .mapping-error{margin-top:10px}
-  .model-location code{display:block;margin-top:5px;overflow-wrap:anywhere;user-select:text;color:var(--text-secondary);font-size:11px;line-height:1.5}
   .analysis-summary{display:flex;gap:7px 15px;flex-wrap:wrap;font-size:11px;color:var(--amber-text);margin-bottom:12px}.analysis-summary>span:last-child{font-size:10px}
   .measure-editor{display:grid;grid-template-columns:minmax(0,1fr) 285px;grid-template-rows:minmax(0,1fr) auto;flex:1;min-height:0;background:var(--surface);border:1px solid var(--border);border-radius:9px;overflow:hidden}.measure-editor[hidden]{display:none}.mapping-workspace{padding:16px 25px 14px;min-width:0;overflow:auto;display:flex;flex-direction:column;min-height:0}.mapping-heading{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:10px}.mapping-heading h2{font-size:20px;letter-spacing:-.35px;font-weight:500}.map-status{font-size:11px;color:var(--success-text);white-space:nowrap}.mapping-toolbar{display:flex;gap:13px;align-items:center;margin-bottom:10px}.toolbar-spacer{flex:1}.mapping-inspector{padding:18px 19px;border-left:1px solid var(--border);background:var(--sidebar);overflow:auto;min-height:0;font-size:12px}.mapping-inspector details{padding:9px 0 17px;border-bottom:1px solid var(--border)}.mapping-inspector summary{font-size:13px;font-weight:600;color:var(--text)}.mapping-inspector p{color:var(--muted);line-height:1.5;font-size:11px;margin:9px 0}.mapping-inspector label{display:flex;flex-direction:column;gap:5px;font-size:11px;margin-top:11px;color:var(--text-secondary)}.mapping-inspector input{min-width:0;width:100%;padding:7px 8px;border:1px solid var(--border-strong);border-radius:4px;background:var(--surface);color:var(--text);font:inherit;font-size:12px}.mapping-check{flex-direction:row!important;align-items:flex-start;line-height:1.45}.mapping-check input{width:auto;margin-top:2px}.full-width{width:100%;margin-top:12px;font-size:12px;padding:9px}.mapping-inspector .text-button{font-size:11px;padding:5px 0;margin-top:4px}.mapping-preview{display:flex;align-items:center;gap:12px;padding:11px 13px;background:var(--success-bg);color:var(--success-text);font-size:11px;margin-bottom:12px;border-radius:4px}.mapping-preview>span{flex:1}.mapping-preview .button{padding:7px 10px;font-size:11px}.mapping-error{color:var(--error-text);background:var(--error-bg);font-size:12px;padding:10px 12px;border-radius:4px;margin-bottom:10px}.mapping-legend{display:flex;align-items:center;gap:17px;font-size:10px;color:var(--muted);margin-top:11px;flex-wrap:wrap}.mapping-legend span{display:flex;gap:5px;align-items:center}.mapping-legend i{height:11px;border-left:1px dashed #8c9dbc}.mapping-legend .bar{border-left:2px solid var(--success-border)}.mapping-legend .anchor{border-left:1px solid var(--blue)}.mapping-legend>span:last-child{margin-left:auto}
   @media(max-width:1000px){.measure-editor{grid-template-columns:minmax(0,1fr) 255px}.mapping-workspace{padding:17px}.mapping-inspector{padding:13px}.mapping-toolbar{gap:9px}.mapping-legend>span:last-child{display:none}}

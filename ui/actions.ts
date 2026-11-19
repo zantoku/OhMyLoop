@@ -51,7 +51,6 @@ export const MAPPING_ACTIONS = {
   map_whole: mapping('Show the whole song in the measure map'),
   map_analyze: mapping('Analyze beats and downbeats'),
   map_cancel_analysis: mapping('Cancel beat analysis'),
-  map_install_model: mapping('Install the beat-analysis model'),
   map_use_analysis: mapping('Preview measures from detected beats')
 } as const;
 export type MappingActionId = keyof typeof MAPPING_ACTIONS;
@@ -87,7 +86,13 @@ export const ACTIONS = {
   mute_vocals:practice('Mute / unmute vocals',['5']),
   mute_other:practice('Mute / unmute other',['6']),
   show_settings: define('Open Settings', ['Mod+,'], 'none'),
-  managed_settings: define('Open library settings', [], 'none'),
+  close_settings: { ...define('Close Settings', [], 'none'), duringBusy: true },
+  reveal_library: define('Show the library folder in the file manager', [], 'none'),
+  open_keymap: define('Open the shortcut file in its default editor', [], 'none'),
+  reveal_keymap: define('Show the shortcut file in the file manager', [], 'none'),
+  map_install_model: define('Download and install the beat analysis model', [], 'none'),
+  map_cancel_model: define('Cancel the beat analysis model download', [], 'none'),
+  map_remove_model: define('Remove the beat analysis model; measure maps and analysis results stay', [], 'none'),
   managed_close: define('Close library dialog', [], 'none'),
   managed_create: define('Create library in the chosen folder', [], 'none'),
   managed_open: define('Open existing library', [], 'none'),
@@ -194,8 +199,8 @@ export const BUTTONS = {
   retry_stem_mix:'retry_stem_mix',stem_gain:'stem_gain',show_stems:'show_stems',close_stems:'close_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',
   solo_bass:'solo_bass',  solo_drums:'solo_drums',  solo_guitar:'solo_guitar',  solo_piano:'solo_piano',  solo_vocals:'solo_vocals',  solo_other:'solo_other',
   mute_bass:'mute_bass',mute_drums:'mute_drums',mute_guitar:'mute_guitar',mute_piano:'mute_piano',mute_vocals:'mute_vocals',mute_other:'mute_other',
-  settings:'show_settings',
-  managed_settings:'managed_settings',
+  settings:'show_settings',close_settings:'close_settings',reveal_library:'reveal_library',open_keymap:'open_keymap',reveal_keymap:'reveal_keymap',
+  map_install_model:'map_install_model',map_cancel_model:'map_cancel_model',map_remove_model:'map_remove_model',
   managed_close:'managed_close',
   managed_create:'managed_create',
   managed_open:'managed_open',

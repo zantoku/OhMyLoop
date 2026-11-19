@@ -161,10 +161,16 @@ location; sort by last opened, title, artist, length or date added, and reverse
 the order. Opening a song never shows its edit fields: **⋯** or **⌘I** (Ctrl+I)
 opens the details panel, where title, artist and album (from embedded tags with
 filename fallback) can be corrected without modifying audio. Opening Library
-pauses playback. **Settings** in the Library header (⌘, / Ctrl+,) currently
-opens the library dialog with Create library and Open existing library, until
-app-wide Settings exist. Switching saves pending edits and unloads the song
-without selecting another.
+pauses playback. **Settings** (the Library header's button, ⌘, / Ctrl+,, or
+the macOS app menu) opens app-wide Settings: the library (open another, create
+one, show its folder, recover a missing one), appearance (theme and notes font),
+the audio output in use, shortcuts (the Practice shortcuts button, the shortcut
+file with Open and Reload), and installing, repairing or removing the stem
+separation tools and the beat analysis model. Changes apply at once. Settings
+can't open while separation, beat analysis, an import, or a tool download
+started on the Stems screen or the Measure map is running; one started in
+Settings reopens it on its progress. Switching libraries saves pending edits and unloads the
+song without selecting another.
 
 The selected folder owns recordings and authoritative song documents under
 `songs/<song-uuid>/`; `catalogue.json` is a rebuildable projection. App data holds

@@ -4,9 +4,13 @@
  import type {SeparationState} from './separation';
  import type {StemProgress} from './stems';
  import type {ButtonId} from './actions';
- let {state:separationState,processingBytes=null,hasStems,reference,available,run}:{state:SeparationState;processingBytes?:number|null;hasStems:boolean;reference:string;available:(id:ButtonId)=>boolean;run:(id:ButtonId)=>void}=$props();
- let confirmation=$state<'replace'|'model'|'runtime'|null>(null);
+ import type {ActionPayload} from './action-dispatcher';
+ import {stemTools} from './settings';
+ let {state:separationState,processingBytes=null,hasStems,reference,available,run}:{state:SeparationState;processingBytes?:number|null;hasStems:boolean;reference:string;available:(id:ButtonId)=>boolean;run:(id:ButtonId,payload?:ActionPayload)=>void}=$props();
+ let confirmation=$state<'replace'|null>(null);
  const status=$derived(separationState.status);
+ // Repairing and removing the tools lives in Settings → Stem separation.
+ const damaged=$derived(stemTools(status).kind==='damaged');
  const job=$derived(status?.job);
  const install=$derived(status?.install);
  const setupProgress=$derived<StemProgress|null>(install?.progress?{reference_token:'',operation_id:install.id,phase:install.phase,completed:install.progress.completed,total:install.progress.total,workflow:install.progress.workflow}:null);
@@ -43,15 +47,10 @@
   {#if status?.heavy_work&&!job?.running}<p class="small" role="status">{status.heavy_work} is running. Separation waits until it finishes.</p>{/if}
   {#if processingBytes!==null}<p class="small">Processing storage: approximately {(processingBytes/1e9).toFixed(2)} GB · checked before starting</p>{/if}
   <p class="small">Processing can use several GiB of memory. Playback pauses until separation finishes.</p>
-  <details><summary>Separation management</summary>
-   <p class="small">Tools and models are shared across songs and libraries. Removing them leaves recordings, completed stems, notes and maps intact.</p>
-   <div class="management-controls"><button class="button" disabled={!available('separation_reinstall_runtime')} onclick={()=>run('separation_reinstall_runtime')}>Reinstall separation tools</button><button class="button" disabled={!available('separation_remove_runtime')} onclick={()=>confirmation='runtime'}>Remove separation tools…</button></div>
-   <p class="small">Reinstalling tools preserves the model. A repair may need downloads again.</p>
-   <p class="small">{status?.model_path??'Shared app-data model storage'}</p>
-   <div class="management-controls"><button class="button" disabled={!available('separation_reinstall_model')} onclick={()=>run('separation_reinstall_model')}>Reinstall model</button><button class="button" disabled={!available('separation_remove_model')} onclick={()=>confirmation='model'}>Remove model…</button><button class="text-button" disabled={!available('separation_refresh_runtime')} onclick={()=>run('separation_refresh_runtime')}>Check tools again</button></div>
-  </details>
+  <p class="small manage">{#if damaged}<span role="status">The separation tools need repair.</span>{:else}Tools and the model are shared across songs and libraries.{/if}
+   <button class="text-button" disabled={!available('settings')} onclick={()=>run('settings',{settingsSection:'stems'})}>{damaged?'Repair in Settings':'Manage in Settings'}</button></p>
  </div>
- {#if confirmation}<div class="confirmation" role="alertdialog" tabindex="-1" aria-label={confirmation==='replace'?'Replace stems confirmation':confirmation==='runtime'?'Remove separation tools confirmation':'Remove model confirmation'}><div class="screen-title"><button class="icon-button" aria-label="Close confirmation" onclick={()=>confirmation=null}><Icon name="close"/></button><h3>{confirmation==='replace'?'Replace stems?':confirmation==='runtime'?'Remove separation tools?':'Remove model?'}</h3></div><p>{confirmation==='replace'?'The existing stems stay available until the new tracks are checked and saved. Matching track gains and mutes are retained.':confirmation==='runtime'?'The separation tools and their download cache will be removed. Model weights, recordings, completed stems, notes and maps remain.':'The downloaded model will be removed. Completed stems, recording, notes and map remain.'}</p><button class="button" disabled={!available(confirmation==='replace'?'separation_start':confirmation==='runtime'?'separation_remove_runtime':'separation_remove_model')} onclick={()=>{run(confirmation==='replace'?'separation_start':confirmation==='runtime'?'separation_remove_runtime':'separation_remove_model');confirmation=null;}}>{confirmation==='replace'?'Separate and replace':confirmation==='runtime'?'Remove separation tools':'Remove model'}</button></div>{/if}
+ {#if confirmation}<div class="confirmation" role="alertdialog" tabindex="-1" aria-label="Replace stems confirmation"><div class="screen-title"><button class="icon-button" aria-label="Close confirmation" onclick={()=>confirmation=null}><Icon name="close"/></button><h3>Replace stems?</h3></div><p>The existing stems stay available until the new tracks are checked and saved. Matching track gains and mutes are retained.</p><button class="button" disabled={!available('separation_start')} onclick={()=>{run('separation_start');confirmation=null;}}>Separate and replace</button></div>{/if}
 </section>
 <style>
  .separation-panel{display:grid;gap:18px;width:100%;max-width:850px}
@@ -59,7 +58,7 @@
  .model-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.model-heading h3{font-size:18px;font-weight:600;margin:0}.model-state{font-size:12px;color:var(--muted)}
  p{font-size:13px;line-height:1.5;margin:0;color:var(--text-secondary)}.small{font-size:12px;color:var(--muted)}
  .component-status{display:grid;gap:8px;font-size:12px;margin:0}.component-status>div{display:flex;justify-content:space-between;gap:16px}.component-status dt{color:var(--text-secondary)}.component-status dd{margin:0;color:var(--muted)}
- .management-controls{display:flex;flex-wrap:wrap;gap:10px}.button{justify-self:start}.job-controls{display:flex;align-items:center;justify-content:space-between;gap:15px;font-size:12px;color:var(--text-secondary)}
+ .manage{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.manage .text-button{padding-inline:4px}.button{justify-self:start}.job-controls{display:flex;align-items:center;justify-content:space-between;gap:15px;font-size:12px;color:var(--text-secondary)}
  details{font-size:12px;color:var(--text-secondary)}details[open]{display:grid;gap:12px}
  .notice{display:grid;gap:10px}.diagnostics pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;font-size:11px}
  .confirmation{display:grid;gap:16px;padding:18px;border:1px solid var(--border-strong);border-radius:7px}

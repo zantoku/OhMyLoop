@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { closeTopTransient, openTransient } from './transient';
+import { closeTopTransient, openTransient, TransientStack } from './transient';
 
 describe('transient UI unwinds newest first', () => {
   it('closes one level per call and reports when nothing is open', () => {
@@ -18,5 +18,17 @@ describe('transient UI unwinds newest first', () => {
     release();
     expect(closeTopTransient()).toBe(false);
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe('a dialog’s own transient stack', () => {
+  it('unwinds independently of the window’s stack', () => {
+    const behind = vi.fn(), inside = vi.fn();
+    const releaseBehind = openTransient(behind);
+    const stack = new TransientStack(); stack.add(inside);
+    expect(stack.closeTop()).toBe(true);
+    expect(inside).toHaveBeenCalledOnce(); expect(behind).not.toHaveBeenCalled();
+    expect(stack.closeTop()).toBe(false);
+    releaseBehind();
   });
 });

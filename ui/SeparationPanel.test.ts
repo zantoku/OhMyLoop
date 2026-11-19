@@ -48,17 +48,14 @@ it('uses shared indeterminate setup progress and preserves ready model informati
  expect(screen.getAllByText('Ready').length).toBe(1);
  expect(view.run).not.toHaveBeenCalled();
 });
-it('confirms removal of tools with leading close control and retains models/data',async()=>{
+it('leaves repairing and removing the tools to Settings, linking to its Stem separation section',async()=>{
  const view=panel(setupStatus(true,true));
- await fireEvent.click(screen.getByRole('button',{name:'Remove separation tools…'}));
- const dialog=screen.getByRole('alertdialog',{name:'Remove separation tools confirmation'});
- expect(within(dialog).getByRole('button',{name:'Close confirmation'})).toBeTruthy();
- expect(within(dialog).getByText(/Model weights, recordings, completed stems, notes and maps remain/)).toBeTruthy();
- await fireEvent.click(within(dialog).getByRole('button',{name:'Remove separation tools'}));
- expect(view.run).toHaveBeenCalledWith('separation_remove_runtime');
- expect(view.run).not.toHaveBeenCalledWith('separation_remove_model');
+ for(const name of [/Reinstall/,/Remove separation tools/,/Remove model/,/Check tools again/])expect(screen.queryByRole('button',{name})).toBeNull();
+ await fireEvent.click(screen.getByRole('button',{name:'Manage in Settings'}));
+ expect(view.run).toHaveBeenCalledWith('settings',{settingsSection:'stems'});
 });
-it('disables management while relevant assets are in use',()=>{
- panel(setupStatus(true,true),()=>false);
- for(const name of ['Reinstall separation tools','Remove separation tools…','Reinstall model','Remove model…'])expect((screen.getByRole('button',{name}) as HTMLButtonElement).disabled).toBe(true);
+it('says when the tools need repair, and disables the link while Settings are unavailable',()=>{
+ const status=setupStatus(false,true);status.runtime.path='/python';panel(status,()=>false);
+ expect(screen.getByText('The separation tools need repair.').getAttribute('role')).toBe('status');
+ expect((screen.getByRole('button',{name:'Repair in Settings'}) as HTMLButtonElement).disabled).toBe(true);
 });

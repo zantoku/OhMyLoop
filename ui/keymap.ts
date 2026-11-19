@@ -1,6 +1,8 @@
 import { ACTIONS, BUTTONS, inScope, scopesOverlap, type ActionContext, type ActionId, type ButtonId } from './actions';
 
 export type KeymapFile = { path: string | null; configuration: unknown; warning: string | null };
+/** Where the shortcuts in use come from: no file, the person's file, or the defaults because their file was rejected. */
+export type KeymapSource = 'builtin' | 'custom' | 'rejected';
 type Input = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey' | 'repeat' | 'isComposing'>;
 export type Chord = { key: string; shift: boolean | null; ctrl: boolean; meta: boolean; alt: boolean };
 type Config = { version: 1; keys?: Partial<Record<ActionId, string[]>>; buttons?: Partial<Record<ButtonId, ActionId>>; descriptions?: Partial<Record<ActionId, string>> };
@@ -35,8 +37,8 @@ function overlaps(a: Chord, b: Chord): boolean {
  * Identities that existed in older versions. A configuration that still names
  * them loads with a warning instead of being rejected.
  */
-const REMOVED_ACTIONS: ReadonlySet<string> = new Set(['load_demo']);
-const REMOVED_BUTTONS: ReadonlySet<string> = new Set(['demo']);
+const REMOVED_ACTIONS: ReadonlySet<string> = new Set(['load_demo', 'managed_settings']);
+const REMOVED_BUTTONS: ReadonlySet<string> = new Set(['demo', 'managed_settings']);
 /**
  * Defaults added after configurations could already use their keys. One of
  * these gives way to a person's own binding of the same key, with a warning;
@@ -144,14 +146,15 @@ export class Keymap {
   }
 }
 
-export async function loadKeymap(read: () => Promise<KeymapFile>, mac: boolean): Promise<{ model: Keymap; path: string | null; warning: string | null }> {
+export async function loadKeymap(read: () => Promise<KeymapFile>, mac: boolean): Promise<{ model: Keymap; path: string | null; warning: string | null; source: KeymapSource }> {
   let path: string | null = null;
   try {
     const source = await read(); path = source.path;
-    if (source.warning) return { model: new Keymap(mac), path, warning: source.warning };
-    const model = new Keymap(mac, source.configuration ?? undefined);
-    return { model, path, warning: model.warnings.length ? model.warnings.join(' ') : null };
+    if (source.warning) return { model: new Keymap(mac), path, warning: source.warning, source: 'rejected' };
+    if (source.configuration === null || source.configuration === undefined) return { model: new Keymap(mac), path, warning: null, source: 'builtin' };
+    const model = new Keymap(mac, source.configuration);
+    return { model, path, warning: model.warnings.length ? model.warnings.join(' ') : null, source: 'custom' };
   } catch (error) {
-    return { model: new Keymap(mac), path, warning: `Using default shortcuts: ${String(error)}` };
+    return { model: new Keymap(mac), path, warning: `Using default shortcuts: ${String(error)}`, source: 'rejected' };
   }
 }

@@ -8,7 +8,7 @@ import type { PracticeDocument, Snapshot, Transport } from './types';
 import type {StemProgress} from './stems';
 import type {SeparationStatus} from './separation';
 
-const mock = vi.hoisted(() => ({ separationEstimate:vi.fn(),separationStatus:vi.fn(),installSeparationModel:vi.fn(),reinstallSeparationModel:vi.fn(),reinstallSeparationRuntime:vi.fn(),removeSeparationRuntime:vi.fn(),removeSeparationModel:vi.fn(),refreshSeparationRuntime:vi.fn(),startSeparation:vi.fn(),cancelSeparation:vi.fn(), stemsStatus:vi.fn(),setStemMix:vi.fn(),attachStems:vi.fn(),removeStems:vi.fn(),pickStemsDirectory:vi.fn(),onStemProgress:vi.fn(), libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),inspectImportSong:vi.fn(),onFileDrop:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
+const mock = vi.hoisted(() => ({ separationEstimate:vi.fn(),separationStatus:vi.fn(),installSeparationModel:vi.fn(),reinstallSeparationModel:vi.fn(),reinstallSeparationRuntime:vi.fn(),removeSeparationRuntime:vi.fn(),removeSeparationModel:vi.fn(),refreshSeparationRuntime:vi.fn(),startSeparation:vi.fn(),cancelSeparation:vi.fn(), stemsStatus:vi.fn(),setStemMix:vi.fn(),attachStems:vi.fn(),removeStems:vi.fn(),pickStemsDirectory:vi.fn(),onStemProgress:vi.fn(), libraryStatus:vi.fn(),chooseLibrary:vi.fn(),retryLibrary:vi.fn(),acknowledgeImportNotice:vi.fn(),pickImportSong:vi.fn(),inspectImportSong:vi.fn(),onFileDrop:vi.fn(),importSong:vi.fn(),deleteLibrarySong:vi.fn(),onImportProgress:vi.fn(), initialize: vi.fn(), openSong: vi.fn(),importSeparate:vi.fn(),replaceRecording:vi.fn(),libraryReference:vi.fn(),replaceLibraryReference:vi.fn(), update: vi.fn(), action: vi.fn(), status: vi.fn(), readKeymap: vi.fn(), analysisStatus: vi.fn(), startAnalysis:vi.fn(), cancelAnalysis:vi.fn(), installModel:vi.fn(), removeModel:vi.fn(), revealLocation:vi.fn(), openShortcutFile:vi.fn(), readCachedAnalysis:vi.fn(), readLibrary:vi.fn(),openLibrarySong:vi.fn(),updateLibrarySong:vi.fn(), onExitRequested:vi.fn(),finishExit:vi.fn(), previewMap: vi.fn(), mapView: vi.fn(), countIn:vi.fn(), metronome:vi.fn() }));
 vi.mock('./bridge', () => ({ native: true, bridge: mock }));
 const menu = vi.hoisted(() => {
   const items: { id?: string; action?: () => void; setEnabled: unknown; close: unknown }[] = [];
@@ -94,18 +94,22 @@ async function ready() {
 }
 
 describe('single-song practice workflow', () => {
-  it('shows save state and shortcut help in the header, and appearance and the audio device in the Library header', async () => {
+  it('shows save state and shortcut help in the header, and appearance and the audio device in Settings', async () => {
     await ready();
     const header = screen.getByRole('banner');
     expect(within(header).getByRole('status').textContent).toBe('Saved');
     expect(within(header).getByRole('button', { name: 'Keyboard shortcuts' })).toBeTruthy();
-    expect(within(header).queryByRole('button', { name: /^UI: / })).toBeNull();
+    expect(within(header).queryByText('Test output')).toBeNull();
     expect(screen.queryByRole('contentinfo')).toBeNull();
     await fireEvent.click(within(header).getByRole('button', { name: 'Library' }));
-    const appearance = await within(header).findByRole('button', { name: /^UI: / });
-    expect(within(header).getByText('Test output')).toBeTruthy();
+    expect(within(header).queryByText('Test output')).toBeNull();
+    await fireEvent.click(within(header).getByRole('button', { name: 'Settings' }));
+    const settings = await screen.findByRole('dialog', { name: 'Settings' });
+    expect(within(settings).getByRole('tab', { name: /Audio\s*Test output/ })).toBeTruthy();
+    await fireEvent.click(within(settings).getByRole('tab', { name: /^Appearance/ }));
     mock.action.mockClear(); mock.update.mockClear();
-    await fireEvent.click(appearance);
+    await fireEvent.click(within(settings).getByRole('button', { name: 'Dark' }));
+    expect(window.document.documentElement.dataset.theme).toBe('dark');
     expect(mock.action).not.toHaveBeenCalled();
     expect(mock.update).not.toHaveBeenCalled();
   });
@@ -323,14 +327,18 @@ it('keeps the accepted map on a failed save and can retry the same preview',asyn
   await fireEvent.click(screen.getByRole('button',{name:'Apply map'}));await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));await waitFor(()=>expect(screen.queryByText(/Disk full/)).toBeNull());
 });
 
-it('polls visible analysis progress and shows the installed model folder',async()=>{
+it('polls visible analysis progress and leaves model management to Settings',async()=>{
   const status={id:4,running:true,kind:'analysis',phase:'Finding beats and downbeats',model_ready:true,model_path:'/test/installed/models',progress:{completed:1,total:4,unit:'segments'},elapsed_seconds:61,reference_token:'test',map_revision:0,error:null,result:null};
-  mock.analysisStatus.mockResolvedValueOnce(status).mockResolvedValue({...status,progress:{completed:2,total:4,unit:'segments'},elapsed_seconds:62});
+  mock.analysisStatus.mockResolvedValue(status);
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await screen.findByText('1 / 4 segments completed · 25%');
+  mock.analysisStatus.mockResolvedValue({...status,progress:{completed:2,total:4,unit:'segments'},elapsed_seconds:62});
   await screen.findByText('2 / 4 segments completed · 50%');
   await fireEvent.click(screen.getByText('Analysis model',{selector:'summary'}));
-  expect(screen.getByText('/test/installed/models')).toBeTruthy();expect(screen.getByText('Installed model folder')).toBeTruthy();
+  expect(screen.getByText('The model is installed.')).toBeTruthy();expect(screen.queryByText('/test/installed/models')).toBeNull();
+  expect(screen.queryByRole('button',{name:/reinstall/i})).toBeNull();
+  // Settings are unavailable while analysis runs (decision 6).
+  expect((screen.getByRole('button',{name:'Manage the model in Settings'}) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it('uses detected beats by default, derives count from the preview, and prevents applying changed settings',async()=>{
@@ -1224,11 +1232,16 @@ it('focuses the search with ⌘F and keeps typed letters in it',async()=>{
 it('opens Settings with ⌘, from any screen and from the Library’s Settings button',async()=>{
   await ready();expect(within(screen.getByRole('banner')).queryByRole('button',{name:'Settings'})).toBeNull();
   await fireEvent.keyDown(window,{key:',',ctrlKey:true});await fireEvent.keyDown(window,{key:',',metaKey:true});
-  const dialog=await screen.findByRole('dialog',{name:'Library settings'});expect(within(dialog).getByText('/library')).toBeTruthy();
-  await fireEvent.click(within(dialog).getByRole('button',{name:'Close library dialog'}));
+  const dialog=await screen.findByRole('dialog',{name:'Settings'});
+  expect(within(dialog).getByRole('tab',{name:/^Library/}).getAttribute('aria-selected')).toBe('true');
+  expect(await within(dialog).findByText('/library · 1 song')).toBeTruthy();
+  expect(within(dialog).getByRole('tab',{name:/^Library/}).textContent).toContain('library · 1 song');
+  expect(screen.queryByRole('dialog',{name:'Library settings'})).toBeNull();
+  await fireEvent.click(within(dialog).getByRole('button',{name:'Close Settings'}));
+  expect(screen.queryByRole('dialog',{name:'Settings'})).toBeNull();
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));
   await fireEvent.click(within(screen.getByRole('banner')).getByRole('button',{name:'Settings'}));
-  await screen.findByRole('dialog',{name:'Library settings'});
+  await screen.findByRole('dialog',{name:'Settings'});
 });
 it('shows the empty Library with Import on first launch',async()=>{
   mock.initialize.mockResolvedValue({song:null,document:null,transport:{...transport,song_key:null,reference_token:null}});
@@ -1612,8 +1625,8 @@ it('keeps the selected song when switching cannot save pending settings',async()
   await ready();mock.update.mockRejectedValue(new Error('Cannot save'));
   await fireEvent.change(speedField(),{target:{value:'80'}});
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(screen.getByRole('button',{name:'Settings'}));
-  await fireEvent.click(screen.getByRole('button',{name:/^Open an existing library/}));
-  await within(screen.getByRole('dialog',{name:'Library settings'})).findByText(/Cannot save/);expect(mock.chooseLibrary).not.toHaveBeenCalled();expect(screen.getByText('Current')).toBeTruthy();
+  await fireEvent.click(screen.getByRole('button',{name:'Open another library…'}));
+  await within(screen.getByRole('dialog',{name:'Settings'})).findByText(/Cannot save/);expect(mock.chooseLibrary).not.toHaveBeenCalled();expect(screen.getByText('Current')).toBeTruthy();
 });
 it('offers unavailable-root actions without silently creating a library',async()=>{
   mock.libraryStatus.mockResolvedValue({selected:{id:'lib',root:'/missing'},available:false,error:'Drive disconnected',import_notice_seen:true});
@@ -1741,7 +1754,10 @@ describe('integrated separation workflow',()=>{
   const value=separationStatus();value.runtime.ready=false;value.runtime.supported=true;value.install={...value.install,id:'setup',order:1,running:true,phase:'Installing separation tools',cancellable:true,progress:{stage:'runtime.dependencies',completed:0,total:null,workflow:{completed:0,total:0,steps:[{id:'runtime.dependencies',label:'Install separation tools',state:'active',completed:0,total:null}]}}};mock.separationStatus.mockResolvedValue(value);
   await ready();expect(mock.installSeparationModel).not.toHaveBeenCalled();expect((screen.getByRole('button',{name:'Play'}) as HTMLButtonElement).disabled).toBe(false);
   await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await screen.findByText('Install separation tools');
-  for(const name of ['Reinstall separation tools','Remove separation tools…','Reinstall model'])expect((screen.getByRole('button',{name}) as HTMLButtonElement).disabled).toBe(true);
+  // Settings own tool management and are unavailable while setup downloads (decision 6).
+  for(const name of [/Reinstall/,/Remove separation tools/])expect(screen.queryByRole('button',{name})).toBeNull();
+  expect((screen.getByRole('button',{name:'Manage in Settings'}) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(screen.getByRole('banner')).queryByRole('button',{name:'Settings'}))).toBeNull();
   await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));await fireEvent.click(screen.getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
   await fireEvent.click(screen.getByRole('button',{name:'Open Stems'}));expect(screen.getByText('Install separation tools')).toBeTruthy();expect(mock.cancelSeparation).not.toHaveBeenCalled();expect(mock.startSeparation).not.toHaveBeenCalled();
  });
@@ -1762,7 +1778,7 @@ describe('integrated separation workflow',()=>{
  });
  it('does not ask about a pending runtime readiness check',async()=>{
   const missing=separationStatus();missing.runtime.ready=false;mock.separationStatus.mockResolvedValue(missing);let exit!:(activeProcessing?:boolean)=>void;mock.onExitRequested.mockImplementation(async(handler:(activeProcessing?:boolean)=>void)=>{exit=handler;return ()=>{};});let resolve!:(status:SeparationStatus)=>void;mock.refreshSeparationRuntime.mockReturnValue(new Promise<SeparationStatus>(r=>resolve=r));
-  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Check tools again'}));await waitFor(()=>expect(mock.refreshSeparationRuntime).toHaveBeenCalledOnce());exit(false);await waitFor(()=>expect(mock.finishExit).toHaveBeenCalledOnce());expect(screen.queryByRole('dialog',{name:'Quit and cancel processing'})).toBeNull();resolve(separationStatus());
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Repair in Settings'}));await fireEvent.click(await screen.findByRole('button',{name:'Check again'}));await waitFor(()=>expect(mock.refreshSeparationRuntime).toHaveBeenCalledOnce());exit(false);await waitFor(()=>expect(mock.finishExit).toHaveBeenCalledOnce());expect(screen.queryByRole('dialog',{name:'Quit and cancel processing'})).toBeNull();resolve(separationStatus());
  });
  it('keeps one exit handshake while confirmed native cleanup is still pending',async()=>{
   const active=separationStatus();active.install={...active.install,id:'download',running:true,phase:'Downloading model',cancellable:true};mock.separationStatus.mockResolvedValue(active);let exit!:(activeProcessing?:boolean)=>void;mock.onExitRequested.mockImplementation(async(handler:(activeProcessing?:boolean)=>void)=>{exit=handler;return ()=>{};});let complete!:()=>void;mock.finishExit.mockReturnValue(new Promise<void>(resolve=>complete=resolve));
@@ -2008,6 +2024,16 @@ describe('undo and the macOS menu bar', () => {
     await command('play_pause');
     await waitFor(() => expect(mock.action).toHaveBeenCalledWith({ type: 'toggle_play' }, 'test'));
   });
+  it('opens Settings from the app menu’s Settings…, disabled while background work runs', async () => {
+    await ready();
+    await command('show_settings');
+    await screen.findByRole('dialog', { name: 'Settings' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Close Settings' }));
+    const settingsItem = () => menu.items.filter(item => item.id === 'show_settings').at(-1)!.setEnabled as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(settingsItem()).toHaveBeenLastCalledWith(true));
+    const value = separationStatus(); value.install = { ...value.install, id: 'download', running: true, phase: 'Downloading model', cancellable: true }; mock.separationStatus.mockResolvedValue(value);
+    await waitFor(() => expect(settingsItem()).toHaveBeenLastCalledWith(false));
+  });
   it('sends menu Undo to the app outside text fields and ⌘Z restores a removed section', async () => {
     await ready();
     await fireEvent.click(screen.getByRole('button', { name: 'Delete Chorus' }));
@@ -2138,5 +2164,204 @@ describe('Stage practice screen', () => {
     await waitFor(() => expect(mix.getAllByRole('slider').map(knob => knob.getAttribute('aria-label'))).toEqual(['Click gain', 'Bass gain', 'Drums gain', 'Guitar gain', 'Piano gain', 'Vocals gain', 'Other gain']));
     await fireEvent.keyDown(window, { key: '3' });
     await waitFor(() => expect(mix.getByRole('button', { name: 'Mute Guitar' }).getAttribute('aria-pressed')).toBe('true'));
+  });
+});
+
+describe('Settings dialog',()=>{
+  const settings=()=>screen.getByRole('dialog',{name:'Settings'});
+  const tab=(name:RegExp)=>within(settings()).getByRole('tab',{name});
+  async function openSettings(section?:RegExp){
+    await fireEvent.keyDown(window,{key:',',ctrlKey:true});await screen.findByRole('dialog',{name:'Settings'});
+    if(section)await fireEvent.click(tab(section));
+  }
+  const modelStatus=(change:object={})=>({id:1,running:false,kind:'idle',phase:'Ready',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:true,reference_token:null,map_revision:0,error:null,result:null,...change});
+
+  it('lists the six sections in order with a one-line status each, and opens on Library',async()=>{
+    await ready();await openSettings();
+    expect(within(settings()).getAllByRole('tab').map(t=>t.querySelector('.name')?.textContent)).toEqual(['Library','Appearance','Audio','Shortcuts','Stem separation','Beat analysis']);
+    expect(tab(/^Audio/).textContent).toContain('Test output');expect(tab(/^Shortcuts/).textContent).toContain('Built-in');
+    expect(tab(/^Library/).getAttribute('aria-selected')).toBe('true');expect(window.document.activeElement).toBe(tab(/^Library/));
+  });
+
+  it('closes with Esc and returns focus to where it was',async()=>{
+    await ready();const home=[...window.document.querySelectorAll<HTMLElement>('[data-home]')].find(element=>!element.closest('[hidden]'))!;home.focus();expect(window.document.activeElement).toBe(home);
+    await openSettings();expect(window.document.activeElement).not.toBe(home);
+    await fireEvent.keyDown(window.document.activeElement!,{key:'Escape'});
+    expect(screen.queryByRole('dialog',{name:'Settings'})).toBeNull();expect(window.document.activeElement).toBe(home);
+    await openSettings(/^Shortcuts/);await fireEvent.click(within(settings()).getByRole('button',{name:'Close Settings'}));
+    expect(window.document.activeElement).toBe(home);
+  });
+
+  it('owns every key while open: arrows move between sections, shortcuts wait until it closes',async()=>{
+    await ready();await openSettings();mock.action.mockClear();
+    const focused=()=>window.document.activeElement as HTMLElement;
+    await fireEvent.keyDown(focused(),{key:' '});await fireEvent.keyDown(focused(),{key:'l'});await fireEvent.keyDown(focused(),{key:'n'});
+    expect(mock.action).not.toHaveBeenCalled();expect(transport.playing).toBe(false);expect(screen.queryByRole('textbox',{name:'Notes for this song'})).toBeNull();
+    await fireEvent.keyDown(focused(),{key:'ArrowDown'});expect(focused()).toBe(tab(/^Appearance/));expect(tab(/^Appearance/).getAttribute('aria-selected')).toBe('true');
+    await fireEvent.keyDown(focused(),{key:'End'});expect(focused()).toBe(tab(/^Beat analysis/));
+    await fireEvent.keyDown(focused(),{key:'ArrowDown'});expect(focused()).toBe(tab(/^Library/));
+    await fireEvent.keyDown(focused(),{key:'ArrowUp'});expect(within(settings()).getByRole('heading',{name:'Beat analysis'})).toBeTruthy();
+    await fireEvent.keyDown(focused(),{key:'Home'});expect(focused()).toBe(tab(/^Library/));
+    await fireEvent.keyDown(focused(),{key:'Escape'});expect(screen.queryByRole('dialog',{name:'Settings'})).toBeNull();
+    await fireEvent.keyDown(window,{key:' '});await waitFor(()=>expect(transport.playing).toBe(true));
+  });
+
+  it('opens on the section a link names: Stems and the shortcut list',async()=>{
+    await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+    await fireEvent.click(await screen.findByRole('button',{name:'Repair in Settings'}));
+    expect(tab(/^Stem separation/).getAttribute('aria-selected')).toBe('true');expect(within(settings()).getByRole('heading',{name:'Stem separation'})).toBeTruthy();
+    await fireEvent.keyDown(window.document.activeElement!,{key:'Escape'});
+    await fireEvent.click(screen.getByRole('button',{name:'Keyboard shortcuts'}));
+    await fireEvent.click(screen.getByRole('button',{name:'Change shortcuts: Settings › Shortcuts'}));
+    expect(tab(/^Shortcuts/).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('is unavailable while background work runs, and says why',async()=>{
+    const value=separationStatus();value.install={...value.install,id:'download',running:true,phase:'Downloading model',cancellable:true};mock.separationStatus.mockResolvedValue(value);
+    await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+    const button=within(screen.getByRole('banner')).getByRole('button',{name:'Settings'}) as HTMLButtonElement;
+    await waitFor(()=>expect(button.disabled).toBe(true));expect(button.title).toBe('Settings are unavailable while the stem separation tools download.');
+    await fireEvent.keyDown(window.document.activeElement!,{key:',',ctrlKey:true});
+    expect(screen.queryByRole('dialog',{name:'Settings'})).toBeNull();
+    expect(await screen.findByText('Settings are unavailable while the stem separation tools download.')).toBeTruthy();
+  });
+
+  it('keeps a download started here open with progress and dims the other sections’ actions',async()=>{
+    const missing=separationStatus();missing.runtime={ready:false,message:'Set up',path:null,supported:true};mock.separationStatus.mockResolvedValue(missing);
+    const running=separationStatus();running.runtime={...missing.runtime};running.install={...running.install,id:'download',running:true,phase:'Downloading model',cancellable:true,progress:{stage:'model',completed:59,total:100,workflow:null}};
+    mock.installSeparationModel.mockImplementation(async()=>{mock.separationStatus.mockResolvedValue(running);return structuredClone(running);});
+    await ready();await openSettings(/^Stem separation/);
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Install'}));
+    expect(await within(settings()).findByRole('progressbar',{name:'Stem separation setup progress'})).toBeTruthy();
+    expect(within(settings()).getByText('59 %')).toBeTruthy();expect(tab(/^Stem separation/).textContent).toContain('Downloading model · 59 %');
+    expect((within(settings()).getByRole('button',{name:'Cancel'}) as HTMLButtonElement).disabled).toBe(false);
+    await fireEvent.click(tab(/^Library/));
+    expect((within(settings()).getByRole('button',{name:'Open another library…'}) as HTMLButtonElement).disabled).toBe(true);
+    await fireEvent.click(tab(/^Shortcuts/));
+    expect((within(settings()).getByRole('button',{name:'Reload'}) as HTMLButtonElement).disabled).toBe(true);
+    await fireEvent.click(tab(/^Appearance/));
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Light'}));expect(window.document.documentElement.dataset.theme).toBe('light');
+    expect(screen.getByRole('dialog',{name:'Settings'})).toBeTruthy();
+  });
+
+  it('removes the beat analysis model after a confirmation that Esc dismisses first',async()=>{
+    mock.analysisStatus.mockResolvedValue(modelStatus());mock.removeModel.mockResolvedValue(modelStatus({model_ready:false}));
+    await ready();await openSettings(/^Beat analysis/);
+    await waitFor(()=>expect(tab(/^Beat analysis/).textContent).toContain('Ready'));
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Remove…'}));
+    const confirm=within(settings()).getByRole('group',{name:'Remove the beat analysis model'});
+    expect(confirm.textContent).toContain('Your measure maps and analysis results stay');
+    await fireEvent.keyDown(window.document.activeElement!,{key:'Escape'});
+    expect(within(settings()).queryByRole('group',{name:'Remove the beat analysis model'})).toBeNull();expect(settings()).toBeTruthy();
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Remove…'}));
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Remove model'}));
+    await waitFor(()=>expect(mock.removeModel).toHaveBeenCalledOnce());
+  });
+
+  it('shows a rejected shortcut file with its reason, opens and reveals it, and hides the Practice button',async()=>{
+    mock.readKeymap.mockResolvedValue({path:'/test/keymap.json',configuration:{version:1,keys:{play_pause:['p'],jump_loop_start:['p']}},warning:null});
+    mock.openShortcutFile.mockResolvedValue(undefined);mock.revealLocation.mockResolvedValue(undefined);
+    await ready();await openSettings(/^Shortcuts/);
+    expect(tab(/^Shortcuts/).textContent).toContain('File rejected');
+    expect(within(settings()).getByRole('alert').textContent).toMatch(/keymap\.json was rejected:.*conflicts with/);
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Open file'}));expect(mock.openShortcutFile).toHaveBeenCalledOnce();
+    await fireEvent.click(within(settings()).getByRole('button',{name:/^Show in /}));expect(mock.revealLocation).toHaveBeenCalledWith('shortcut_file');
+    await fireEvent.click(within(settings()).getByRole('checkbox',{name:'Show the shortcuts button on Practice'}));
+    await fireEvent.keyDown(window.document.activeElement!,{key:'Escape'});
+    expect(within(screen.getByRole('banner')).queryByRole('button',{name:'Keyboard shortcuts'})).toBeNull();
+    await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+    expect(within(screen.getByRole('banner')).getByRole('button',{name:'Keyboard shortcuts'})).toBeTruthy();
+    localStorage.removeItem('ohmyloop.ui.practice-shortcuts-button');
+  });
+
+  it('sets the notes font for the notes drawer',async()=>{
+    await ready();await openSettings(/^Appearance/);
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Monospaced'}));
+    expect(within(settings()).getByLabelText('Notes font preview').classList.contains('mono')).toBe(true);
+    await fireEvent.keyDown(window.document.activeElement!,{key:'Escape'});
+    await fireEvent.click(notesButton());expect(notesField().classList.contains('mono')).toBe(true);
+    localStorage.removeItem('ohmyloop.ui.notes-font');
+  });
+
+  it('recovers a missing library from the Library section',async()=>{
+    mock.libraryStatus.mockResolvedValue({selected:{id:'lib',root:'/Volumes/Music/OhMyLoop Library'},available:false,error:'Drive disconnected',import_notice_seen:true});
+    mock.retryLibrary.mockResolvedValue({song:null,document:null,transport:{...transport,song_key:null,reference_token:null}});
+    await ready();await openSettings();
+    expect(tab(/^Library/).textContent).toContain('Not found');
+    expect(within(settings()).getByRole('alert').textContent).toContain('Drive disconnected');
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Retry'}));
+    await waitFor(()=>expect(mock.retryLibrary).toHaveBeenCalledOnce());
+  });
+
+  it('retries a lost audio device from Settings opened over the Library',async()=>{
+    transport.audio_error='Output device disconnected';
+    await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+    await fireEvent.click(within(screen.getByRole('banner')).getByRole('button',{name:'Settings'}));await fireEvent.click(tab(/^Audio/));
+    const retry=await within(settings()).findByRole('button',{name:'Retry audio'}) as HTMLButtonElement;
+    await waitFor(()=>expect(retry.disabled).toBe(false));mock.action.mockClear();
+    await fireEvent.click(retry);await waitFor(()=>expect(mock.action).toHaveBeenCalledWith({type:'retry_audio'},'test'));
+  });
+
+  it('lifts the block when the background work ends',async()=>{
+    const value=separationStatus();value.install={...value.install,id:'download',running:true,phase:'Downloading model',cancellable:true};mock.separationStatus.mockResolvedValue(value);
+    await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+    const button=()=>within(screen.getByRole('banner')).getByRole('button',{name:'Settings'}) as HTMLButtonElement;
+    await waitFor(()=>expect(button().disabled).toBe(true));
+    mock.separationStatus.mockResolvedValue(separationStatus());
+    await waitFor(()=>expect(button().disabled).toBe(false));expect(button().title).toBe('Open Settings (Ctrl + ,)');
+    await fireEvent.click(button());await screen.findByRole('dialog',{name:'Settings'});
+  });
+
+  it('is blocked while beat analysis runs and while a song imports',async()=>{
+    mock.analysisStatus.mockResolvedValue(modelStatus({running:true,kind:'analysis',phase:'Finding beats',reference_token:'test'}));
+    await ready();await fireEvent.click(screen.getByRole('button',{name:'Library'}));
+    const button=()=>within(screen.getByRole('banner')).getByRole('button',{name:'Settings'}) as HTMLButtonElement;
+    await waitFor(()=>expect(button().title).toBe('Settings are unavailable while beat analysis runs.'));expect(button().disabled).toBe(true);
+    mock.analysisStatus.mockResolvedValue(modelStatus());await waitFor(()=>expect(button().disabled).toBe(false));
+    mock.pickImportSong.mockReturnValue(new Promise(()=>{}));
+    await fireEvent.click(screen.getByRole('button',{name:'Import song'}));
+    await waitFor(()=>expect(button().title).toMatch(/^Settings are unavailable until this finishes: Importing song/));expect(button().disabled).toBe(true);
+    await fireEvent.keyDown(window.document.activeElement!,{key:',',ctrlKey:true});
+    expect(screen.queryByRole('dialog',{name:'Settings'})).toBeNull();expect(await screen.findByText(/^Settings are unavailable until this finishes: Importing song/)).toBeTruthy();
+  });
+
+  it('reopens on its own download after Settings was closed during it, with progress and Cancel',async()=>{
+    const missing=separationStatus();missing.runtime={ready:false,message:'Set up',path:null,supported:true};mock.separationStatus.mockResolvedValue(missing);
+    const running=separationStatus();running.runtime={...missing.runtime};running.install={...running.install,id:'download',running:true,phase:'Downloading model',cancellable:true,progress:{stage:'model',completed:30,total:100,workflow:null}};
+    mock.installSeparationModel.mockImplementation(async()=>{mock.separationStatus.mockResolvedValue(running);return structuredClone(running);});
+    await ready();await openSettings(/^Stem separation/);
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Install'}));
+    await within(settings()).findByRole('progressbar',{name:'Stem separation setup progress'});
+    await fireEvent.click(tab(/^Appearance/));
+    await fireEvent.keyDown(window.document.activeElement!,{key:'Escape'});expect(screen.queryByRole('dialog',{name:'Settings'})).toBeNull();
+    await new Promise(resolve=>setTimeout(resolve,300));
+    await openSettings();
+    expect(tab(/^Stem separation/).getAttribute('aria-selected')).toBe('true');
+    expect(within(settings()).getByRole('progressbar',{name:'Stem separation setup progress'})).toBeTruthy();
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Cancel'}));
+    await waitFor(()=>expect(mock.cancelSeparation).toHaveBeenCalledWith('download'));
+  });
+
+  it('keeps a beat analysis start error visible on the Measure map',async()=>{
+    mock.analysisStatus.mockResolvedValue(modelStatus());mock.startAnalysis.mockRejectedValue(new Error('Recordings over one hour can’t be analysed.'));
+    await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+    const analyze=await screen.findByRole('button',{name:'Analyze song'});await waitFor(()=>expect((analyze as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(analyze);await screen.findByText('Error: Recordings over one hour can’t be analysed.');
+    await new Promise(resolve=>setTimeout(resolve,900));
+    expect(screen.getByText('Error: Recordings over one hour can’t be analysed.')).toBeTruthy();
+  });
+  it('shows a refused model download from the Measure map as an error toast',async()=>{
+    mock.analysisStatus.mockResolvedValue(modelStatus({model_ready:false}));mock.installModel.mockRejectedValue(new Error('Network unavailable'));
+    await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+    const download=await screen.findByRole('button',{name:'Download analysis model (83 MB)'});await waitFor(()=>expect((download as HTMLButtonElement).disabled).toBe(false));
+    await fireEvent.click(download);expect(await screen.findByText('Error: Network unavailable')).toBeTruthy();
+  });
+
+  it('retries a lost audio device from the Audio section',async()=>{
+    transport.audio_error='Output device disconnected';
+    await ready();await openSettings(/^Audio/);
+    await waitFor(()=>expect(tab(/^Audio/).textContent).toContain('Device lost'));
+    await fireEvent.click(within(settings()).getByRole('button',{name:'Retry audio'}));
+    await waitFor(()=>expect(mock.action).toHaveBeenCalledWith({type:'retry_audio'},'test'));
   });
 });

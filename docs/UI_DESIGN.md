@@ -10,11 +10,9 @@ Palette: canvas `#f3f5fa`, panel `#ffffff`, ink `#24314c`, waveform field
 distinguish saved sections. Warm loop handles evoke a physical practice tool;
 the surrounding controls stay quiet.
 
-Appearance defaults to the operating system's light/dark preference. Until the
-app-wide Settings exist, a single button in the Library screen's header shows
-only the selected setting (`UI: auto`, `UI: dark`, or `UI: light`), next to the
-audio output device. Click to cycle auto → dark → light → auto. The app-wide
-choice survives restart, independently of songs.
+Appearance defaults to the operating system's light/dark preference. Choose
+Auto, Light or Dark in **Settings → Appearance**; the change shows at once and
+survives restart, independently of songs.
 
 Shared semantic colors in `ui/theme.css` cover practice, library, notes, mapping,
 dialogs and native form controls. Dark mode uses slate canvas `#171e2b`, panel
@@ -22,9 +20,10 @@ dialogs and native form controls. Dark mode uses slate canvas `#171e2b`, panel
 Waveform overlays and section colors retain their contrast and meaning. CSS
 `prefers-color-scheme` handles live OS changes in auto; explicit light/dark
 choices override it. `ui/theme.ts` validates the stored preference, falling back
-to auto for unknown values without overwriting them. Startup applies the choice
-before mounting the screen. A failed save keeps the selected appearance for the
-session and displays a status message.
+to auto for unknown values without overwriting them (`ui/stored-choice.ts`, shared
+by every per-computer preference). Startup applies the choice before mounting
+the screen. A failed save keeps the selected appearance for the session and
+Settings says so.
 
 Type: Avenir Next where available, followed by Segoe UI and Noto Sans. Use
 tabular figures for musical positions and control values. No remote fonts.
@@ -53,7 +52,8 @@ beat 2 · 1:24.6/3:48  │ m. 33 – 40   │                   −10 −5 +5 +1
 - **Header** (`AppHeader.svelte`): a breadcrumb from the Library to the open
   song, the song's views as a segmented control (`ViewSwitcher.svelte`), the
   save state, a Notes button (N) that toggles the notes drawer, and the
-  keyboard-shortcuts button. The save state covers notes too and reads
+  keyboard-shortcuts button (hidden on Practice when Settings → Shortcuts says
+  so; the list stays reachable from Settings and its shortcut). The save state covers notes too and reads
   "⚠ Notes not saved" when a notes save fails. Without a song the app shows the
   Library and the views don't exist.
 - **Notes drawer** (`NotesDrawer.svelte`): 320 px on Practice's right edge,
@@ -99,8 +99,6 @@ Known gap: decision 15 asks for a **Song** volume knob in the mixer when there
 are no stems. The engine has no song-level gain yet, so the mixer shows only
 the click and the "Split into stems" link until that is added.
 
-Appearance and the audio device sit in the Library header only until the
-app-wide Settings screen takes them over.
 
 Use left alignment throughout. The waveform, rather than decorative cards,
 gets the visual emphasis. Avoid gradients, dashboard statistics, and motion
@@ -246,10 +244,8 @@ The Library is concept **LD, "open without editing"** ([brief](design/library.md
 opening a song never shows its edit fields. The Library breadcrumb at the top
 left of the header opens it as a full screen and pauses playback. Its header has
 no song views and no Notes button; it holds the save state, the **Settings**
-button (`show_settings`, ⌘, / Ctrl+,; the home of app-wide Settings) and the
-keyboard-shortcuts button. Until Settings exist (task 4), the Settings button
-opens the library dialog (create or open a library, where the open one lives,
-how to move it), and appearance and the audio device stay parked in this header.
+button (`show_settings`, ⌘, / Ctrl+,; the home of [app-wide Settings](#settings))
+and the keyboard-shortcuts button.
 
 ```
 Library                                      ✓ Saved  ⚙ Settings  ⌨
@@ -298,6 +294,67 @@ Double-click a song or press Enter to practise it · ⋯ or ⌘I edits its detai
   your songs live?"), the one-time copy notice, the duplicate choice and the
   delete confirmation ("Keep song" is the default button). The leading X closes.
 
+## Settings
+
+App-wide Settings are concept **GA, the sidebar dialog** ([brief](design/settings.md)):
+a modal `<dialog>` (`SettingsDialog.svelte`, 820 × 620, smaller in a smaller
+window) over the current screen, opened by the Library's Settings button, ⌘, /
+Ctrl+, from any screen, the macOS app menu's Settings…, and links from other
+screens that land on a section (`show_settings` with a section). A leading X,
+Esc or `close_settings` closes it, and focus returns to where it was. Playback
+is untouched.
+
+```
+✕ Settings
+┌──────────────────────┬───────────────────────────────────────────────┐
+│ Library              │ Stem separation                               │
+│ OhMyLoop Library · 12│ Splits songs into instrument tracks, offline…  │
+│ Appearance           │ Separation tools   Installed     Reinstall Remove…│
+│ Dark · mono notes    │ Roformer-SW model  Installed · 699.4 MB  …     │
+│ Audio · Shortcuts …  │ Check again · ▸ Storage location              │
+└──────────────────────┴───────────────────────────────────────────────┘
+```
+
+- **Sidebar:** Library, Appearance, Audio, Shortcuts, Stem separation, Beat
+  analysis, each with a one-line status (`settings.ts`). It's a vertical tab
+  list: ↑/↓, Home and End move between sections. One section shows at a time
+  (`Settings*.svelte`); changes apply at once.
+- **Library** (`SettingsLibrary.svelte`): the open library's name, folder and
+  song count with Show in Finder (Explorer, file manager); Open another
+  library… and Create a new library…; how to move or back up a library; when
+  missing, an amber notice with Retry and Locate…. The first-import setup,
+  copy notice, duplicate choice and delete confirmation stay in
+  `ManagedLibraryDialog.svelte`.
+- **Appearance:** Auto / Light / Dark and the notes font (Proportional /
+  Monospaced) with a chord-chart-and-tab preview.
+- **Audio:** the output in use, or the lost device with Retry audio. The output
+  chooser is drawn, disabled, in a dashed box marked "Future · #18".
+- **Shortcuts:** "Show the shortcuts button on Practice", View all shortcuts,
+  the shortcut file's path with Open file, Show in Finder and Reload, and its
+  status: built-in, custom, or rejected with the reason. The shortcut list
+  dialog links here instead of showing the file itself.
+- **Stem separation / Beat analysis:** status, size, install with progress and
+  Cancel, repair (Reinstall / Verify, Check again), and Remove… with an inline
+  confirmation saying stems, maps and analysis results stay. The Stems screen
+  keeps first-time setup and links here to manage or repair; the Measure map
+  keeps "Download analysis model" for drafting and links here.
+- **Background work** (decision 6): while separation, beat analysis, an import
+  or a tool download that wasn't started in Settings (on the Stems screen or
+  the Measure map) runs, the Settings button, ⌘, and the menu item are
+  disabled, and the button's tooltip says why. Where ⌘, reaches the window
+  (Windows, Linux) a notice says why too; on macOS the disabled menu item may
+  take the keystroke first. A download started inside Settings keeps it open
+  with its progress, and the other sections' actions are dimmed until it ends;
+  closing Settings meanwhile doesn't block it, and reopening lands on that
+  download's section with its progress and Cancel.
+- **Known gap:** the engine doesn't report the separation tools' size on disk
+  (only the model download size), so Stem separation shows the model size and
+  C1 ("the disk space they use") is only partly met. The beat model's size is
+  a fixed estimate (about 83 MB) for the same reason.
+- **Preferences** (theme, notes font, Practice shortcuts button) are stored per
+  computer, never per song; unknown stored values fall back to the default
+  without being overwritten.
+
 ## Song notes
 
 Notes is a tall drawer (concept NC, [brief](design/notes.md)) on the right edge
@@ -305,8 +362,8 @@ of Practice, from below the header down to the playback bar, beside both the
 readout band and the waveform. The sections sidebar on the left is unaffected,
 and the minimum window (1180 × 680) fits both side panels. The header's Notes
 button and N toggle it; there is no close X. A "Notes" heading sits above a
-full-height plain textarea in the UI font (monospace later from Settings →
-Appearance, read through `notes-font.ts`), with a placeholder when empty and a
+full-height plain textarea in the UI font, or monospaced when chosen in
+Settings → Appearance (`notes-font.ts`), with a placeholder when empty and a
 one-line hint below: "Typing · Esc returns to the waveform, so Space plays
 again" while typing, "Saved as you type" otherwise. Keep line breaks and
 whitespace; Markdown syntax is displayed as text.

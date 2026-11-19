@@ -1,6 +1,6 @@
 import {bridge} from './bridge';
 import type {ImportSelection,LibraryStatus,Snapshot} from './types';
-export type ManagedDialog='setup'|'settings'|'notice'|'duplicates'|'delete'|null;
+export type ManagedDialog='setup'|'notice'|'duplicates'|'delete'|null;
 export type ManagedState={status:LibraryStatus;dialog:ManagedDialog;selection:ImportSelection|null;pendingImport:boolean;deleteKey:string|null;deleteTitle:string};
 export class ManagedLibrarySession {
   private disposed=false;
@@ -12,7 +12,6 @@ export class ManagedLibrarySession {
   accept(status:LibraryStatus){if(this.disposed)return;this.state.status=status;this.emit();}
   async refresh(){const status=await bridge.libraryStatus();this.accept(status);}
   close(){this.source=null;this.state.dialog=null;this.state.pendingImport=false;this.state.selection=null;this.state.deleteKey=null;this.state.deleteTitle='';this.emit();}
-  settings(){this.state.dialog='settings';this.emit();}
   delete(key:string,title:string){this.state.deleteKey=key;this.state.deleteTitle=title;this.state.dialog='delete';this.emit();}
   /** Imports `source` (a dropped file), or asks for a recording when it's null. */
   async beginImport(source:string|null=null){

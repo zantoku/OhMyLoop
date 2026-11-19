@@ -26,6 +26,8 @@ export type NoticeState = {
   audioError: string | null; audioRetry: boolean; saveError: string | null; keymapWarning: string | null; keymapLoading: boolean;
   stemMixError: string; stemMixRetry: boolean; stemWarning: string | null; stemsUnavailable: boolean;
   countInError: string; clickError: string;
+  /** A passing explanation, such as why Settings can't open right now. */
+  info?: string;
   /** Running separation or setup, shown outside the Stems screen. */
   processing: { label: string; detail: string; progress: number | null } | null;
 };
@@ -50,6 +52,7 @@ export function notices(state: NoticeState): Notice[] {
   if (state.busy) add('busy', { tone: 'progress', text: state.busy, progress: null });
   if (state.undoCount && !state.busy) add(`undo-${state.undoCount}`, { tone: 'info', text: 'Section removed.', action: { button: 'undo_delete', label: 'Undo', enabled: true }, dismiss: 'hide' });
   if (state.stemWarning) add('stem-warning', { tone: 'info', text: `${state.stemWarning}${state.stemsUnavailable ? ' Using Original playback.' : ''}`, dismiss: 'hide' });
+  if (state.info) add('info', { tone: 'info', text: state.info, dismiss: 'hide' });
   if (state.startupNotice) add('startup', { tone: 'info', text: state.startupNotice, dismiss: 'hide' });
   if (state.preview) add('preview', { tone: 'info', text: 'Interface preview · Audio playback and file opening are available in the desktop app.', dismiss: 'hide' });
   return list;

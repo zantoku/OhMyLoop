@@ -70,6 +70,10 @@ export const bridge = {
   readCachedAnalysis: (referenceToken:string) => native ? invoke<Candidates|null>('read_cached_analysis',{referenceToken}) : Promise.resolve(null),
   analysisStatus: () => native ? invoke<AnalysisStatus>('analysis_status') : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
   installModel: () => native ? invoke<AnalysisStatus>('install_analysis_model') : Promise.reject(new Error('Install the model in the desktop app.')),
+  removeModel: () => native ? invoke<AnalysisStatus>('remove_analysis_model') : Promise.reject(new Error('Remove the model in the desktop app.')),
+  /** Shows an app-owned location in the file manager; the webview names it, never a path. */
+  revealLocation: (location: 'library' | 'shortcut_file') => native ? invoke<void>('reveal_location', { location }) : Promise.reject(new Error('Show files in the desktop app.')),
+  openShortcutFile: () => native ? invoke<void>('open_shortcut_file') : Promise.reject(new Error('Open the shortcut file in the desktop app.')),
   startAnalysis: (referenceToken:string, revision:number) => native ? invoke<AnalysisStatus>('start_analysis', {referenceToken,revision}) : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
   cancelAnalysis: (id:number) => native ? invoke<AnalysisStatus>('cancel_analysis',{id}) : Promise.reject(new Error('Beat analysis is available in the desktop app.')),
   previewMap: (referenceToken: string, map: MeasureMap | null, edit: MapEdit) => native ? invoke<MapPreview>('preview_measure_map', { referenceToken, map, edit }) : Promise.reject(new Error('Musical map editing is available in the desktop app.')),

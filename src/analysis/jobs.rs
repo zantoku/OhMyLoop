@@ -169,6 +169,19 @@ impl AnalysisManager {
         }
         Ok(self.status())
     }
+    /// Removes the installed model. Existing maps and cached analysis results stay.
+    pub fn remove_model(&self) -> Result<JobStatus> {
+        let mut state = self.0.state.lock().unwrap();
+        ensure!(
+            !state.running,
+            "Beat analysis or a model download is running. Try again when it has finished."
+        );
+        let removed = models::remove(&self.0.models);
+        state.model_ready = models::present(&self.0.models);
+        drop(state);
+        removed?;
+        Ok(self.status())
+    }
     /// Reload suggestions independently of job state and accepted musical edits.
     pub fn cached_result(&self, key: &str, audio: &Audio) -> Result<Option<Candidates>> {
         ensure!(valid_key(key), "Invalid analysis song identity");
@@ -461,6 +474,54 @@ mod tests {
         fs::write(&path, b"broken JSON").unwrap();
         assert!(manager.cached_result(&key, &audio).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"broken JSON");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn removing_the_model_keeps_other_files_and_cached_results_and_waits_for_running_work() {
+        let root =
+            std::env::temp_dir().join(format!("ohmyloop-model-remove-{}", std::process::id()));
+        let models_dir = root.join("models");
+        let cache = root.join("cache");
+        fs::create_dir_all(&models_dir).unwrap();
+        for name in [
+            "mel_spectrogram.onnx",
+            "beat_this.onnx",
+            "LICENSE.txt",
+            "PROVENANCE.json",
+        ] {
+            fs::write(models_dir.join(name), b"model").unwrap();
+        }
+        fs::write(models_dir.join("notes.txt"), b"mine").unwrap();
+        fs::write(models_dir.join("beat_this.onnx.download-4242"), b"partial").unwrap();
+        fs::create_dir_all(models_dir.join("nested")).unwrap();
+        fs::write(
+            models_dir.join("nested/mel_spectrogram.onnx.download-1"),
+            b"keep",
+        )
+        .unwrap();
+        let manager = AnalysisManager::new(models_dir.clone(), cache.clone()).unwrap();
+        fs::write(cache.join("result.json"), b"{}").unwrap();
+        assert!(manager.status().model_ready);
+        let id = manager.begin("install", None, 0).unwrap();
+        assert!(manager.remove_model().is_err());
+        assert!(models::present(&models_dir));
+        manager.cancel(id);
+        manager.finish(Ok(None));
+        let status = manager.remove_model().unwrap();
+        assert!(!status.model_ready);
+        assert!(!models::present(&models_dir));
+        assert_eq!(fs::read(models_dir.join("notes.txt")).unwrap(), b"mine");
+        assert!(!models_dir.join("beat_this.onnx.download-4242").exists());
+        assert!(
+            models_dir
+                .join("nested/mel_spectrogram.onnx.download-1")
+                .is_file()
+        );
+        fs::remove_dir_all(models_dir.join("nested")).unwrap();
+        assert!(cache.join("result.json").is_file());
+        fs::remove_file(models_dir.join("notes.txt")).unwrap();
+        assert!(!manager.remove_model().unwrap().model_ready);
+        assert!(!models_dir.exists());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

@@ -79,16 +79,18 @@ in the desktop editor and has no button. Reapply Meter for even beat spacing.
 
 ## Configuration file
 
-The app reads `keymap.json` on startup. The exact path is shown under
-**Shortcuts → Customize shortcuts**. Usual locations:
+The app reads `keymap.json` on startup. The exact path is shown in
+**Settings → Shortcuts**, with Open file, Show in Finder (Explorer, file
+manager) and Reload, and whether the built-in shortcuts, your file, or the
+defaults after a rejection (with the reason) are in use. Usual locations:
 
 - macOS: `~/Library/Application Support/org.ohmyloop.desktop/keymap.json`
 - Linux: `${XDG_CONFIG_HOME:-~/.config}/org.ohmyloop.desktop/keymap.json`
 - Windows: `%APPDATA%\org.ohmyloop.desktop\keymap.json`
 
 Copy [config/keymap.example.json](../config/keymap.example.json) to that path
-and edit it. Use **Reload configuration** in the shortcut dialog to apply
-changes without restarting. The application reads configuration without
+and edit it. Use **Reload** in Settings → Shortcuts (or Reload configuration
+on the warning toast) to apply changes without restarting. The application reads configuration without
 creating or overwriting it. Missing files use built-in defaults. Invalid JSON,
 unsupported versions, unknown fields/actions, conflicting bindings, incompatible
 button mappings, or files larger than 64 KiB produce a warning and restore the
@@ -254,9 +256,22 @@ returns to Practice. Every other way out of the Library, and quitting, saves
 pending details first; a failed save keeps you on the Library.
 
 `show_settings` (**⌘, / Ctrl+,**, button `settings`) opens Settings from any
-screen; it is the macOS app menu's "Settings…". Until app-wide Settings exist
-it opens the library dialog, and `managed_settings` (library settings) is an
-alias with the same availability. The macOS menu also lists `library_edit` (File →
+screen; it is the macOS app menu's "Settings…". Links from other screens open it
+on a section (Stems → Stem separation, Measure map → Beat analysis, the shortcut
+list → Shortcuts). While stem separation, beat analysis, an import or a download
+runs, it is unavailable and the button's tooltip says why. Where ⌘, reaches
+the window (Windows, Linux) a notice also says why; on macOS the disabled menu
+item may take the keystroke first. A download started inside Settings doesn't
+block it: Settings reopens on that download's progress and Cancel.
+`close_settings` closes it (also Esc and the leading X); focus returns to where
+it was. The open dialog owns every key: ↑/↓, Home and End move between its
+sections from the sidebar, Esc first dismisses an inline removal confirmation,
+and no shortcut runs until it closes. Its commands are actions too:
+`reveal_library`, `open_keymap`, `reveal_keymap`, and `map_install_model`,
+`map_cancel_model` and `map_remove_model` for the beat analysis model (the
+install action now works from any screen; it used to be Measure map only). The
+retired `managed_settings` (and button `managed_settings`) is ignored with a
+warning. The macOS menu also lists `library_edit` (File →
 Edit Song Details…) and `library_find` (Edit → Find Song).
 
 The global Import song command (`open_song`, Cmd/Ctrl+O) first opens the
@@ -269,8 +284,8 @@ built-in demo and its `load_demo` action (button `demo`) were removed.
 A `keymap.json` written for an older version still loads:
 
 - Removed identities (`keys.load_demo`, `descriptions.load_demo`,
-  `buttons.demo`, or a button mapped to `load_demo`) are ignored, with a
-  warning naming each one.
+  `buttons.demo`, `managed_settings`, or a button mapped to one of them) are
+  ignored, with a warning naming each one.
 - Where your own binding uses a key that a newer default now claims (Esc for
   `library_close`, ⌘I/Ctrl+I for `library_edit`, ⌘F/Ctrl+F for `library_find`,
   ⌘,/Ctrl+, for `show_settings`), your binding wins: that default is dropped

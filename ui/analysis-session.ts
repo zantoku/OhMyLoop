@@ -21,7 +21,8 @@ export class AnalysisSession {
     try{
       const status=await bridge.analysisStatus();
       if(this.disposed||operation!==this.operation||this.read().key!==keyBefore||status.id<(this.state.status?.id??0))return;
-      this.accept(status);this.state.error='';this.emit();
+      // A start error (too long, model missing, busy) stays until the next start().
+      this.accept(status);this.emit();
       const key=this.read().key;
       if(!this.state.candidates&&!this.cacheRead.has(key)){
         this.cacheRead.add(key);
@@ -33,13 +34,13 @@ export class AnalysisSession {
       }
     }catch(e){if(operation===this.operation&&this.read().key===keyBefore){this.state.error=String(e);this.emit();}}finally{this.polling=false;}
   }
-  async start(install=false){
+  async start(){
     if(this.state.requesting||this.state.status?.running)return;
     this.operation++;this.state.requesting=true;this.state.error='';this.emit();const before=this.read();
     try{
-      const status=install?await bridge.installModel():await bridge.startAnalysis(before.key,before.revision);
+      const status=await bridge.startAnalysis(before.key,before.revision);
       this.operation++;this.owned=status.id;
-      if(this.disposed||(!install&&this.read().key!==before.key)){await bridge.cancelAnalysis(status.id);return;}
+      if(this.disposed||this.read().key!==before.key){await bridge.cancelAnalysis(status.id);return;}
       this.accept(status);
     }catch(e){this.state.error=String(e);}finally{this.state.requesting=false;this.emit();}
   }

@@ -40,6 +40,44 @@ pub fn verify(path: &Path, expected: &str) -> Result<()> {
 pub fn present(directory: &Path) -> bool {
     directory.join("mel_spectrogram.onnx").is_file() && directory.join("beat_this.onnx").is_file()
 }
+/// Files an installation writes; removal deletes only these, never the folder's other contents.
+const INSTALLED_FILES: [&str; 4] = [
+    "mel_spectrogram.onnx",
+    "beat_this.onnx",
+    "LICENSE.txt",
+    "PROVENANCE.json",
+];
+/// Removes the installed model files, then the folder if nothing else is left in it.
+/// Analysis results live in a separate cache and are unaffected.
+pub fn remove(directory: &Path) -> Result<()> {
+    for name in INSTALLED_FILES {
+        match fs::remove_file(directory.join(name)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                return Err(error).with_context(|| format!("Could not remove {name}"));
+            }
+            _ => {}
+        }
+    }
+    // Partial downloads (`<name>.download-<pid>`) left by an interrupted
+    // install; only files directly in this folder, never recursing.
+    if let Ok(entries) = fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            let partial = INSTALLED_FILES[..2].iter().any(|name| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{name}.download-"))
+            });
+            if partial && entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                fs::remove_file(entry.path())
+                    .with_context(|| format!("Could not remove {}", entry.path().display()))?;
+            }
+        }
+    }
+    // Fails harmlessly when the folder holds other files or is already gone.
+    let _ = fs::remove_dir(directory);
+    Ok(())
+}
 pub fn verify_models(directory: &Path) -> Result<()> {
     verify(&directory.join("mel_spectrogram.onnx"), MEL_HASH)?;
     verify(&directory.join("beat_this.onnx"), BEAT_HASH)

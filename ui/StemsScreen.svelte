@@ -7,7 +7,8 @@
  import type {StemsState} from './stems-session';
  import type {Keymap} from './keymap';
  import type {ButtonId} from './actions';
- let {active,state:stemState,separation={status:null,pending:false,error:''},processingBytes=null,progress,busy,operation='Processing stems',failed=false,keymap,available,run}:{active:boolean;state:StemsState;separation?:SeparationState;processingBytes?:number|null;progress:StemProgress|null;busy:boolean;operation?:string;failed?:boolean;keymap:Keymap;available:(id:ButtonId)=>boolean;run:(id:ButtonId)=>void}=$props();
+ import type {ActionPayload} from './action-dispatcher';
+ let {active,state:stemState,separation={status:null,pending:false,error:''},processingBytes=null,progress,busy,operation='Processing stems',failed=false,keymap,available,run}:{active:boolean;state:StemsState;separation?:SeparationState;processingBytes?:number|null;progress:StemProgress|null;busy:boolean;operation?:string;failed?:boolean;keymap:Keymap;available:(id:ButtonId)=>boolean;run:(id:ButtonId,payload?:ActionPayload)=>void}=$props();
  let confirmation=$state<'replace'|'remove'|null>(null);
  $effect(()=>{if(!active)confirmation=null;});
 </script>

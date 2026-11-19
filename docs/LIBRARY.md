@@ -7,8 +7,11 @@ removed the built-in demo (#16). A first launch shows the empty Library with
 asks for a library on the first import, then remembers it. Create library chooses
 a parent and creates an **OhMyLoop Library** subfolder; it never overwrites an
 existing folder. **Open existing library** selects an existing library root.
-Both actions are also in the library dialog that the Library header's
-**Settings** button (⌘, / Ctrl+,) opens until app-wide Settings exist.
+Both actions are also in **Settings → Library** (the Library header's
+**Settings** button, ⌘, / Ctrl+,, or the macOS app menu), which shows the open
+library's folder and song count, Show in Finder (Explorer, file manager), Open
+another library…, Create a new library…, how to move or back up a library, and
+Retry / Locate… when the library is missing.
 
 ## Import and practice
 
@@ -100,7 +103,8 @@ multi-file transactions or guaranteed durability on every filesystem.
 - `src/managed.rs` and `src/managed/`: schemas, preferences, path policy and direct transfers.
 - `src/desktop/managed.rs`: worker preparation and controller commit orchestration.
 - `src/library.rs`: shared metadata/catalogue DTOs and tag probing.
-- `ui/managed-library-session.ts`: setup, settings, import and duplicate dialog state.
+- `ui/managed-library-session.ts`: setup, import, duplicate and delete dialog state.
+- `ui/SettingsLibrary.svelte`: the Library section of app-wide Settings (B1–B5).
 - `ui/LibraryScreen.svelte`: toolbar, list states and commands; `ui/SongList.svelte`
   the selectable song list (home focus); `ui/SongEditor.svelte` the details panel
   and sole deletion entry point; `ui/file-drop.ts` the drop-to-import target.
@@ -108,7 +112,7 @@ multi-file transactions or guaranteed durability on every filesystem.
 
 Generated native fixtures cover copies, independent duplicates, failure cleanup,
 relative moves, metadata, replacements, hash changes, schema/path/symlink rejection,
-stale commits, restart and deletion. Frontend checks cover setup/settings,
+stale commits, restart and deletion. Frontend checks cover setup, Settings → Library,
 duplicate choices, progress, pending-save failures, deletion confirmation and
 disposed replies. Automated checks run on macOS; this change has no new hardware,
 subjective listening, Windows or Linux evidence.

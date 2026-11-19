@@ -3,7 +3,9 @@ import type { Section } from './types';
 
 export type ActionPayload = {role?:import('./stems').StemRole;gain?:number; section?: Section; songKey?:string; librarySort?:import('./library').LibrarySort;
   /** A dropped file for `open_song` to import instead of asking for one. */
-  path?: string };
+  path?: string;
+  /** The Settings section `show_settings` lands on, for links from other screens. */
+  settingsSection?: import('./settings').SettingsSection };
 export type ActionHandlers = Record<ActionId, (payload: ActionPayload) => void | Promise<void>>;
 export type ActionState = {
   context?: ActionContext; busy: boolean; song: boolean; range: boolean; sections: boolean; audio: boolean;

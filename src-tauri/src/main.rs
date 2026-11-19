@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod lifecycle;
+mod locations;
 use ohmyloop::{
     desktop::{Action, Desktop, Snapshot, Transport},
     project::Document,
@@ -404,6 +405,39 @@ async fn transport_status(state: State<'_, Desktop>) -> Result<Transport, String
 }
 
 #[tauri::command]
+async fn remove_analysis_model(
+    state: State<'_, ohmyloop::analysis::AnalysisManager>,
+) -> Result<ohmyloop::analysis::JobStatus, String> {
+    let manager = state.inner().clone();
+    work(move || manager.remove_model()).await
+}
+#[tauri::command]
+async fn reveal_location(
+    location: locations::Location,
+    desktop: State<'_, Desktop>,
+    keymap: State<'_, KeymapPath>,
+) -> Result<(), String> {
+    let desktop = desktop.inner().clone();
+    let keymap = keymap.inner().0.clone();
+    work(move || {
+        let path = match location {
+            locations::Location::Library => desktop
+                .managed_status()?
+                .selected
+                .map(|library| std::path::PathBuf::from(library.root))
+                .ok_or_else(|| anyhow::anyhow!("No library is open"))?,
+            locations::Location::ShortcutFile => keymap,
+        };
+        locations::reveal(&path)
+    })
+    .await
+}
+#[tauri::command]
+async fn open_shortcut_file(keymap: State<'_, KeymapPath>) -> Result<(), String> {
+    let path = keymap.inner().0.clone();
+    work(move || locations::open(&path)).await
+}
+#[tauri::command]
 async fn analysis_status(
     state: State<'_, ohmyloop::analysis::AnalysisManager>,
 ) -> Result<ohmyloop::analysis::JobStatus, String> {
@@ -604,6 +638,9 @@ fn main() {
             analysis_status,
             read_cached_analysis,
             install_analysis_model,
+            remove_analysis_model,
+            reveal_location,
+            open_shortcut_file,
             cancel_analysis,
             start_analysis,
             preview_measure_map,

@@ -65,6 +65,16 @@ describe('keymap configuration model', () => {
   });
 });
 
+it('reports where the shortcuts come from: built-in, the person’s file, or defaults after a rejection',async()=>{
+  expect((await loadKeymap(async()=>({path:'/k.json',configuration:null,warning:null}),false)).source).toBe('builtin');
+  expect((await loadKeymap(async()=>({path:'/k.json',configuration:{version:1,keys:{play_pause:['p']}},warning:null}),false)).source).toBe('custom');
+  expect((await loadKeymap(async()=>({path:'/k.json',configuration:{version:2},warning:null}),false)).source).toBe('rejected');
+  expect((await loadKeymap(async()=>({path:'/k.json',configuration:null,warning:'Cannot load /k.json: bad JSON'}),false)).source).toBe('rejected');
+});
+it('loads a file that still names the retired managed_settings, with a warning',async()=>{
+  const loaded=await loadKeymap(async()=>({path:'/k.json',configuration:{version:1,keys:{managed_settings:['Alt+s']},buttons:{managed_settings:'managed_settings'}},warning:null}),false);
+  expect(loaded.source).toBe('custom');expect(loaded.warning).toMatch(/Ignored keys\.managed_settings/);expect(loaded.warning).toMatch(/Ignored buttons\.managed_settings/);
+});
 it('allows the same key in different screens and matches only the active screen',()=>{
   const map=new Keymap(false,{version:1,keys:{map_beat:['a']}});
   const event=new KeyboardEvent('keydown',{key:'a'});
