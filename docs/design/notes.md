@@ -119,8 +119,8 @@ Answers to the open questions from the story review (2026-11-18):
 4. **Save status:** the header's "✓ Saved" covers the normal case. The panel
    shows status only while saving takes long, or when saving fails.
 5. **Text layout:** the text fills the panel's width, in the proportional
-   UI font. A monospaced option may come later as a setting in app-wide
-   Settings.
+   UI font by default; Settings → Appearance offers a monospaced notes font
+   ([Settings decision 5](settings.md#design-decisions)).
 6. **Library search** doesn't search notes.
 
 ## Chosen concept: tall drawer

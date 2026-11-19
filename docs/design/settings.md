@@ -66,6 +66,7 @@ recovery; **taste**: set once, maybe changed later.
 | # | Story | Freq. | Actions |
 | --- | --- | --- | --- |
 | E1 | Choose Auto, Light or Dark; the change shows immediately and survives restart. | taste | — (theme control) |
+| E2 | Choose the notes font: proportional or monospaced (so chord charts and tab line up). | taste | — (new) |
 
 ### F. Keyboard shortcuts
 
@@ -73,6 +74,7 @@ recovery; **taste**: set once, maybe changed later.
 | --- | --- | --- | --- |
 | F1 | See every shortcut, grouped by screen. | rare | `show_shortcuts` |
 | F2 | Find the shortcut file's location, open it, and reload it after editing; see why a file was rejected. | rare | `reload_keymap` |
+| F3 | Hide the keyboard-shortcuts button on Practice once I know the shortcuts; the list stays reachable from Settings and its shortcut. | taste | — (new) |
 
 ### G. Audio output
 
@@ -80,6 +82,7 @@ recovery; **taste**: set once, maybe changed later.
 | --- | --- | --- | --- |
 | G1 | See which output device is playing. | rare | — |
 | G2 | When the device disappears, retry from here as well as from the toast. | rare | `retry_audio` |
+| G3 | *Future:* choose the output device instead of the system default ([#18](https://github.com/zantoku/OhMyLoop/issues/18)). | rare | — (new, engine work) |
 
 ## States to design
 
@@ -124,18 +127,47 @@ recovery; **taste**: set once, maybe changed later.
 
 1. **Form:** a dialog over the current screen (as drawn on the canvas, with
    sections in a sidebar), or a full screen like Library?
+-- Can be a dialog, I think
 2. **Sections and order:** Library, Appearance, Audio, Shortcuts, Stem
    separation, Beat analysis? Or group the two downloads into one
    "Downloads" or "Tools" section, since they behave alike (size, install,
    repair, remove)?
+-- The former, no grouped tools and downloads. Order is fine.
 3. **Shortcuts:** move the shortcut list into Settings and drop the header's
    shortcuts button, keep the separate dialog and only link to it, or keep
    both (the header button for a quick look, Settings for the file)?
    Editing shortcuts inside the app stays out of scope either way.
+-- Keep both, add an option to hide the button on the practice screen. 
 4. **Audio output:** only show the device in use, or add a device chooser
    (new engine work)?
+-- Add a design for a device chooser, mark as future improvement, and open a github issue for it
 5. **Notes font:** add the monospace option for notes now (Notes decision 5
    said it may come later), or leave it out of this pass?
+-- Add a notes font chooser to the appearance section
 6. **Blocked actions:** while separation or analysis runs, show blocked
    actions (switch library, remove tools) disabled with the reason, or hide
-   them?
+   them?  
+-- We could just disable Settings completely while background actions run
+
+## Design decisions
+
+Answers to the open questions from the story review (2026-11-19):
+
+1. **Form:** a dialog over the current screen.
+2. **Sections:** one per topic, in this order: Library, Appearance, Audio,
+   Shortcuts, Stem separation, Beat analysis. The two downloads stay
+   separate sections.
+3. **Shortcuts:** both stay. The header's shortcuts button gives a quick
+   look; the Shortcuts section has the file and reload, and an option to
+   hide the button on Practice (F3).
+4. **Audio output:** this pass shows the device in use and Retry. A device
+   chooser is designed now and marked as a future improvement
+   ([#18](https://github.com/zantoku/OhMyLoop/issues/18)).
+5. **Notes font:** Appearance gets a notes font choice, proportional or
+   monospaced (E2). This settles the Notes brief's decision 5.
+6. **Blocked actions:** Settings is unavailable as a whole while background
+   work runs (stem separation, beat analysis, an import, a download): the
+   Settings button and ⌘, are disabled with the reason. A download started
+   inside Settings keeps the dialog open with its progress; the other
+   sections' actions wait until it ends.
+
