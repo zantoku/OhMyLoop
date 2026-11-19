@@ -35,6 +35,7 @@ then **Measure map**, then Library, Notes and Stems.
 | Library | Find, import, open and describe songs in the managed library | Header, empty start | [library.md](library.md) |
 | Notes | Keep plain-text notes for one song | Practice | [notes.md](notes.md) |
 | Stems | Separate or attach a stem set and follow its processing | Practice, processing notice | [stems.md](stems.md) |
+| Settings | App-wide library, stem tools, analysis model, appearance, shortcuts and audio output | Library header, ⌘, from any screen, macOS app menu, links from other screens | [settings.md](settings.md) |
 
 Dialogs and overlays:
 
@@ -44,7 +45,6 @@ Dialogs and overlays:
 | Keyboard shortcuts | Global | List bindings; reload the shortcut configuration file |
 | Library setup / duplicate / delete | Library | Create or open a library on the first import; resolve duplicate imports; confirm deletion |
 | Recording replacement | Library | Replace the reference recording, keeping or clearing timing |
-| App settings | Global | Manage shared separation tools and model (from the Stems review); see, create, open and switch the library (from the Library review) |
 | Quit confirmation | Global | Quit while processing runs |
 | Stem replacement confirmation | Stems | Replace an existing stem set |
 
