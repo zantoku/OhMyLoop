@@ -65,6 +65,12 @@ impl Default for Attempt {
         }
     }
 }
+#[derive(Clone, Debug, Serialize)]
+pub struct ProcessingEstimate {
+    pub required_bytes: u64,
+    /// None when the free space can't be read; the start-time check still applies.
+    pub available_bytes: Option<u64>,
+}
 #[derive(Clone, Serialize)]
 pub struct Status {
     pub package_id: String,
@@ -134,17 +140,29 @@ impl SeparationManager {
             gate,
         }))
     }
+    /// The processing space a separation of this song needs, and the free space
+    /// where its stems would be written. Separation checks again when it starts.
     pub fn processing_estimate(
         &self,
         desktop: &crate::desktop::Desktop,
         reference: String,
-    ) -> Result<u64> {
+    ) -> Result<ProcessingEstimate> {
         let context = desktop.separation_context(reference)?;
-        disk::estimate(
+        let required_bytes = disk::estimate(
             context.frames(),
             context.rate(),
             crate::playback::Player::output_rate().unwrap_or(context.rate()),
-        )
+        )?;
+        let owned = context.owned(&uuid::Uuid::new_v4().to_string())?;
+        // The stems folder may not exist yet; its nearest existing ancestor shares the volume.
+        let available_bytes = owned
+            .ancestors()
+            .find(|path| path.exists())
+            .and_then(|path| disk::available(path).ok());
+        Ok(ProcessingEstimate {
+            required_bytes,
+            available_bytes,
+        })
     }
     pub fn status(&self) -> Status {
         let state = self.0.state.lock().unwrap();

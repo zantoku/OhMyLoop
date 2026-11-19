@@ -2,8 +2,9 @@
 // are resolved or dismissed; informational notices time out; progress notices
 // stay while their work runs. This module derives the list from app state.
 import type { ButtonId } from './actions';
+import type { SeparationToast } from './separation';
 
-export type NoticeTone = 'error' | 'info' | 'progress';
+export type NoticeTone = 'error' | 'info' | 'progress' | 'success';
 export type Notice = {
   /** Stable per message: a new text shows again after a dismissal. */
   key: string;
@@ -28,8 +29,8 @@ export type NoticeState = {
   countInError: string; clickError: string;
   /** A passing explanation, such as why Settings can't open right now. */
   info?: string;
-  /** Running separation or setup, shown outside the Stems screen. */
-  processing: { label: string; detail: string; progress: number | null } | null;
+  /** Separation or setup outside the Stems screen: running, then its outcome. */
+  processing: SeparationToast | null;
 };
 
 const key = (id: string, text: string) => `${id}:${text}`;
@@ -44,11 +45,14 @@ export function notices(state: NoticeState): Notice[] {
   if (state.countInError) add('count-in', { tone: 'error', text: state.countInError, dismiss: 'hide' });
   if (state.clickError) add('click', { tone: 'error', text: state.clickError, dismiss: 'hide' });
   if (state.keymapWarning) add('keymap', { tone: 'error', text: state.keymapWarning, action: { button: 'reload_keymap', label: 'Reload configuration', enabled: !state.keymapLoading }, dismiss: 'hide' });
-  if (state.processing) add('processing', {
-    tone: 'progress', title: `${state.processing.label}${state.processing.progress === null ? '…' : ` · ${Math.round(state.processing.progress * 100)} %`}`,
-    text: state.processing.detail,
-    progress: state.processing.progress, action: { button: 'separation_open', label: 'Open Stems', enabled: true }
-  });
+  if (state.processing) {
+    const work = state.processing, open = { button: 'separation_open' as const, label: 'Open Stems', enabled: true };
+    if (work.kind === 'running') add('processing', {
+      tone: 'progress', title: `${work.title}${work.progress === null ? '…' : ` · ${Math.round(work.progress * 100)} %`}`,
+      text: work.detail, progress: work.progress, action: open
+    });
+    else add(`processing-${work.id}`, { tone: work.kind === 'done' ? 'success' : 'error', title: work.title, text: work.detail, action: open, dismiss: 'hide' });
+  }
   if (state.busy) add('busy', { tone: 'progress', text: state.busy, progress: null });
   if (state.undoCount && !state.busy) add(`undo-${state.undoCount}`, { tone: 'info', text: 'Section removed.', action: { button: 'undo_delete', label: 'Undo', enabled: true }, dismiss: 'hide' });
   if (state.stemWarning) add('stem-warning', { tone: 'info', text: `${state.stemWarning}${state.stemsUnavailable ? ' Using Original playback.' : ''}`, dismiss: 'hide' });

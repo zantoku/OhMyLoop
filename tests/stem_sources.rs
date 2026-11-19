@@ -425,6 +425,11 @@ fn owned_records_validate_versions_provenance_paths_and_present_role_selection()
     let f = fixture(&[Role::Bass], false);
     let owned = f.root.join(uuid::Uuid::new_v4().to_string());
     let record = attach(&f.reference, &f.sets[0], &owned, f.rate, |_| {}).unwrap();
+    assert_eq!(record.version, 2);
+    assert_eq!(
+        record.origin,
+        ohmyloop::stems::library::StemOrigin::Attached
+    );
     let mut mix = MixState::default();
     mix.tracks[Role::Guitar.index()].mute = true;
     assert_eq!(record.selection(mix), 0);
@@ -433,7 +438,7 @@ fn owned_records_validate_versions_provenance_paths_and_present_role_selection()
     for case in 0..6 {
         let mut invalid = record.clone();
         match case {
-            0 => invalid.version = 2,
+            0 => invalid.version = 3,
             1 => invalid.tracks[0].file = "../reference.wav".into(),
             2 => invalid.tracks[0].role = "banjo".into(),
             3 => invalid.tracks.push(invalid.tracks[0].clone()),
@@ -542,7 +547,7 @@ fn managed_stem_publication_preserves_edits_rejects_stale_and_cleans_reference_r
     let song_path = library.root().join(format!("songs/{key}/song.json"));
     let saved = fs::read(&song_path).unwrap();
     let mut future: Value = serde_json::from_slice(&saved).unwrap();
-    future["stems"]["version"] = json!(2);
+    future["stems"]["version"] = json!(3);
     fs::write(&song_path, serde_json::to_vec(&future).unwrap()).unwrap();
     let future_bytes = fs::read(&song_path).unwrap();
     assert!(

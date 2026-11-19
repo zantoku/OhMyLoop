@@ -5,7 +5,9 @@ mod cache;
 pub use super::{WorkflowProgress, WorkflowStep, WorkflowTracker, throttled_progress};
 pub use cache::prepare;
 
-const VERSION: u32 = 1;
+/// Version 2 records the set's origin; version 1 records predate it.
+const VERSION: u32 = 2;
+const VERSION_WITHOUT_ORIGIN: u32 = 1;
 // Includes sinc kernel/window/block configuration and the shared 0.70 headroom policy.
 const POLICY: u32 = 2;
 
@@ -57,10 +59,24 @@ pub struct StoredTrack {
     pub frames: u64,
     pub channels: u32,
 }
+/// Where a stem set came from, recorded when it is attached.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StemOrigin {
+    /// A version-1 record, written before the origin was kept.
+    #[default]
+    Unknown,
+    /// Attached from another tool's output folder.
+    Attached,
+    /// Made by this app's own separation.
+    Separated,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StoredStemSet {
     pub version: u32,
+    #[serde(default)]
+    pub origin: StemOrigin,
     pub id: String,
     pub reference_sha256: String,
     pub reference_rate: u32,
@@ -146,7 +162,11 @@ fn relative_valid(file: &str) -> bool {
 }
 impl StoredStemSet {
     pub fn validate(&self) -> Result<()> {
-        ensure!(self.version == VERSION, "Unsupported stem record version");
+        ensure!(
+            self.version == VERSION
+                || (self.version == VERSION_WITHOUT_ORIGIN && self.origin == StemOrigin::Unknown),
+            "Unsupported stem record version"
+        );
         uuid::Uuid::parse_str(&self.id).context("Invalid stem set identity")?;
         ensure!(
             digest_valid(&self.reference_sha256),
@@ -337,6 +357,7 @@ pub fn attach(
     let preparation = &manifest.identity.preparation;
     let mut record = StoredStemSet {
         version: VERSION,
+        origin: StemOrigin::Attached,
         id: owned
             .file_name()
             .and_then(|n| n.to_str())
@@ -534,6 +555,7 @@ pub fn attach_generated(
     }
     let mut record = StoredStemSet {
         version: VERSION,
+        origin: StemOrigin::Separated,
         id: owned
             .file_name()
             .context("Missing set identity")?

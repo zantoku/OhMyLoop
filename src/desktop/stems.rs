@@ -41,6 +41,8 @@ pub struct Status {
     pub warning: Option<String>,
     pub attenuation: Option<f32>,
     pub model: Option<String>,
+    /// Recorded as made by the app's own separation; older sets count as attached.
+    pub separated: bool,
 }
 #[derive(Clone)]
 pub struct Operation {
@@ -344,6 +346,7 @@ impl Controller {
                     .or_else(|| stems.record.provenance.get("backend"))
                     .and_then(|v| v.as_str())
                     .map(str::to_owned),
+                separated: stems.record.origin == crate::stems::library::StemOrigin::Separated,
             }
         } else {
             Status {
@@ -354,6 +357,7 @@ impl Controller {
                 warning: None,
                 attenuation: None,
                 model: None,
+                separated: false,
             }
         }
     }
@@ -599,6 +603,7 @@ mod tests {
         fs::copy(&input, &file).unwrap();
         let stored = StoredStemSet {
             version: 1,
+            origin: Default::default(),
             id,
             reference_sha256: record.asset.digest.clone(),
             reference_rate: audio.rate,

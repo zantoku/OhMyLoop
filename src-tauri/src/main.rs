@@ -491,7 +491,7 @@ async fn separation_estimate(
     reference_token: String,
     desktop: State<'_, Desktop>,
     state: State<'_, ohmyloop::separation::SeparationManager>,
-) -> Result<u64, String> {
+) -> Result<ohmyloop::separation::ProcessingEstimate, String> {
     let manager = state.inner().clone();
     let desktop = desktop.inner().clone();
     work(move || manager.processing_estimate(&desktop, reference_token)).await

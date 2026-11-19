@@ -2,7 +2,8 @@
   import { onMount, tick, untrack } from 'svelte';
   import StemsScreen from './StemsScreen.svelte';
   import {SeparationSession} from './separation-session';
-  import {separationFrozen,type SeparationState} from './separation';
+  import {finishedAttempt,separationFrozen,separationToast,type ProcessingEstimate,type SeparationState} from './separation';
+  import type {Attachment} from './stems-screen';
   import {StemsSession,type StemsState} from './stems-session';
   import {completedProcessing,processingLabel,type StemRole,type StemProgress} from './stems';
   import SettingsDialog from './SettingsDialog.svelte';
@@ -72,7 +73,7 @@
   let quitDialog:HTMLDialogElement;
   $effect(()=>{if(quitConfirmation)quitDialog?.showModal();else quitDialog?.close();});
   let separationAdmission=$state(false);
-  let separationEstimate=$state<number|null>(null);
+  let separationEstimate=$state<ProcessingEstimate|null>(null);
   const separationActive=$derived(separationAdmission||(separationState.status?.job.running??false));
   const separationSession=new SeparationSession(bridge,state=>{separationState=state;},async status=>{if(song?.reference_token===status.job.reference_token&&status.job.result){stemsSession.reset(status.job.result);const value=await bridge.status();if(value.reference_token===song.reference_token)transport=value;}});
   async function startSeparation(){if(separationAdmission)return;separationAdmission=true;try{await transportActions;flushControls();await saves;await stemsSession.flush();await countInSession.flush();await clickSession.flush();if(song){await separationSession.separate(song.reference_token);const status=await bridge.status();if(status.reference_token===song.reference_token)transport=status;}}finally{separationAdmission=false;}}
@@ -88,28 +89,33 @@
     catch(e){error=String(e);}finally{exiting=false;}
   }
   let stemsState=$state<StemsState>({snapshot:null,pending:false,error:''});
-  let stemProgress=$state<StemProgress|null>(null),stemProgressFailed=$state(false),stemsLoading=$state(false);
-  let stemEpoch=0,stemOperationId:string|null=null;
+  let stemProgress=$state<StemProgress|null>(null),stemsLoading=$state(false);
+  // A manual attachment started on the Stems screen; its progress events carry its id.
+  let attachment=$state<Attachment|null>(null);
+  let stemEpoch=0;
   const stemsSession=new StemsSession(bridge.setStemMix,state=>{stemsState=state;});
-  async function reloadStems(reference:string){const epoch=++stemEpoch;separationEstimate=null;void bridge.separationEstimate(reference).then(value=>{if(epoch===stemEpoch)separationEstimate=value;}).catch(()=>{});stemsLoading=true;stemsSession.reset(null);try{const value=await bridge.stemsStatus(reference);if(mounted&&epoch===stemEpoch&&song?.reference_token===reference)stemsSession.reset(value);}catch(e){if(mounted&&epoch===stemEpoch)error=String(e);}finally{if(epoch===stemEpoch)stemsLoading=false;}}
+  // Free space changes between visits, so Stems asks again whenever it opens.
+  function refreshEstimate(reference:string,epoch=stemEpoch){void bridge.separationEstimate(reference).then(value=>{if(epoch===stemEpoch)separationEstimate=value;}).catch(()=>{});}
+  async function reloadStems(reference:string){const epoch=++stemEpoch;separationEstimate=null;refreshEstimate(reference,epoch);stemsLoading=true;stemsSession.reset(null);try{const value=await bridge.stemsStatus(reference);if(mounted&&epoch===stemEpoch&&song?.reference_token===reference)stemsSession.reset(value);}catch(e){if(mounted&&epoch===stemEpoch)error=String(e);}finally{if(epoch===stemEpoch)stemsLoading=false;}}
   function soloRole(role:StemRole){const track=stemsState.snapshot?.tracks.find(track=>track.role===role);if(track)stemsSession.change(role,{solo:!track.solo});}
   function muteRole(role:StemRole){const track=stemsState.snapshot?.tracks.find(track=>track.role===role);if(track)stemsSession.change(role,{mute:!track.mute});}
   async function stemsWork(remove=false){
     await transportActions;
     if(!song||busy)return;
     const reference=song.reference_token,setId=stemsState.snapshot?.set_id;
-    busy=remove?'Removing stems…':'Choosing stems…';error='';stemProgress=null;stemProgressFailed=false;stemOperationId=null;
+    busy=remove?'Removing stems…':'Choosing stems…';error='';stemProgress=null;if(!remove)attachment=null;
     try{
       if(!await prepareChange())return;
       const path=remove?null:await bridge.pickStemsDirectory();if(!remove&&!path)return;
       if(song?.reference_token!==reference)return;
       if(transport.playing)apply(await bridge.action({type:'pause'},reference));
-      busy=remove?'Removing stems…':'Attaching stems…';stemProgress=null;stemOperationId=remove?null:crypto.randomUUID();
-      const value=remove?await bridge.removeStems(reference,setId!):await bridge.attachStems(reference,path!,stemOperationId!);
-      if(mounted&&song?.reference_token===reference){if(!remove)stemProgress=completedProcessing(stemProgress);stemsSession.reset(value);const status=await bridge.status();if(status.reference_token===reference)transport=status;}
-    }catch(e){if(mounted){error=String(e);stemProgressFailed=!stemProgress?.workflow||stemProgress.workflow.completed<stemProgress.workflow.total;}}finally{if(mounted){busy='';stemOperationId=null;}}
+      busy=remove?'Removing stems…':'Attaching stems…';stemProgress=null;if(!remove)attachment={id:crypto.randomUUID(),progress:null,running:true,error:''};
+      const value=remove?await bridge.removeStems(reference,setId!):await bridge.attachStems(reference,path!,attachment!.id);
+      if(mounted&&song?.reference_token===reference){if(!remove&&attachment)attachment={...attachment,running:false,progress:completedProcessing(attachment.progress)};stemsSession.reset(value);const status=await bridge.status();if(status.reference_token===reference)transport=status;}
+    }catch(e){if(mounted){if(attachment?.running)attachment={...attachment,running:false,error:String(e)};else error=String(e);}}finally{if(mounted){busy='';if(attachment?.running)attachment={...attachment,running:false};}}
   }
   let libraryScreen=$state<LibraryScreen>();
+  let stemsScreen=$state<StemsScreen>();
   let libraryEpoch=$state(0);
   let managedState=$state<ManagedState>({status:{selected:null,available:false,error:null,import_notice_seen:false},dialog:null,selection:null,pendingImport:false,deleteKey:null,deleteTitle:''});
   const managed=new ManagedLibrarySession(value=>{managedState=value;});
@@ -199,7 +205,7 @@
     if(snapshot.startup_notice)startupNotice=snapshot.startup_notice;
     if(snapshot.library_error)error=snapshot.library_error;
     if(!snapshot.song&&!song&&screen!=='library')screen='library';
-    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){stemProgress=null;void reloadStems(snapshot.song.reference_token);countInEnabled=false;repeatCountIn=false;resetNotes(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
+    if (snapshot.song) { if(song?.reference_token!==snapshot.song.reference_token){stemProgress=null;attachment=null;void reloadStems(snapshot.song.reference_token);countInEnabled=false;repeatCountIn=false;resetNotes(snapshot.song.reference_token,snapshot.document?.notes??'');} song = snapshot.song; view = { start: 0, end: snapshot.song.duration }; }
     if (documentRevision === revision) { project = snapshot.document; if (snapshot.map_view !== undefined) mapView = snapshot.map_view; }
     if (documentRevision === revision) transport = snapshot.transport;
   }
@@ -465,7 +471,7 @@
   }
   /** Every way out of the Library saves the song details first; a failed save stays. */
   async function leaveLibrary(){return screen!=='library'||!libraryScreen||await libraryScreen.flush();}
-  async function showView(next:'practice'|'mapping'|'stems'){if(await leaveLibrary())screen=next;}
+  async function showView(next:'practice'|'mapping'|'stems'){if(!await leaveLibrary())return;screen=next;if(next==='stems'&&song&&native)refreshEstimate(song.reference_token);}
   async function showLibrary(){
     await transportActions;
     if(!await notesSession.flush()){showNotesFailure();return;}
@@ -473,11 +479,11 @@
     screen='library';
   }
   const dispatcher = new ActionDispatcher({
-    separation_install:()=>{ownDownload('stems');return separationSession.install();},separation_start:startSeparation,
+    separation_install:()=>{ownDownload('stems');attachment=null;return separationSession.install();},separation_start:()=>{attachment=null;return startSeparation();},
     separation_cancel:()=>{const s=separationState.status;return separationSession.cancel(s?.job.running?s.job.id:s?.install.id??'');},
     separation_reinstall_model:()=>{ownDownload('stems');return separationSession.reinstallModel();},separation_reinstall_runtime:()=>{ownDownload('stems');return separationSession.reinstallRuntime();},separation_remove_runtime:()=>separationSession.removeRuntime(),
     separation_remove_model:()=>separationSession.remove(),separation_refresh_runtime:()=>separationSession.runtime(),
-    separation_practice:()=>showView('practice'),separation_open:()=>showView('stems'),
+    separation_open:()=>showView('stems'),
     retry_stem_mix:()=>stemsSession.retry(),
     show_stems:()=>showView('stems'),close_stems:()=>{screen=song?'practice':'library';},attach_stems:()=>stemsWork(),remove_stems:()=>stemsWork(true),
     stem_gain:({role,gain})=>{if(role&&Number.isFinite(gain))stemsSession.change(role,{gain});},
@@ -594,7 +600,7 @@
   }
   function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
   // Modal states own the keyboard and the menu bar's commands.
-  function commandsBlocked() { return quitConfirmation || !!busy || sectionOpen || helpOpen || settingsOpen || !!replacementDialog?.isOpen() || !!managedState.dialog; }
+  function commandsBlocked() { return quitConfirmation || !!stemsScreen?.confirming() || !!busy || sectionOpen || helpOpen || settingsOpen || !!replacementDialog?.isOpen() || !!managedState.dialog; }
   // Single routing point: key owners keep their own keys, everything else goes
   // through the keymap to the dispatcher. Esc first unwinds focus to home.
   function keyboard(event: KeyboardEvent) {
@@ -616,15 +622,12 @@
     {button:'show_measure_map',label:'Measure map',current:screen==='mapping'},
     {button:'show_stems',label:'Stems',current:screen==='stems'}
   ]:[]);
-  const processing=$derived.by(()=>{
-    const status=separationState.status;
-    if(screen==='stems'||!status||!(separationActive||status.install.running))return null;
-    const attempt=separationActive?status.job:status.install;
-    const work=attempt.progress?.workflow??attempt.progress;
-    return {label:separationActive?'Splitting song into stems':attempt.phase,detail:separationActive?'Playback is paused until it finishes. Notes still work.':'Stem separation setup continues in the background.',
-      progress:work?.total?Math.min(1,work.completed/work.total):null};
-  });
-  const busyText=$derived(screen==='stems'&&(stemProgress||stemsLoading)?'':busy&&stemProgress?`${processingLabel(stemProgress)}…`:busy||(stemsLoading?'Preparing stem playback…':''));
+  // The persistent separation toast on the other views. Opening Stems marks
+  // the latest outcome seen, so its done or failed toast goes away.
+  let seenOutcome=$state('');
+  $effect(()=>{if(screen==='stems'){const finished=finishedAttempt(separationState.status,song?.reference_token??'');if(finished)seenOutcome=finished.attempt.id;}});
+  const processing=$derived(screen==='stems'?null:separationToast(separationState.status,song?.reference_token??'',separationActive,seenOutcome));
+  const busyText=$derived(screen==='stems'&&attachment?.running?'':busy&&stemProgress?`${processingLabel(stemProgress)}…`:busy||(stemsLoading?'Preparing stem playback…':''));
   const noticeList=$derived(notices({
     error:managedState.dialog||settingsOpen?'':error,info:settingsInfo,startupNotice,busy:busyText,preview:!native,undoCount:undo.length,
     audioError:song?transport.audio_error:null,audioRetry:buttonAvailable('retry_audio'),saveError:transport.save_error,keymapWarning,keymapLoading,
@@ -638,7 +641,7 @@
     const restore = bridge.initialize().then(snapshot => { if (mounted) apply(snapshot); }).catch(e => { if (mounted) error = String(e); });
     Promise.all([restore, reloadKeymap()]).finally(() => { if (mounted) busy = ''; });
     let unlistenStems:(()=>void)|undefined;
-    void bridge.onStemProgress(progress=>{const current=stemOperationId?progress.operation_id===stemOperationId:!progress.operation_id&&busy!=='Choosing stems…'&&busy!=='Removing stems…';if(current&&mounted&&!!busy&&(progress.reference_token===song?.reference_token||busy.startsWith('Opening')||busy.startsWith('Restoring')||busy.startsWith('Import'))){stemProgress=progress;}}).then(unlisten=>{if(mounted)unlistenStems=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
+    void bridge.onStemProgress(progress=>{if(!mounted)return;if(progress.operation_id){if(attachment?.running&&progress.operation_id===attachment.id)attachment={...attachment,progress};return;}if(!!busy&&busy!=='Choosing stems…'&&busy!=='Removing stems…'&&(progress.reference_token===song?.reference_token||busy.startsWith('Opening')||busy.startsWith('Restoring')||busy.startsWith('Import'))){stemProgress=progress;}}).then(unlisten=>{if(mounted)unlistenStems=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
     let unlistenProgress:(()=>void)|undefined;
     void bridge.onImportProgress(progress=>{if(mounted&&busy.startsWith('Import'))busy=progress.total&&progress.copied>=progress.total?'Loading recording…':progress.total?`Importing song… ${Math.round(progress.copied/progress.total*100)}%`:'Importing song…';}).then(unlisten=>{if(mounted)unlistenProgress=unlisten;else unlisten();}).catch(e=>{if(mounted)error=String(e);});
     void managed.refresh().catch(e=>{if(mounted)error=String(e);});
@@ -683,7 +686,7 @@
 
   <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} status={managedState.status} epoch={libraryEpoch} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
   <div class="screen-frame" hidden={screen==='practice'||screen==='library'}>
-    <StemsScreen active={screen==='stems'} state={stemsState} separation={separationState} processingBytes={separationEstimate} progress={stemProgress} busy={!!busy||stemsLoading} operation={busy||'Processing stems'} failed={stemProgressFailed} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}}/>
+    <StemsScreen bind:this={stemsScreen} active={screen==='stems'} reference={song?.reference_token??''} state={stemsState} separation={separationState} {attachment} space={separationEstimate} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}}/>
     {#if song}
       {#key song.reference_token}
         {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls({speed:value})} disabled={!!busy||separationActive}/>{/snippet}

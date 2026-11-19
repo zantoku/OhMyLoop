@@ -30,10 +30,10 @@ function separationStatus():SeparationStatus {const attempt={id:'',running:false
 beforeEach(() => {
   vi.clearAllMocks();
   delete window.document.documentElement.dataset.modality;
-  mock.separationEstimate.mockResolvedValue(1950628864);mock.separationStatus.mockResolvedValue(separationStatus());
+  mock.separationEstimate.mockResolvedValue({required_bytes:1950628864,available_bytes:500e9});mock.separationStatus.mockResolvedValue(separationStatus());
   mock.reinstallSeparationModel.mockResolvedValue(separationStatus());mock.reinstallSeparationRuntime.mockResolvedValue(separationStatus());mock.removeSeparationRuntime.mockResolvedValue(separationStatus());
   mock.installSeparationModel.mockResolvedValue(separationStatus());mock.removeSeparationModel.mockResolvedValue(separationStatus());mock.refreshSeparationRuntime.mockResolvedValue(separationStatus());mock.startSeparation.mockResolvedValue(separationStatus());mock.cancelSeparation.mockResolvedValue(separationStatus());
-  mock.stemsStatus.mockImplementation(async(reference:string)=>({reference_token:reference,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null}));mock.onStemProgress.mockResolvedValue(()=>{});
+  mock.stemsStatus.mockImplementation(async(reference:string)=>({reference_token:reference,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null,separated:false}));mock.onStemProgress.mockResolvedValue(()=>{});
   mock.libraryStatus.mockResolvedValue({selected:{id:'library',root:'/library'},available:true,error:null,import_notice_seen:true});mock.onImportProgress.mockResolvedValue(()=>{});mock.onFileDrop.mockResolvedValue(()=>{});mock.pickImportSong.mockResolvedValue({path:'/song.wav',candidates:[]});mock.importSong.mockImplementation(()=>mock.openSong());
   mock.metronome.mockResolvedValue({});
   mock.countIn.mockResolvedValue({});
@@ -1654,7 +1654,7 @@ it('shows copy progress without cancellation or a verification phase',async()=>{
   expect(screen.queryByRole('button',{name:'Cancel'})).toBeNull();expect(screen.queryByText(/Verifying recording/)).toBeNull();finish(null);
 });
 
-function attachedStems(){return {reference_token:'test',set_id:'set',available:true,warning:null,attenuation:.5,model:'roformer-sw',tracks:[{role:'bass' as const,gain:1,mute:false,solo:false},{role:'vocals' as const,gain:1,mute:false,solo:false}]};}
+function attachedStems(){return {reference_token:'test',set_id:'set',available:true,warning:null,attenuation:.5,model:'roformer-sw',separated:false,tracks:[{role:'bass' as const,gain:1,mute:false,solo:false},{role:'vocals' as const,gain:1,mute:false,solo:false}]};}
 it('keeps stems navigation transport neutral and isolates role shortcuts from notes and mapping',async()=>{
  mock.stemsStatus.mockResolvedValue(attachedStems());mock.setStemMix.mockResolvedValue(attachedStems());transport.playing=true;
  await ready();expect(screen.getByRole('slider',{name:'Bass gain'})).toBeTruthy();mock.action.mockClear();
@@ -1666,9 +1666,11 @@ it('keeps stems navigation transport neutral and isolates role shortcuts from no
 });
 it('keeps failed replacement usable, and requires explicit removal confirmation while retaining position',async()=>{
  mock.stemsStatus.mockResolvedValue(attachedStems());mock.setStemMix.mockResolvedValue(attachedStems());mock.pickStemsDirectory.mockResolvedValue('/new-stems');mock.attachStems.mockRejectedValue(new Error('Invalid provenance'));
- transport.position=4;transport.playing=true;mock.initialize.mockImplementation(async()=>({...response(),song:{key:'test',reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}}));await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Replace stems…'}));expect(mock.attachStems).not.toHaveBeenCalled();
- await fireEvent.click(screen.getByRole('button',{name:'Choose replacement…'}));await screen.findByText('Error: Invalid provenance');expect(transport.playing).toBe(false);expect(transport.position).toBe(4);expect(screen.getByText('roformer-sw')).toBeTruthy();
- mock.removeStems.mockResolvedValue({...attachedStems(),set_id:null,tracks:[],available:false});await fireEvent.click(screen.getByRole('button',{name:'Remove stems…'}));expect(mock.removeStems).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Remove stems'}));await waitFor(()=>expect(mock.removeStems).toHaveBeenCalledWith('test','set'));expect(transport.position).toBe(4);expect(document.sections).toHaveLength(2);
+ transport.position=4;transport.playing=true;mock.initialize.mockImplementation(async()=>({...response(),song:{key:'test',reference_token:'test',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Workshop take',path:'/test/song.wav',duration:12,rate:48000,peaks:[[-.2,.2]]}}));await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Replace with attached stems…'}));expect(mock.pickStemsDirectory).not.toHaveBeenCalled();expect(screen.getByRole('dialog',{name:'Replace stems?'})).toBeTruthy();
+ await fireEvent.click(screen.getByRole('button',{name:'Choose stems…'}));expect((await within(screen.getByRole('main',{name:'Stems'})).findByRole('alert')).textContent).toContain('Error: Invalid provenance');expect(transport.playing).toBe(false);expect(transport.position).toBe(4);
+ // The earlier set stays; the failure gives way to it.
+ await fireEvent.click(screen.getByRole('button',{name:'Back to current stems'}));expect(screen.getByText('Attached from another tool · made with Roformer-SW')).toBeTruthy();
+ mock.removeStems.mockResolvedValue({...attachedStems(),set_id:null,tracks:[],available:false});await fireEvent.click(screen.getByRole('button',{name:'Remove stems…'}));expect(mock.removeStems).not.toHaveBeenCalled();const removal=screen.getByRole('dialog',{name:'Remove stems?'});expect(window.document.activeElement).toBe(within(removal).getByRole('button',{name:'Cancel'}));await fireEvent.click(within(removal).getByRole('button',{name:'Remove stems'}));await waitFor(()=>expect(mock.removeStems).toHaveBeenCalledWith('test','set'));expect(transport.position).toBe(4);expect(document.sections).toHaveLength(2);
 });
 it('offers visible original fallback with disabled saved track controls',async()=>{
  mock.stemsStatus.mockResolvedValue({...attachedStems(),available:false,warning:'Vocals file missing'});await ready();expect(screen.getByText(/Vocals file missing/)).toBeTruthy();expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe('true');await fireEvent.keyDown(window,{key:'1'});expect(mock.setStemMix).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Play'}).hasAttribute('disabled')).toBe(false);
@@ -1693,8 +1695,8 @@ it.each([true,false])('distinguishes cleanup warnings from unavailable stems in 
  if(available)await waitFor(()=>expect(mock.setStemMix).toHaveBeenCalled());else expect(mock.setStemMix).not.toHaveBeenCalled();
  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
  const details=screen.getByRole('main',{name:'Stems'});
- expect(within(details).getByText(available?/Old set cleanup failed/:/Vocals file missing/).textContent?.includes('track controls are disabled')).toBe(!available);
- expect(within(details).getAllByText(available?'Ready':'Original fallback')[0]).toBeTruthy();
+ expect(within(details).getByText(available?/Old set cleanup failed/:/Vocals file missing/).textContent?.includes('Your mix is kept')).toBe(!available);
+ expect(!!within(details).queryByText('Playing the original recording.')).toBe(!available);
 });
 
 it('re-prepares attached stems during audio retry and refreshes availability without changing the practice view',async()=>{
@@ -1710,7 +1712,7 @@ it('re-prepares attached stems during audio retry and refreshes availability wit
  const restored={...attachedStems(),attenuation:.4,tracks:[{role:'bass' as const,gain:.5,mute:true,solo:false}]};mock.stemsStatus.mockResolvedValue(restored);transport.audio_error=null;finish(response());
  await waitFor(()=>expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-disabled')).toBe('false'));expect(screen.getByRole('slider',{name:'Bass gain'}).getAttribute('aria-valuenow')).toBe('50');expect(screen.queryByText(/Vocals file missing/)).toBeNull();
  expect(viewport.style.width).toBe(zoomBefore);expect(document.sections).toHaveLength(2);expect(transport.position).toBe(4);
- await fireEvent.click(screen.getByRole('button',{name:'Stems'}));expect(screen.getByText('-7.96 dB')).toBeTruthy();
+ await fireEvent.click(screen.getByRole('button',{name:'Stems'}));expect(screen.getByText('−7.96 dB')).toBeTruthy();
 });
 
 it('shows attachment work without filenames and retains the completed checklist',async()=>{
@@ -1721,13 +1723,18 @@ it('shows attachment work without filenames and retains the completed checklist'
  const report=mock.onStemProgress.mock.lastCall![0] as (value:StemProgress)=>void;
  const steps:NonNullable<StemProgress['workflow']>['steps']=[{id:'check',label:'Check bass audio',state:'active',completed:1,total:2},{id:'save',label:'Save attached stems',state:'pending',completed:0,total:null}];
  report({reference_token:'test',operation_id:mock.attachStems.mock.lastCall![2],phase:'Hash /private/audio/bass.wav',completed:1,total:2,workflow:{completed:.5,total:2,steps}});
- await screen.findByRole('progressbar',{name:'Overall stem processing'});
+ await screen.findByRole('progressbar',{name:'Attaching stems'});
+ expect(screen.getByText('Check bass audio',{selector:'[role=status]'})).toBeTruthy();
  report({reference_token:'test',operation_id:'earlier-attachment',phase:'Processing complete',completed:1,total:1,workflow:{completed:2,total:2,steps:steps.map(step=>({...step,state:'complete',completed:1,total:1}))}});
- await Promise.resolve();expect(screen.getByRole('progressbar',{name:'Overall stem processing'}).getAttribute('value')).toBe('0.25');
+ await Promise.resolve();expect(screen.getByRole('progressbar',{name:'Attaching stems'}).getAttribute('value')).toBe('25');
+ await fireEvent.click(screen.getByRole('button',{name:'Show steps'}));
  expect(screen.getByRole('list',{name:'Processing steps'}).textContent).toContain('Check bass audio');expect(screen.queryByText(/private\/audio/)).toBeNull();
  // The attach reply can beat the final progress event; publication still completes the list.
  finish(attachedStems());
- await screen.findByText('Stems ready');expect(screen.getByRole('list',{name:'Processing steps'})).toBeTruthy();expect(screen.getByRole('progressbar',{name:'Overall stem processing'}).getAttribute('value')).toBe('1');
+ // Attaching ends on the review step with a dismissible banner.
+ const banner=await screen.findByText('Stems attached. Two instruments.');expect(screen.getByRole('heading',{name:'Review the stems'})).toBeTruthy();
+ expect(screen.getByRole('list',{name:'Instruments'}).textContent).toBe('BassVocals');
+ await fireEvent.click(within(banner.closest('[role=status]') as HTMLElement).getByRole('button',{name:'Dismiss'}));expect(screen.queryByText('Stems attached. Two instruments.')).toBeNull();
 });
 
 
@@ -1737,7 +1744,7 @@ describe('integrated separation workflow',()=>{
   mock.installSeparationModel.mockImplementation(async()=>{value.install={...value.install,id:'install',running:true,phase:'Downloading model',cancellable:true};return structuredClone(value);});
   mock.startSeparation.mockImplementation(async()=>{transport.playing=false;value.job={...value.job,id:'job',running:true,phase:'Separating instruments',reference_token:'test',cancellable:true};return structuredClone(value);});
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
-  expect(mock.installSeparationModel).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Set up stem separation'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
+  expect(mock.installSeparationModel).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Set up separation'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
   value.model_ready=true;value.install={...value.install,running:false,phase:'Complete',cancellable:false};const separate=await screen.findByRole('button',{name:'Separate song'});await waitFor(()=>expect((separate as HTMLButtonElement).disabled).toBe(false));expect(mock.startSeparation).not.toHaveBeenCalled();
   await fireEvent.click(separate);await waitFor(()=>expect(mock.startSeparation).toHaveBeenCalledWith('test'));await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
   expect((screen.getByRole('button',{name:'Play'}) as HTMLButtonElement).disabled).toBe(true);expect(speedField().disabled).toBe(true);
@@ -1753,13 +1760,98 @@ describe('integrated separation workflow',()=>{
  it('keeps playback and screen navigation available during tool setup and restores current progress',async()=>{
   const value=separationStatus();value.runtime.ready=false;value.runtime.supported=true;value.install={...value.install,id:'setup',order:1,running:true,phase:'Installing separation tools',cancellable:true,progress:{stage:'runtime.dependencies',completed:0,total:null,workflow:{completed:0,total:0,steps:[{id:'runtime.dependencies',label:'Install separation tools',state:'active',completed:0,total:null}]}}};mock.separationStatus.mockResolvedValue(value);
   await ready();expect(mock.installSeparationModel).not.toHaveBeenCalled();expect((screen.getByRole('button',{name:'Play'}) as HTMLButtonElement).disabled).toBe(false);
-  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await screen.findByText('Install separation tools');
+  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await screen.findByText('Installing separation tools',{selector:'[role=status]'});
   // Settings own tool management and are unavailable while setup downloads (decision 6).
   for(const name of [/Reinstall/,/Remove separation tools/])expect(screen.queryByRole('button',{name})).toBeNull();
-  expect((screen.getByRole('button',{name:'Manage in Settings'}) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole('button',{name:/Settings/})).toBeNull();
   expect((within(screen.getByRole('banner')).queryByRole('button',{name:'Settings'}))).toBeNull();
   await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));await fireEvent.click(screen.getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
-  await fireEvent.click(screen.getByRole('button',{name:'Open Stems'}));expect(screen.getByText('Install separation tools')).toBeTruthy();expect(mock.cancelSeparation).not.toHaveBeenCalled();expect(mock.startSeparation).not.toHaveBeenCalled();
+  await fireEvent.click(screen.getByRole('button',{name:'Open Stems'}));expect(screen.getByText('Installing separation tools',{selector:'[role=status]'})).toBeTruthy();expect(mock.cancelSeparation).not.toHaveBeenCalled();expect(mock.startSeparation).not.toHaveBeenCalled();
+ });
+ it('confirms replacing stems, then reports the finished separation on Practice until Stems is opened',async()=>{
+  let value=separationStatus();value.model_ready=true;mock.separationStatus.mockImplementation(async()=>structuredClone(value));
+  mock.stemsStatus.mockResolvedValue(attachedStems());mock.setStemMix.mockResolvedValue(attachedStems());
+  mock.startSeparation.mockImplementation(async()=>{value.job={...value.job,id:'job',order:1,running:true,phase:'Separating instruments',reference_token:'test',cancellable:true};return structuredClone(value);});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  await fireEvent.click(await screen.findByRole('button',{name:'Separate again…'}));
+  const confirm=screen.getByRole('dialog',{name:'Replace stems?'});
+  // The open confirmation owns the keyboard: Esc cancels it and nothing starts.
+  await fireEvent.keyDown(within(confirm).getByRole('button',{name:'Separate and replace'}),{key:'n'});expect(screen.queryByRole('complementary',{name:'Notes'})).toBeNull();
+  await fireEvent(confirm,new Event('cancel',{cancelable:true}));await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Replace stems?'})).toBeNull());expect(mock.startSeparation).not.toHaveBeenCalled();
+  await fireEvent.click(screen.getByRole('button',{name:'Separate again…'}));await fireEvent.click(screen.getByRole('button',{name:'Separate and replace'}));
+  await waitFor(()=>expect(mock.startSeparation).toHaveBeenCalledWith('test'));
+  // Focus follows to the new work's Cancel.
+  await waitFor(()=>expect(window.document.activeElement).toBe(screen.getByRole('button',{name:'Cancel'})));
+  await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
+  const separated={...attachedStems(),separated:true,tracks:[...attachedStems().tracks,{role:'drums' as const,gain:1,mute:false,solo:false},{role:'guitar' as const,gain:1,mute:false,solo:false},{role:'other' as const,gain:1,mute:false,solo:false}]};
+  value.job={...value.job,running:false,cancellable:false,phase:'Complete',result:separated};
+  const toast=(await screen.findByText('Stems ready')).closest('[role=status]') as HTMLElement;
+  expect(toast.textContent).toContain('Five instruments; piano was near-silent and left out.');
+  await fireEvent.click(within(toast).getByRole('button',{name:'Open Stems'}));
+  expect(await screen.findByText('Separation finished. Five instruments; piano was near-silent and left out.')).toBeTruthy();
+  expect(screen.getByRole('list',{name:'Instruments'}).textContent).toContain('Pianonear-silent');
+  await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));expect(screen.queryByText('Stems ready')).toBeNull();
+ });
+ it('shows a stopped separation with its steps open; the list keeps only its scrolling keys',async()=>{
+  const value=separationStatus();value.model_ready=true;
+  value.job={...value.job,id:'job',order:1,phase:'Failed',reference_token:'test',error:'Not enough memory to finish.',details:'worker log',progress:{stage:'separate',completed:0,total:null,workflow:{completed:3,total:8,steps:[{id:'load',label:'Load separation model',state:'complete',completed:1,total:1},{id:'separate',label:'Separate instruments',state:'active',completed:0,total:null}]}}};
+  mock.separationStatus.mockResolvedValue(value);
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  const list=await screen.findByRole('list',{name:'Processing steps'});
+  expect(screen.getByRole('alert').textContent).toContain('Not enough memory to finish.');expect(screen.getByRole('button',{name:'Retry separation'})).toBeTruthy();
+  list.focus();await fireEvent.keyDown(list,{key:'ArrowDown'});expect(screen.getByRole('main',{name:'Stems'})).toBeTruthy();
+  // Keys the list doesn't own reach the shortcuts: N opens Practice with the notes drawer.
+  await fireEvent.keyDown(list,{key:'n'});await screen.findByRole('complementary',{name:'Notes'});
+ });
+ it('offers a way back from a failed attachment on a song without stems',async()=>{
+  const value=separationStatus();value.model_ready=true;mock.separationStatus.mockResolvedValue(value);
+  mock.pickStemsDirectory.mockResolvedValue('/broken');mock.attachStems.mockRejectedValue(new Error('Invalid provenance'));
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  await fireEvent.click(await screen.findByRole('button',{name:'Attach stems…'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('Invalid provenance');
+  expect(screen.queryByRole('button',{name:'Separate song'})).toBeNull();
+  await fireEvent.click(screen.getByRole('button',{name:'Back'}));
+  expect(await screen.findByRole('button',{name:'Separate song'})).toBeTruthy();
+  // Focus follows to the new pane's heading rather than falling to the page.
+  await waitFor(()=>expect(window.document.activeElement).toBe(screen.getByRole('heading',{name:'Split this song into stems'})));
+ });
+ it('blocks separation with the reason when the stems’ volume lacks free space',async()=>{
+  const value=separationStatus();value.model_ready=true;mock.separationStatus.mockResolvedValue(value);
+  mock.separationEstimate.mockResolvedValue({required_bytes:2e9,available_bytes:1e9});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  const start=await screen.findByRole('button',{name:'Separate song'}) as HTMLButtonElement;
+  await waitFor(()=>expect(start.disabled).toBe(true));
+  expect(start.title).toBe('Needs about 2.0 GB of free disk space; 1.0 GB is free');
+  expect(screen.getByText('Not enough free disk space.')).toBeTruthy();
+  await fireEvent.click(start);expect(mock.startSeparation).not.toHaveBeenCalled();
+ });
+ it('moves focus to the new pane after confirming removal',async()=>{
+  mock.stemsStatus.mockResolvedValue(attachedStems());mock.setStemMix.mockResolvedValue(attachedStems());
+  mock.removeStems.mockResolvedValue({...attachedStems(),set_id:null,tracks:[],available:false});
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  await fireEvent.click(await screen.findByRole('button',{name:'Remove stems…'}));
+  await fireEvent.click(within(screen.getByRole('dialog',{name:'Remove stems?'})).getByRole('button',{name:'Remove stems'}));
+  await waitFor(()=>expect(mock.removeStems).toHaveBeenCalled());
+  await waitFor(()=>expect(window.document.activeElement?.getAttribute('data-pane-heading')).not.toBeNull());
+  expect(window.document.activeElement).not.toBe(window.document.body);
+ });
+ it('drops the finished toast and the attachment outcome when another song opens',async()=>{
+  const value=separationStatus();value.model_ready=true;value.job={...value.job,id:'job',order:1,phase:'Complete',reference_token:'test',result:{...attachedStems(),separated:true}};mock.separationStatus.mockResolvedValue(value);
+  mock.pickStemsDirectory.mockResolvedValue('/broken');mock.attachStems.mockRejectedValue(new Error('Invalid provenance'));
+  const entry=libraryEntry('other','Another take','Player',1000,2000);mock.readLibrary.mockResolvedValue({version:1,songs:[libraryEntry('test','Workshop take','Player',1,2),entry]});
+  await ready();await screen.findByText('Stems ready');
+  // A failed attachment on this song…
+  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  await fireEvent.click(await screen.findByRole('button',{name:'Attach stems…'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('Invalid provenance');
+  await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
+  mock.stemsStatus.mockImplementation(async(reference:string)=>({reference_token:reference,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null,separated:false}));
+  mock.openLibrarySong.mockResolvedValue({...response(),song:{key:'other',reference_token:'other',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Another take',path:entry.file_location,duration:12,rate:48000,peaks:[[-.2,.2]]}});
+  await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(await screen.findByRole('button',{name:'Practise Another take'}));await screen.findByRole('heading',{name:'Another take'});
+  expect(screen.queryByText('Stems ready')).toBeNull();
+  // …doesn't follow to the next one.
+  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
+  expect(await screen.findByRole('button',{name:'Separate song'})).toBeTruthy();expect(screen.queryByText(/Invalid provenance/)).toBeNull();expect(screen.queryByText('Attaching stopped')).toBeNull();
  });
  it('asks about active-work quit and only cancels through confirmed native exit',async()=>{
   const value=separationStatus();value.install={...value.install,id:'download',running:true,phase:'Downloading model',cancellable:true};mock.separationStatus.mockResolvedValue(value);let exit!:()=>void;mock.onExitRequested.mockImplementation(async(handler:()=>void)=>{exit=handler;return ()=>{};});
@@ -1772,7 +1864,7 @@ describe('integrated separation workflow',()=>{
  it('confirms quit while download admission is pending even when native work was still inactive',async()=>{
   let exit!:(activeProcessing?:boolean)=>void;mock.onExitRequested.mockImplementation(async(handler:(activeProcessing?:boolean)=>void)=>{exit=handler;return ()=>{};});
   let resolve!:(status:SeparationStatus)=>void;mock.installSeparationModel.mockReturnValue(new Promise<SeparationStatus>(r=>resolve=r));
-  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Set up stem separation'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
+  await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));await fireEvent.click(screen.getByRole('button',{name:'Set up separation'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
   exit(false);await screen.findByRole('dialog',{name:'Quit and cancel processing'});expect(mock.finishExit).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Keep app open'}));
   const admitted=separationStatus();admitted.install={...admitted.install,id:'download',running:true,phase:'Downloading model',cancellable:true};resolve(admitted);await screen.findByRole('button',{name:'Cancel'});expect(mock.finishExit).not.toHaveBeenCalled();
  });
@@ -2207,6 +2299,7 @@ describe('Settings dialog',()=>{
   });
 
   it('opens on the section a link names: Stems and the shortcut list',async()=>{
+    const broken=separationStatus();broken.runtime.ready=false;broken.runtime.message='The separation tools need repair.';mock.separationStatus.mockResolvedValue(broken);
     await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
     await fireEvent.click(await screen.findByRole('button',{name:'Repair in Settings'}));
     expect(tab(/^Stem separation/).getAttribute('aria-selected')).toBe('true');expect(within(settings()).getByRole('heading',{name:'Stem separation'})).toBeTruthy();

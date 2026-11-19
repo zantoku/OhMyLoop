@@ -264,6 +264,16 @@ deleting input beneath a child process.
 
 ## Stems screen and practice mixer
 
+> **Current UI:** the Stems view follows the guided-steps design
+> ([design brief](design/stems.md), [UI_DESIGN.md](UI_DESIGN.md#stems-view)): set up
+> separation, separate this song, review the stems. Tool repair and removal live in
+> Settings → Stem separation. The paragraphs below are the original design notes;
+> where they differ (model chooser, Use in Practice, header badge), the brief wins.
+> Stored stem records are version 2 and keep an `origin` (`separated` by the app,
+> or `attached` from another tool's output). Version-1 records still load, with an
+> unknown origin, and show as attached; near-silent roles are inferred only for
+> sets separated here.
+
 The song header opens **Stems** alongside Notes and Measure map. The screen shows
 the selected reference recording, existing sets with model/date/storage status,
 and controls to attach prototype results or generate a new set. Model setup

@@ -152,7 +152,7 @@ action catalog.
 Key ownership is decided by the key (`ui/key-routing.ts`). Text fields,
 selects, open dialogs and popovers, and IME composition own every key. Composite controls
 (waveform and map seek sliders, loop handles, map lines, the click and stem
-knobs, range inputs) own only their documented keys, such as the arrows and Home/End;
+knobs, range inputs, the Stems processing-step list's ↑/↓, Page Up/Down and Home/End) own only their documented keys, such as the arrows and Home/End;
 letters, Space, Enter and Esc still reach the shortcuts from them. Clicking a
 button or toggle leaves keyboard focus where it was, so Space keeps playing;
 only a Tab-focused button activates with Space or Enter. Holding a transport

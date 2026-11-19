@@ -78,7 +78,7 @@ temporary-PCM cleanup waiting to reclaim space.
 
 ## Integrated app data after #6
 
-Use **Stems → Model management → Remove model** for the app's downloaded weights.
+Use **Settings → Stem separation → Remove…** (model) for the app's downloaded weights.
 Completed stems keep playing without that model. Use confirmed **Remove stems**
 for a song's associated stems/cache, or confirmed song deletion for that song.
 
@@ -91,7 +91,7 @@ set referenced by `song.json`.
 
 ## Integrated #6 locations
 
-The Stems screen's **Model management** displays the exact shared model path.
+**Settings → Stem separation → Storage location** displays the exact shared model path.
 The normal macOS location is
 `~/Library/Application Support/org.ohmyloop.desktop/models/separation/roformer-sw-v1`.
 Use **Remove model** while idle to remove these downloaded assets; existing stems
@@ -112,7 +112,7 @@ cache. Diagnostic cleanup errors include the exact uncommitted path when availab
 ## Managed separation tools after #7
 
 The desktop's private tools are separate from the retained prototype. Use
-**Stems → Model management → Remove separation tools** while idle. This removes
+**Settings → Stem separation → Remove…** (tools) while idle. This removes
 its environment, managed interpreter and owned download cache; model weights and
 all library data remain. **Reinstall separation tools** repairs tools explicitly
 without redownloading a verified model. Closing Stems does not stop setup: cancel

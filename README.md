@@ -22,8 +22,8 @@ npm run desktop
 
 Optional stem separation also needs its bundled setup resources prepared before a
 maintainer desktop build. See [managed-runtime build/setup](scripts/separation_runtime/README.md).
-End users perform explicit **Set up stem separation** inside Stems; they need no
-system Python, compiler or FFmpeg. Installed inference works offline.
+End users perform explicit **Set up separation** inside Stems (step 1 of its guided
+steps); they need no system Python, compiler or FFmpeg. Installed inference works offline.
 
 Development builds optimize inference and resampling dependencies while keeping
 app code debuggable. The first build after these profile changes takes longer;

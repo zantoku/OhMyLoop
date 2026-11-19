@@ -75,6 +75,10 @@ it('loads a file that still names the retired managed_settings, with a warning',
   const loaded=await loadKeymap(async()=>({path:'/k.json',configuration:{version:1,keys:{managed_settings:['Alt+s']},buttons:{managed_settings:'managed_settings'}},warning:null}),false);
   expect(loaded.source).toBe('custom');expect(loaded.warning).toMatch(/Ignored keys\.managed_settings/);expect(loaded.warning).toMatch(/Ignored buttons\.managed_settings/);
 });
+it('loads a file that still names the retired separation_practice (Go to Practice), with a warning',async()=>{
+  const loaded=await loadKeymap(async()=>({path:'/k.json',configuration:{version:1,keys:{separation_practice:['Alt+p']},buttons:{separation_practice:'separation_practice'},descriptions:{separation_practice:'Back'}},warning:null}),false);
+  expect(loaded.source).toBe('custom');expect(loaded.warning).toMatch(/Ignored keys\.separation_practice/);expect(loaded.warning).toMatch(/Ignored buttons\.separation_practice/);expect(loaded.warning).toMatch(/Ignored descriptions\.separation_practice/);
+});
 it('allows the same key in different screens and matches only the active screen',()=>{
   const map=new Keymap(false,{version:1,keys:{map_beat:['a']}});
   const event=new KeyboardEvent('keydown',{key:'a'});

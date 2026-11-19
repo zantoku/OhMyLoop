@@ -1,6 +1,7 @@
 <script lang="ts">
   // Global notices as toasts below the header. Errors persist until resolved
-  // or dismissed, informational notices time out, progress stays while it runs.
+  // or dismissed, informational notices time out, progress stays while it runs,
+  // and a finished separation stays until dismissed or seen.
   import { onDestroy } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import Icon from './Icon.svelte';
@@ -33,7 +34,7 @@
 <div class="toasts">
   {#each shown as notice (notice.key)}
     <div class="toast {notice.tone}" role={notice.tone === 'error' ? 'alert' : 'status'}>
-      {#if notice.tone === 'progress'}<ProgressRing value={notice.progress ?? null}/>{/if}
+      {#if notice.tone === 'progress'}<ProgressRing value={notice.progress ?? null}/>{:else if notice.tone === 'success'}<span class="done"><Icon name="check" size={18}/></span>{/if}
       <span class="text copyable">{#if notice.title}<b>{notice.title}</b>{' '}{/if}{notice.text}</span>
       {#if notice.action}{@const button = notice.action.button}
         <button class="action" disabled={!notice.action.enabled} title={keymap.title(button)} onclick={() => run(button)}>{notice.action.label}</button>
@@ -48,7 +49,8 @@
   .toast{pointer-events:auto;display:flex;align-items:center;gap:10px;padding:10px 10px 10px 14px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--text);box-shadow:0 8px 24px var(--dialog-shadow);font-size:12px;line-height:1.45}
   .toast.error{border-color:var(--error-border);background:var(--error-bg);color:var(--error-text)}
   .text{flex:1;min-width:0;white-space:pre-line;overflow-wrap:anywhere}
-  .progress .text b{display:block}
+  .progress .text b,.success .text b{display:block}
+  .done{flex:none;display:grid;color:var(--success-text)}
   .action{flex:none;height:28px;padding:0 10px;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:inherit;font-size:12px;font-weight:600}
   .error .action{border-color:var(--error-border)}
   .action:hover:not(:disabled){background:var(--hover)}

@@ -35,7 +35,7 @@ Frequency tags: **song**: once per song; **install**: once per computer;
 | A2 | Separate the current song with one action, knowing beforehand the disk space needed, that it uses several GB of memory, and that playback pauses until it finishes. | song | `separation_start` |
 | A3 | Follow the work: one overall bar, the current step, the step checklist and elapsed time. Steps without measurable progress show as working, not as a made-up percentage. | song | — |
 | A4 | Cancel before saving begins, keeping any stems the song already had. | rare | `separation_cancel` |
-| A5 | When it's done, see which tracks were kept and which near-silent ones were skipped, and go back to Practice. | song | `separation_practice` |
+| A5 | When it's done, see which tracks were kept and which near-silent ones were skipped, and go back to Practice. | song | — (`separation_practice` dropped with Go to Practice, decision 8) |
 | A6 | Leave the screen while it runs, edit notes or the measure map, see that work continues from anywhere, and come back to it. | song | `close_stems`, `separation_open` |
 | A7 | Separate again to replace the current set, after confirming; the old set stays until the new one is saved, and the mix for matching instruments is kept. | rare | `separation_start` |
 | A8 | Attach a stem set made elsewhere (an output folder with its manifest), with the same progress checklist. | rare | `attach_stems` |

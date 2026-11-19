@@ -706,6 +706,32 @@ mod adoption_tests {
             let _ = fs::remove_dir_all(&self.root);
         }
     }
+    #[test]
+    fn stem_origin_round_trips_and_old_records_stay_readable() {
+        let f = fixture();
+        let separated = StoredStemSet {
+            origin: StemOrigin::Separated,
+            ..f.record.clone()
+        };
+        separated.validate().unwrap();
+        let json = serde_json::to_value(&separated).unwrap();
+        assert_eq!(json["version"], 2);
+        assert_eq!(json["origin"], "separated");
+        let back: StoredStemSet = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(back, separated);
+        // A version-1 document, written before origins were kept, reads as unknown.
+        let mut old = json;
+        old.as_object_mut().unwrap().remove("origin");
+        old["version"] = 1.into();
+        let read: StoredStemSet = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(read.origin, StemOrigin::Unknown);
+        read.validate().unwrap();
+        // A version-1 record never claims an origin.
+        old["origin"] = "separated".into();
+        let claimed: StoredStemSet = serde_json::from_value(old).unwrap();
+        assert!(claimed.validate().is_err());
+        let _ = fs::remove_dir_all(&f.root);
+    }
     fn fixture() -> Fixture {
         let root =
             std::env::temp_dir().join(format!("ohmyloop-adoption-test-{}", uuid::Uuid::new_v4()));
@@ -719,6 +745,7 @@ mod adoption_tests {
         let hash = "a".repeat(64);
         let record = StoredStemSet {
             version: VERSION,
+            origin: StemOrigin::Attached,
             id: uuid::Uuid::new_v4().to_string(),
             reference_sha256: hash.clone(),
             reference_rate: 44100,

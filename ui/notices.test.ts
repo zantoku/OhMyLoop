@@ -20,10 +20,19 @@ describe('notices', () => {
   });
 
   it('reports separation progress with a way to open Stems, and why playback is paused', () => {
-    const [toast] = notices({ ...calm, processing: { label: 'Splitting song into stems', detail: 'Playback is paused until it finishes. Notes still work.', progress: .58 } });
+    const [toast] = notices({ ...calm, processing: { id: 'job', kind: 'running', title: 'Splitting song into stems', detail: 'Playback is paused until it finishes.', progress: .58 } });
     expect(toast).toMatchObject({ tone: 'progress', title: 'Splitting song into stems · 58 %', progress: .58, action: { button: 'separation_open' } });
     expect(toast.text).toMatch(/Playback is paused/);
     expect(toast.dismiss).toBeUndefined();
+    const [unmeasured] = notices({ ...calm, processing: { id: 'setup', kind: 'running', title: 'Setting up stem separation', detail: 'Installing separation tools. Playback keeps working.', progress: null } });
+    expect(unmeasured).toMatchObject({ title: 'Setting up stem separation…', progress: null });
+  });
+
+  it('keeps a finished or failed separation as a dismissible toast that opens Stems', () => {
+    const [done] = notices({ ...calm, processing: { id: 'job', kind: 'done', title: 'Stems ready', detail: 'Five instruments; piano was near-silent and left out.', progress: null } });
+    expect(done).toMatchObject({ tone: 'success', title: 'Stems ready', dismiss: 'hide', action: { button: 'separation_open', label: 'Open Stems' } });
+    const [failed] = notices({ ...calm, processing: { id: 'job', kind: 'failed', title: 'Separation stopped', detail: 'Not enough memory.', progress: null } });
+    expect(failed).toMatchObject({ tone: 'error', title: 'Separation stopped', text: 'Not enough memory.', dismiss: 'hide', action: { button: 'separation_open' } });
   });
 
   it('offers Undo for each removal, but not while work is running', () => {

@@ -63,7 +63,8 @@ beat 2 · 1:24.6/3:48  │ m. 33 – 40   │                   −10 −5 +5 +1
 - **Toasts** (`Toasts.svelte`, `notices.ts`) replace the old notice rows and
   status bar: errors needing action persist until resolved or dismissed,
   informational notices time out after 6 s, progress (opening, importing,
-  stem preparation, separation) stays while it runs. Several can show at once.
+  stem preparation, separation) stays while it runs; a separation that finishes
+  or fails off the Stems view stays until seen or dismissed. Several can show at once.
 - **Readout band** (Practice): the measure and beat (or the time with an "Add a
   measure map" link) readable at a distance, the passage card (LOOPING or
   PASSAGE, its extent in measures or times, length, the matching section and
@@ -336,7 +337,8 @@ is untouched.
 - **Stem separation / Beat analysis:** status, size, install with progress and
   Cancel, repair (Reinstall / Verify, Check again), and Remove… with an inline
   confirmation saying stems, maps and analysis results stay. The Stems screen
-  keeps first-time setup and links here to manage or repair; the Measure map
+  keeps first-time setup and links here only when the tools need repair or
+  setup stopped; the Measure map
   keeps "Download analysis model" for drafting and links here.
 - **Background work** (decision 6): while separation, beat analysis, an import
   or a tool download that wasn't started in Settings (on the Stems screen or
@@ -393,7 +395,64 @@ set. Track controls remain operable in the default state. One song owns at most
 one stem set. Attaching another requires confirmation and replaces the prior set
 only after successful validation, copying and saving; retain controls for matching
 roles. The Stems view (header segment, or "Split into stems" in the mixer)
-opens attachment/replacement, current-set details and errors.
+sets up separation, separates, attaches, replaces and removes the set; see
+[Stems view](#stems-view).
+
+## Stems view
+
+Concept SC, "guided steps" ([stems.md](design/stems.md)), in
+`StemsScreen.svelte`. What the screen shows is a pure function of the
+separation status, the song's stem set and a manual attachment
+(`stems-screen.ts`), so every state is unit-tested.
+
+- **Step list** (left, 300 px): a leading X closes Stems ("Stems for this
+  song"), then **1 Set up separation → 2 Separate this song → 3 Review the
+  stems**. The current step is tinted with a blue number; done steps show a
+  check and a one-line summary (Ready · works offline; Five instruments, or
+  ", attached"; Running · 58 %; Stopped · retry; Waits for beat analysis).
+- **Quiet links** under the steps: "Made stems with another tool? Attach
+  stems…" without a set; "Replace with attached stems…" and "Remove stems…"
+  with one. They are disabled while work runs. A footnote says the original
+  recording stays the source for the waveform and the measure map.
+- **Pane** (right) holds the current step:
+  - *Checking*, then *unsupported* ("Separation can't run on this computer",
+    Attach stems… as the primary action);
+  - *setup* (download size, playback keeps working, **Set up separation**);
+    *repair* when the tools on disk no longer verify (**Repair in Settings**);
+  - *ready* ("Split this song into stems": takes, disk estimate, memory,
+    playback paused; **Separate song**), with an amber note while beat
+    analysis holds the shared slot. When the stems' volume has less free
+    space than the estimate (D2), an amber "Not enough free disk space" note
+    names both sizes and Separate song (and Separate again…) is disabled with
+    that reason as its tooltip. Free space is read each time Stems opens;
+    separation still checks again when it starts;
+  - *running* setup, separation or attachment: the fixed-title bar, percent
+    only when measured, the phase, elapsed time and Cancel (Stopping…,
+    Finishing save… disabled), and **Show steps** for the checklist;
+  - *stopped*: the bar in red, the error with **Copy details**, the checklist
+    open, **Retry**, and **Back to current stems** when an earlier set
+    remains, or **Back** after a failed attachment (setup adds a
+    **Separation settings** link). A cancellation keeps the checklist open
+    in neutral tones, without an error;
+  - *review*: a dismissible "Separation finished" / "Stems attached" banner,
+    "Review the stems" with where the set came from (Separated here with
+    Roformer-SW, or Attached from another tool; the stored set records its
+    origin, and sets saved before that, version-1 stem records, show as
+    attached), an amber "Playing the
+    original recording" note when playback falls back, instrument chips with
+    near-silent ones struck through, Details (model, shared headroom, storage)
+    and **Separate again…** (or Set up separation / Repair in Settings).
+- **Confirmations** are modal dialogs with a leading X, Cancel and the action:
+  Replace stems? (Separate and replace, or Choose stems…) and Remove stems?
+  (red, Cancel is the default). After confirming, or after Back, focus moves
+  to the new pane's Cancel or its heading.
+- **Elsewhere:** a persistent toast shows setup or separation progress with
+  **Open Stems**; when separation finishes or fails off-screen it stays as
+  "Stems ready" (with kept and near-silent instruments) or "Separation
+  stopped" until Stems is opened or the toast is dismissed. There is no
+  automatic navigation and no Go to Practice button (decision 8).
+- **Deferred:** per-stem review rows (play alone, rename, hide, delete;
+  [#15](https://github.com/zantoku/OhMyLoop/issues/15)) and the set's date.
 
 ## Integrated separation flow
 
@@ -416,12 +475,13 @@ The separation progress bar has the static title **Splitting song into stems**.
 Show the current phase title below the bar as its subtitle; individual step names
 remain in the checklist. Completion and stopped status also appear in the subtitle.
 
-Completion automatically attaches the validated set, displays retained/skipped
-tracks, and offers Go to Practice. It changes neither reference recording nor
-measure map. Playback stays paused after publication. Model removal leaves stems
-intact. Attach existing outputs remains secondary, as does installed-model
-management. The top-leading X returns to Practice without cancelling active work;
-the Stems button shows a compact ongoing-work indicator.
+Completion automatically attaches the validated set and shows it on the review
+step with retained/skipped tracks and a dismissible banner; it doesn't navigate.
+It changes neither reference recording nor measure map. Playback stays paused
+after publication. Model removal leaves stems intact. Attach existing outputs
+remains secondary; installed-model management lives in Settings. The top-leading
+X returns to Practice without cancelling active work; the other views show a
+persistent progress toast.
 
 The [approved primary-source demo](https://github.com/zantoku/OhMyLoop/blob/prototype/stem-separation-flow-2026-10-14/ui/StemSeparation.prototype.html) is archived on
 `prototype/stem-separation-flow-2026-10-14` and can be opened directly in a browser. It uses in-memory state, simulated audio/progress and illustrative
@@ -456,13 +516,14 @@ Cancel, without an automatic overall deadline.
 
 ## Stem processing transparency
 
-During attachment, show a prominent overall progress bar near the top of Stems,
-above the explanatory copy and set details. Below it, list the actual processing
-steps in a keyboard-scrollable region. Labels are short (at most eight words),
+During attachment, show a prominent overall progress bar at the top of the Stems
+pane. The actual processing steps sit behind **Show steps** while work runs and
+are open when it stops, in a keyboard-scrollable list (it owns ↑/↓, Page Up/Down
+and Home/End). Labels are short (at most eight words),
 use instrument names where useful, and do not include filenames or paths. Pending
 steps have hollow circular bullets, measured active progress fills a green pie,
-and completed steps have solid green bullets. Keep the completed checklist after
-attachment; an error leaves incomplete steps incomplete.
+and completed steps have solid green bullets. After attachment the review step
+replaces the checklist; an error leaves incomplete steps incomplete.
 
 New attachments omit tracks with a whole-track peak below −60 dBFS. Show those
 steps as “Skip near-silent <instrument>”, with a green bullet and “Skipped” status;

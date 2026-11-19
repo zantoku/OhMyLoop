@@ -1,4 +1,4 @@
-import type {SeparationStatus} from './separation';
+import type {ProcessingEstimate,SeparationStatus} from './separation';
 import type {StemsSnapshot,StemTrack,StemProgress} from './stems';
 import type {Catalogue,SongMetadata} from './library';
 import {listen} from '@tauri-apps/api/event';
@@ -33,7 +33,7 @@ function previewFixture(): Snapshot {
 }
 
 export const bridge = {
-  separationEstimate:(referenceToken:string)=>invoke<number>('separation_estimate',{referenceToken}),
+  separationEstimate:(referenceToken:string)=>invoke<ProcessingEstimate>('separation_estimate',{referenceToken}),
   separationStatus:()=>invoke<SeparationStatus>('separation_status'),
   installSeparationModel:()=>invoke<SeparationStatus>('install_separation_model'),
   reinstallSeparationModel:()=>invoke<SeparationStatus>('reinstall_separation_model'),
@@ -43,7 +43,7 @@ export const bridge = {
   refreshSeparationRuntime:()=>invoke<SeparationStatus>('refresh_separation_runtime'),
   startSeparation:(referenceToken:string)=>invoke<SeparationStatus>('start_separation',{referenceToken}),
   cancelSeparation:(id:string)=>invoke<SeparationStatus>('cancel_separation',{id}),
-  stemsStatus:(referenceToken:string)=>native?invoke<StemsSnapshot>('stems_status',{referenceToken}):Promise.resolve({reference_token:referenceToken,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null}),
+  stemsStatus:(referenceToken:string)=>native?invoke<StemsSnapshot>('stems_status',{referenceToken}):Promise.resolve({reference_token:referenceToken,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null,separated:false}),
   pickStemsDirectory:()=>native?invoke<string|null>('pick_stems_directory'):Promise.reject(new Error('Attach stems in the desktop app.')),
   attachStems:(referenceToken:string,path:string,operationId:string)=>native?invoke<StemsSnapshot>('attach_stems',{referenceToken,path,operationId}):Promise.reject(new Error('Attach stems in the desktop app.')),
   removeStems:(referenceToken:string,setId:string)=>native?invoke<StemsSnapshot>('remove_stems',{referenceToken,setId}):Promise.reject(new Error('Remove stems in the desktop app.')),
