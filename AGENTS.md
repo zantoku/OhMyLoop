@@ -88,3 +88,8 @@ For label meanings and mappings, read `docs/agents/triage-labels.md`.
 
 Use a single-context layout: root `GLOSSARY.md` and `docs/adr/`.
 Before exploring the codebase, read `docs/agents/domain.md`.
+
+### Desktop UI
+
+The app must feel native on desktop. Before building or changing anything in
+`ui/` or the Tauri menus and windows, read `.claude/skills/native-ui/SKILL.md`.
