@@ -59,6 +59,12 @@ not own the key.
   Undo/Redo/Cut/Copy/Paste/Select All. Without them, ⌘C and ⌘V stop working
   in text fields. Undo and Redo go to the text field when one is focused,
   otherwise to the app's undo.
+- **Windows and Linux have no menu bar** (decided 2026-11-19). The minimum
+  window keeps its full 680 px for content, which matches current Windows
+  apps and GNOME's header-bar style. There, Ctrl shortcuts go through the
+  webview handler with the same routing rules, and every menu command is also
+  reachable from a button on screen (Settings through the Library's Settings
+  button).
 
 ## Focus rings
 
