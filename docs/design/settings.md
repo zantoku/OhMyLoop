@@ -171,3 +171,33 @@ Answers to the open questions from the story review (2026-11-19):
    inside Settings keeps the dialog open with its progress; the other
    sections' actions wait until it ends.
 
+## Chosen concept: sidebar dialog
+
+Three layouts were drawn: a sidebar showing one section at a time (GA), one
+scrolling page with jump links (GB), and summary rows that expand in place
+(GC). GA was chosen on 2026-11-19.
+
+- **Shape:** a dialog over the current screen with a leading close X (and
+  Esc). The six sections sit in a sidebar in the order of decision 2; one
+  section shows at a time. Changes apply at once; there's no OK or Apply.
+- **Status in the sidebar:** each section name carries a one-line status
+  beneath it ("Ready · 1 GB", "Not installed", "Not found", "Custom file"),
+  so a problem is visible without opening the section.
+- **Opened from a link** (A2), the dialog lands on that section.
+- **Library:** the open library with its location and song count, Show in
+  Finder, Open another / Create a new library, how to move or back up a
+  library, and the missing-library recovery (B1–B5).
+- **Appearance:** Auto / Light / Dark, and the notes font (proportional or
+  monospaced) with a preview of a chord chart and tab (E1, E2).
+- **Audio:** the device in use, and Retry when it's lost (G1, G2). The
+  device chooser is drawn in a dashed box marked "Future · #18" (G3).
+- **Shortcuts:** "Show the shortcuts button on Practice", View all
+  shortcuts, the shortcut file's location with Open and Reload, and its
+  status: built-in, custom or rejected with the reason (F1–F3).
+- **Stem separation and Beat analysis:** each shows its status, size and
+  version; install with the download size, progress with Cancel, repair,
+  and remove with the reassurance that stems, maps and analysis results
+  stay (C1–C4, D1–D2).
+- **During a download** started here, the dialog stays open with progress
+  and the other sections' actions are dimmed until it ends (decision 6).
+
