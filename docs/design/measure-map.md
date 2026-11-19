@@ -186,10 +186,16 @@ where the eye already is, and the waveform keeps its full width and height.
 
 - **Anchoring:** the toolbar floats over the waveform, just below the ruler,
   centred on the selected measure. It doesn't cover the ruler band, so
-  measure numbers and the playhead marker stay visible. It clamps to the
-  edges of the view, fades while a line is dragged, and is reachable by
-  keyboard focus. When the selected measure scrolls out of view, it
-  collapses to an edge tab ("m. 37 ›") that scrolls back to the measure.
+  measure numbers and the playhead marker stay visible. A small notch on
+  its top edge points up at the selected measure. It fades while a line is
+  dragged and is reachable by keyboard focus.
+- **Scrolling** (2026-11-19): when the selected measure reaches an edge of
+  the view, the toolbar stays fully inside the waveform against that edge,
+  and the notch slides along its top edge to stay over the visible part of
+  the measure. When the measure scrolls out of view, the toolbar collapses
+  to an edge tab ("m. 37") on the side the measure went, with the notch on
+  its outer side pointing towards it; a click or F scrolls back to the
+  measure. The toolbar never stays open for a measure that isn't visible.
 - **Contents, in order:** measure number; measure properties ("4/4 · Full
   ▾"); Split; Join; Shift ◀ ▶; Lock; ⋯.
 - **Split** (C5) splits before the beat nearest the playhead, so it needs
