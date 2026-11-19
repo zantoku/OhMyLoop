@@ -58,7 +58,7 @@ times per song; **rare**: occasional or recovery.
   playback is frozen).
 - **Panel open and closed,** with the sections sidebar open and closed.
 - **No song loaded:** notes are unavailable.
-- **Window sizes:** 1180 × 810 default, very large, narrow (~650 px).
+- **Window sizes:** 1180 × 810 default, very large, minimum 1180 × 680 (see [Practice decision 14](practice.md#design-decisions)).
 - Light and dark appearance.
 
 ## Fixed constraints
@@ -146,5 +146,6 @@ in the sections sidebar (NB), and a tall drawer (NC). NC was chosen on
   Space plays again. The transport stays clickable throughout.
 - **Empty notes** show a placeholder in the text area.
 
-Still to design: long notes scrolled, no song loaded, separation running,
-narrow window, light appearance.
+Separation running and the minimum window are drawn with the Practice
+states; with no song loaded the Library is shown. Still to design: long
+notes scrolled.

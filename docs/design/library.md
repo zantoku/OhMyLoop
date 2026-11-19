@@ -101,7 +101,7 @@ screen. They're listed here so their actions stay covered.
 - **Library unavailable** (missing folder) and **list failed to load.**
 - **Settings, Library section** (designed with app-wide Settings): the
   open library and its location; create, open, locate.
-- **Window sizes:** 1180 × 810 default, very large, narrow (~650 px).
+- **Window sizes:** 1180 × 810 default, very large, minimum 1180 × 680 (see [Practice decision 14](practice.md#design-decisions)).
 - Light and dark appearance.
 
 ## Fixed constraints
@@ -225,5 +225,4 @@ fields;** editing needs an explicit edit action.
   missing-library, failed-list, import and refused-drop states are shared
   with the other concepts.
 
-Still to design: a large library (500+ songs), narrow window, light
-appearance.
+Still to design: a large library (500+ songs).

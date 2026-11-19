@@ -107,7 +107,7 @@ while correcting; **often**: several times per song; **song**: once per song;
 - **Stale or missing analysis;** model failure or offline.
 - **Separation running:** analysis unavailable; manual edits work.
 - **Dense map:** fast songs, 300+ measures, zoomed out.
-- **Window sizes:** 1180 × 810 default, very large, narrow (~650 px).
+- **Window sizes:** 1180 × 810 default, very large, minimum 1180 × 680 (see [Practice decision 14](practice.md#design-decisions)).
 - Light and dark appearance.
 
 ## Fixed constraints
@@ -207,5 +207,9 @@ where the eye already is, and the waveform keeps its full width and height.
   can be aligned with waveform peaks. On the selected measure, diamonds on
   the beat lines are the drag handles.
 
+**Drafting drawer** (2026-11-19): on an empty map, the drafting steps sit in
+a full-height drawer on the right, from below the header down to the
+playback bar, like Notes on Practice.
+
 Still to design: free-time range selected, edit rejected, stale or missing
-analysis, separation running, dense map, narrow window, light appearance.
+analysis, separation running, dense map.

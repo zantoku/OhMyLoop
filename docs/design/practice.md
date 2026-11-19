@@ -112,7 +112,7 @@ follow settings last for the app session.
 
 ## States to design
 
-- **No song:** first launch or empty library.
+- **No song:** the Library is shown instead (decision 12).
 - **Song without a measure map:** ruler shows timecode; no snapping, count-in,
   metronome or measure navigation. Explain how to enable them (Measure map)
   rather than hiding them silently.
@@ -125,7 +125,8 @@ follow settings last for the app session.
   waveform browsing still works.
 - **Errors:** audio device lost, save failed, invalid shortcut file; several
   at once.
-- **Window sizes:** 1180 × 810 default, very large (2200 × 1300), narrow (~650 px).
+- **Window sizes:** 1180 × 810 default, very large (2200 × 1300), minimum
+  1180 × 680 (decision 14).
 - **Very long song** (10+ min) and very short passage (< 1 s).
 - Light and dark appearance.
 
@@ -178,3 +179,25 @@ loop and speed readout above the waveform, with views as a segmented control.
     (`repeat_count_in`); it is disabled while looping is off. Neither
     control changes the other, which replaces today's three-state loop
     cycle. The loop card in the readout band notes "count-in each repeat".
+
+States review (2026-11-19), drawn on the canvas's "Chosen designs" page:
+
+12. **No song loaded:** the song views (Practice, Measure map, Stems) don't
+    exist without a song. When no song is loaded (first launch, after
+    deleting the current song, after switching libraries) the app shows the
+    Library.
+13. **Song without a measure map:** the readout shows the time ("1:24.6 of
+    3:48") with an "Add a measure map" link; loop, sections and A/B points
+    show times, and the waveform grid shows seconds. Snap to measures is
+    hidden; the step buttons jump 5 s. Count-in, count-in each repeat and
+    the click stay visible but disabled, each saying it needs a measure map.
+14. **Minimum window 1180 × 680:** every element stays visible, including
+    six stems plus the click in the mixer and both side panels (sections and
+    notes) open; the waveform gives up height first. Narrow layouts are out
+    of scope for now. This raises today's 820 × 620 minimum in
+    `src-tauri/tauri.conf.json` when implemented.
+15. **No stems:** the mixer shows the click and one Song volume, with a
+    "Split into stems" link to the Stems view.
+16. **Separation running:** play, the step buttons and the mixer are
+    disabled; a progress toast says playback is paused until it finishes.
+    Notes stay editable.

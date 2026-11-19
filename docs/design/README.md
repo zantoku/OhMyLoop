@@ -77,7 +77,8 @@ them without flagging the change. Details are in [UI_DESIGN.md](../UI_DESIGN.md)
 and `ui/theme.css`.
 
 - Desktop app for Linux, macOS and Windows. Default window 1180 × 810; content
-  fills larger windows and remains usable around 650 px wide.
+  fills larger windows. Minimum window 1180 × 680, with every element
+  visible; narrow layouts are out of scope for now.
 - Light and dark themes (auto / dark / light). Palette: canvas, panel, ink,
   action blue, loop amber, sage and plum for sections. Avenir Next / Segoe UI /
   Noto Sans; no remote fonts; tabular figures for times and values; type scale

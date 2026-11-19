@@ -91,7 +91,7 @@ Frequency tags: **song**: once per song; **install**: once per computer;
 - **Not enough disk space.**
 - **Seen from elsewhere:** Practice and Measure map while separation runs
   (playback frozen, indicator on the Stems view).
-- **Window sizes:** 1180 × 810 default, very large, narrow (~650 px).
+- **Window sizes:** 1180 × 810 default, very large, minimum 1180 × 680 (see [Practice decision 14](practice.md#design-decisions)).
 - Light and dark appearance.
 
 ## Fixed constraints
