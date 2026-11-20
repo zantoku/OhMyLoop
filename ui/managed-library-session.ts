@@ -1,20 +1,22 @@
 import {bridge} from './bridge';
 import type {ImportSelection,LibraryStatus,Snapshot} from './types';
-export type ManagedDialog='setup'|'settings'|'notice'|'duplicates'|'delete'|null;
+export type ManagedDialog='setup'|'notice'|'duplicates'|'delete'|null;
 export type ManagedState={status:LibraryStatus;dialog:ManagedDialog;selection:ImportSelection|null;pendingImport:boolean;deleteKey:string|null;deleteTitle:string};
 export class ManagedLibrarySession {
   private disposed=false;
+  /** A dropped file waiting for library setup, imported instead of asking for one. */
+  private source:string|null=null;
   private state:ManagedState={status:{selected:null,available:false,error:null,import_notice_seen:false},dialog:null,selection:null,pendingImport:false,deleteKey:null,deleteTitle:''};
   constructor(private publish:(state:ManagedState)=>void){}
   private emit(){if(!this.disposed)this.publish({...this.state});}
   accept(status:LibraryStatus){if(this.disposed)return;this.state.status=status;this.emit();}
   async refresh(){const status=await bridge.libraryStatus();this.accept(status);}
-  close(){this.state.dialog=null;this.state.pendingImport=false;this.state.selection=null;this.state.deleteKey=null;this.state.deleteTitle='';this.emit();}
-  settings(){this.state.dialog='settings';this.emit();}
+  close(){this.source=null;this.state.dialog=null;this.state.pendingImport=false;this.state.selection=null;this.state.deleteKey=null;this.state.deleteTitle='';this.emit();}
   delete(key:string,title:string){this.state.deleteKey=key;this.state.deleteTitle=title;this.state.dialog='delete';this.emit();}
-  async beginImport(){
+  /** Imports `source` (a dropped file), or asks for a recording when it's null. */
+  async beginImport(source:string|null=null){
     await this.refresh();if(this.disposed)return null;
-    this.state.pendingImport=true;
+    this.source=source;this.state.pendingImport=true;
     if(!this.state.status.selected){this.state.dialog='setup';this.emit();return null;}
     if(!this.state.status.available)throw new Error(this.state.status.error??'Your library is unavailable. Retry or locate it before importing.');
     if(!this.state.status.import_notice_seen){this.state.dialog='notice';this.emit();return null;}
@@ -28,7 +30,8 @@ export class ManagedLibrarySession {
   get needsImport(){return this.state.pendingImport;}
   async continueImport(){await bridge.acknowledgeImportNotice();if(this.disposed)return null;this.state.status={...this.state.status,import_notice_seen:true};return this.pick();}
   private async pick(){
-    this.state.dialog=null;this.emit();const selection=await bridge.pickImportSong();if(this.disposed)return null;
+    const source=this.source;this.source=null;
+    this.state.dialog=null;this.emit();const selection=source?await bridge.inspectImportSong(source):await bridge.pickImportSong();if(this.disposed)return null;
     this.state.selection=selection;this.state.pendingImport=false;
     if(!selection){this.emit();return null;}
     if(selection.candidates.length){this.state.dialog='duplicates';this.emit();return null;}

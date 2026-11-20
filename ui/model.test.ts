@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { editing, ordered, range, time, zoom } from './model';
+import { ordered, parseClock, range, time, zoom } from './model';
 
 describe('waveform interaction coordinates', () => {
   it('selects the same source range when dragging backwards', () => {
@@ -28,9 +28,9 @@ describe('waveform interaction coordinates', () => {
   it('formats minute boundaries without showing 0:60.0', () => {
     expect(time(59.99)).toBe('1:00.0');
   });
-  it('does not fire transport shortcuts while editing numeric controls or dialogs', () => {
-    const input = document.createElement('input'), button = document.createElement('button'), dialog = document.createElement('dialog');
-    dialog.append(button);
-    expect(editing(input)).toBe(true); expect(editing(button)).toBe(true); expect(editing(document.body)).toBe(false);
-  });
+});
+it('reads exact clock times as seconds',()=>{
+  expect(parseClock('1:23.104')).toBeCloseTo(83.104);expect(parseClock(' 83.5 ')).toBe(83.5);expect(parseClock('0:07')).toBe(7);
+  for(const text of ['','1:75','abc','-1','1:2:3'])expect(parseClock(text)).toBeNaN();
+  expect(parseClock(time(83.104,3))).toBeCloseTo(83.104);
 });

@@ -10,6 +10,15 @@ pub struct AudioAsset {
     pub rate: u32,
     pub frames: u64,
 }
+impl AudioAsset {
+    /// Length of the recording in whole milliseconds.
+    pub fn duration_ms(&self) -> u64 {
+        if self.rate == 0 {
+            return 0;
+        }
+        (u128::from(self.frames) * 1000 / u128::from(self.rate)) as u64
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TimelineRecord {

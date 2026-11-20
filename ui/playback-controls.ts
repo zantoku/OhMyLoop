@@ -27,4 +27,14 @@ export const stepSpeed = (speed: number, points: number) =>
 /** Whole-semitone transposition; a fractional value from an older song snaps to the nearest semitone. */
 export const transpose = (semitones: number, by: number) => clamp(Math.round(semitones) + by, SEMITONES.min, SEMITONES.max);
 
-export const signed = (value: number) => (value > 0 ? `+${value}` : String(value));
+
+/** The recording's reference pitch, A = 440 Hz shifted by the tuning correction. */
+export const STANDARD_A = 440;
+export const referenceHz = (cents: number) => STANDARD_A / 2 ** (cents / 1200);
+/** Cents that bring a recording tuned to `hz` back to A = 440 Hz, clamped to the engine's ±50 ¢. */
+export const centsForReference = (hz: number) => clamp(1200 * Math.log2(STANDARD_A / hz), TUNING_CENTS.min, TUNING_CENTS.max);
+export const REFERENCE_HZ = { min: referenceHz(TUNING_CENTS.max), max: referenceHz(TUNING_CENTS.min) } as const;
+/** One decimal, without a trailing `.0`: 432, 427.6. */
+export const hzText = (cents: number) => String(Math.round(referenceHz(cents) * 10) / 10);
+/** Transposition with a real minus sign: `−2 st`, `0 st`, `+3 st`. */
+export const semitoneText = (semitones: number) => `${semitones > 0 ? '+' : semitones < 0 ? '−' : ''}${Math.abs(semitones)} st`;

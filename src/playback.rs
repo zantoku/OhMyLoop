@@ -423,7 +423,7 @@ impl Player {
                 "Count-in map belongs to a different source"
             );
             ensure!(
-                !settings.enabled
+                !settings.active()
                     || map
                         .measures
                         .iter()
@@ -434,7 +434,7 @@ impl Player {
             );
         }
         ensure!(
-            !settings.enabled || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
+            !settings.active() || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
             "Build a measure map before enabling count-in"
         );
         self.request(|reply| Command::CountIn(settings, map, reply))
@@ -539,6 +539,13 @@ fn run_worker(
     run_source_worker(Arc::new(AudioFactory(audio)), finer, receiver, shared)
 }
 
+/// The setting that started a count-in; turning it off cancels that count-in.
+#[derive(Clone, Copy)]
+enum CountInOwner {
+    BeforePlay,
+    Repeat,
+}
+
 fn run_source_worker(
     source: Arc<dyn SourceFactory>,
     finer: bool,
@@ -558,6 +565,8 @@ fn run_source_worker(
     let mut count_in_settings = CountInSettings::default();
     let mut count_in_map: Option<MeasureMap> = None;
     let mut count_in: Option<CountIn> = None;
+    // Which setting owns the active (or still queued) count-in.
+    let mut count_in_owner: Option<CountInOwner> = None;
     let mut repeat_plan: Option<CountInPlan> = None;
     let mut held_frame = None;
     let mut last_music_frame = None;
@@ -626,7 +635,7 @@ fn run_source_worker(
                         active.set_volume(settings.volume);
                     }
                     count_in_map = map;
-                    repeat_plan = if settings.enabled && settings.repeat {
+                    repeat_plan = if settings.repeat {
                         region
                             .map(|r: LoopRegion| {
                                 CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, rate)
@@ -635,8 +644,12 @@ fn run_source_worker(
                     } else {
                         None
                     };
-                    if !settings.enabled
-                        && (count_in.is_some() || shared.count_in.load(Ordering::Acquire))
+                    let owner_off = match count_in_owner {
+                        Some(CountInOwner::BeforePlay) => !settings.enabled,
+                        Some(CountInOwner::Repeat) => !settings.repeat,
+                        None => !settings.active(),
+                    };
+                    if owner_off && (count_in.is_some() || shared.count_in.load(Ordering::Acquire))
                     {
                         Some((shared.position() / rate as f64, None, reply))
                     } else {
@@ -687,7 +700,7 @@ fn run_source_worker(
                 Command::Seek(seconds, submitted, reply) => Some((seconds, Some(submitted), reply)),
                 Command::Loop(value, reply) => {
                     region = value;
-                    repeat_plan = if count_in_settings.enabled && count_in_settings.repeat {
+                    repeat_plan = if count_in_settings.repeat {
                         region
                             .map(|r| CountInPlan::at(count_in_map.as_ref().unwrap(), r.start, rate))
                             .transpose()?
@@ -717,6 +730,9 @@ fn run_source_worker(
                 );
                 shared.finished.store(false, Ordering::Release);
                 shared.loop_wraps.store(0, Ordering::Relaxed);
+                if !preserve_count_in {
+                    count_in_owner = start_count_in.then_some(CountInOwner::BeforePlay);
+                }
                 count_in = if preserve_count_in {
                     count_in
                 } else if start_count_in {
@@ -798,6 +814,7 @@ fn run_source_worker(
                     last_music_frame.is_some_and(|previous| frame.source_frame < previous);
                 last_music_frame = Some(frame.source_frame);
                 if wrapped && let Some(plan) = &repeat_plan {
+                    count_in_owner = Some(CountInOwner::Repeat);
                     count_in = Some(CountIn::new(
                         plan.clone(),
                         rate,
@@ -916,6 +933,9 @@ mod tests {
             frames
         }
         fn configure(&self, speed: f64, semitones: f64, repeat: bool) {
+            self.configure_count_in(speed, semitones, true, repeat);
+        }
+        fn configure_count_in(&self, speed: f64, semitones: f64, enabled: bool, repeat: bool) {
             self.send(|reply| {
                 Command::Controls(
                     Controls {
@@ -939,7 +959,7 @@ mod tests {
             self.send(|reply| {
                 Command::CountIn(
                     CountInSettings {
-                        enabled: true,
+                        enabled,
                         repeat,
                         volume: 1.0,
                     },
@@ -956,6 +976,57 @@ mod tests {
             self.sender.send(Command::Shutdown).unwrap();
             self.worker.take().unwrap().join().unwrap().unwrap();
         }
+    }
+
+    #[test]
+    fn turning_off_the_owning_count_in_cancels_it_independently_of_the_other() {
+        // Before-Play count-in running, "each" on: turning count-in off cancels it.
+        let worker = TestWorker::new();
+        worker.configure_count_in(1.0, 0.0, true, true);
+        assert!(worker.read(1000).iter().all(|f| f.count_in));
+        let settings = |enabled, repeat| CountInSettings {
+            enabled,
+            repeat,
+            volume: 1.0,
+        };
+        worker.send(|reply| Command::CountIn(settings(false, true), worker_map(), reply));
+        let music = worker.read(24_000);
+        assert!(
+            music.iter().all(|f| !f.count_in),
+            "Turning count-in off cancels the running before-Play count-in"
+        );
+        assert!(
+            worker.read(1000).iter().all(|f| f.count_in),
+            "Each repeat still counts in"
+        );
+        // A repeat count-in running: turning count-in before Play on and off
+        // leaves it alone; turning "each" off cancels it.
+        worker.send(|reply| Command::CountIn(settings(true, true), worker_map(), reply));
+        worker.send(|reply| Command::CountIn(settings(false, true), worker_map(), reply));
+        assert!(worker.read(1000).iter().all(|f| f.count_in));
+        worker.send(|reply| Command::CountIn(settings(false, false), worker_map(), reply));
+        assert!(worker.read(24_000).iter().all(|f| !f.count_in));
+    }
+
+    #[test]
+    fn repeat_count_in_works_without_counting_in_before_play() {
+        let worker = TestWorker::new();
+        worker.configure_count_in(1.0, 0.0, false, true);
+        let music = worker.read(24_000);
+        assert!(
+            music
+                .iter()
+                .all(|f| !f.count_in && (24_000.0..48_000.0).contains(&f.frame.source_frame)),
+            "Play starts the music at once without the before-Play count-in"
+        );
+        let repeat = worker.read(24_000);
+        assert!(
+            repeat
+                .iter()
+                .all(|f| f.count_in && f.frame.source_frame == 24_000.0),
+            "Each loop repeat still counts in"
+        );
+        assert!(worker.read(24_000).iter().all(|f| !f.count_in));
     }
 
     #[test]

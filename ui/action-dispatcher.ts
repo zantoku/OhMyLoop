@@ -1,10 +1,14 @@
-import { ACTIONS, type ActionId } from './actions';
+import { ACTIONS, inScope, type ActionContext, type ActionId } from './actions';
 import type { Section } from './types';
 
-export type ActionPayload = {role?:import('./stems').StemRole;gain?:number; section?: Section; songKey?:string; librarySort?:import('./library').LibrarySort };
+export type ActionPayload = {role?:import('./stems').StemRole;gain?:number; section?: Section; songKey?:string; librarySort?:import('./library').LibrarySort;
+  /** A dropped file for `open_song` to import instead of asking for one. */
+  path?: string;
+  /** The Settings section `show_settings` lands on, for links from other screens. */
+  settingsSection?: import('./settings').SettingsSection };
 export type ActionHandlers = Record<ActionId, (payload: ActionPayload) => void | Promise<void>>;
 export type ActionState = {
-  context?: 'practice' | 'mapping' | 'library' | 'notes' | 'stems'; busy: boolean; song: boolean; range: boolean; sections: boolean; audio: boolean;
+  context?: ActionContext; busy: boolean; song: boolean; range: boolean; sections: boolean; audio: boolean;
   loop_on: boolean; undo: boolean; editor: boolean; help: boolean; zoom_out: boolean;
 };
 
@@ -14,8 +18,7 @@ export class ActionDispatcher {
 
   available(id: ActionId): boolean {
     const state = this.state();
-    const scope = ACTIONS[id].scope;
-    if (scope !== 'all' && scope !== (state.context ?? 'practice')) return false;
+    if (!inScope(ACTIONS[id].scope, state.context ?? 'practice')) return false;
     if (state.busy && !ACTIONS[id].duringBusy) return false;
     const requirement = ACTIONS[id].requires;
     return requirement === 'none' || state[requirement];

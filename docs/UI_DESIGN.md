@@ -10,10 +10,9 @@ Palette: canvas `#f3f5fa`, panel `#ffffff`, ink `#24314c`, waveform field
 distinguish saved sections. Warm loop handles evoke a physical practice tool;
 the surrounding controls stay quiet.
 
-Appearance defaults to the operating system's light/dark preference. A single
-button beside Shortcuts in the bottom-right status bar shows only the selected
-setting (`UI: auto`, `UI: dark`, or `UI: light`). Click to cycle auto → dark →
-light → auto. The app-wide choice survives restart, independently of songs.
+Appearance defaults to the operating system's light/dark preference. Choose
+Auto, Light or Dark in **Settings → Appearance**; the change shows at once and
+survives restart, independently of songs.
 
 Shared semantic colors in `ui/theme.css` cover practice, library, notes, mapping,
 dialogs and native form controls. Dark mode uses slate canvas `#171e2b`, panel
@@ -21,28 +20,86 @@ dialogs and native form controls. Dark mode uses slate canvas `#171e2b`, panel
 Waveform overlays and section colors retain their contrast and meaning. CSS
 `prefers-color-scheme` handles live OS changes in auto; explicit light/dark
 choices override it. `ui/theme.ts` validates the stored preference, falling back
-to auto for unknown values without overwriting them. Startup applies the choice
-before mounting the screen. A failed save keeps the selected appearance for the
-session and displays a status message.
+to auto for unknown values without overwriting them (`ui/stored-choice.ts`, shared
+by every per-computer preference). Startup applies the choice before mounting
+the screen. A failed save keeps the selected appearance for the session and
+Settings says so.
 
 Type: Avenir Next where available, followed by Segoe UI and Noto Sans. Use
 tabular figures for musical positions and control values. No remote fonts.
 The scale is 12/14/16/20/28 px, with readable sentence-case labels.
 
+## App shell and Practice ("Stage")
+
+The design pass chose the **Stage** concept for Practice
+([brief](design/practice.md)). Its shell is shared by every screen:
+
 ```
-OhMyLoop                         Song title                     Library
-┌─ Sections ───────┬─────────────────────────────────────────────────┐
-│ Verse            │ Notes / Measure map buttons / zoom controls
-│                  │ overview waveform + current viewport             │
-│ Chorus           │                                                 │
-│ Solo             │ detailed waveform + saved ranges + A/B loop      │
-│                  │                                                 │
-│ Add section      │ selection bounds / zoom / save selection         │
-├──────────────────┴─────────────────────────────────────────────────┤
-│ Previous  Play/Pause  Next     position / duration      Loop on/off  │
-│ Speed 75%  ─────────────      Pitch -3 st  ─────────────             │
-└────────────────────────────────────────────────────────────────────┘
+Library › Song title        [ Practice | Measure map | Stems ]   ✓ Saved  Notes  ⌨
+──────────────────────────────────────────────────────────────────────────────────
+MEASURE 37 ■■□□       ┌ LOOPING ─────┐                    SPEED 75 % ↺  ┌ PITCH ┐
+beat 2 · 1:24.6/3:48  │ m. 33 – 40   │                   −10 −5 +5 +10  │ −2 st │
+                      │ 8 bars · Solo│                                  │A 432Hz│
+┌ Sections ┐ minimap with section and loop strips
+│ Intro    │ section lane (overlapping sections stack in rows)
+│ Solo     │ waveform with measure ruler, barlines, A–B loop and playhead
+│  Bend    │
+│ [ ] prev │ [Sections] [snap] [A m. 33 · 1  68.00 s] → [B …]   Fit · Save · ✕
+──────────────────────────────────────────────────────────────────────────────────
+⏮ ▶ ⏭   [Count-in] [Loop|each]                  Click │ Bass Drums Guitar … Other
 ```
+
+- **Header** (`AppHeader.svelte`): a breadcrumb from the Library to the open
+  song, the song's views as a segmented control (`ViewSwitcher.svelte`), the
+  save state, a Notes button (N) that toggles the notes drawer, and the
+  keyboard-shortcuts button (hidden on Practice when Settings → Shortcuts says
+  so; the list stays reachable from Settings and its shortcut). The save state covers notes too and reads
+  "⚠ Notes not saved" when a notes save fails. Without a song the app shows the
+  Library and the views don't exist.
+- **Notes drawer** (`NotesDrawer.svelte`): 320 px on Practice's right edge,
+  from below the header to the playback bar, beside the readout band and the
+  waveform, which narrow (the readout's gaps tighten) while it's open. See
+  [Song notes](#song-notes).
+- **Toasts** (`Toasts.svelte`, `notices.ts`) replace the old notice rows and
+  status bar: errors needing action persist until resolved or dismissed,
+  informational notices time out after 6 s, progress (opening, importing,
+  stem preparation, separation) stays while it runs; a separation that finishes
+  or fails off the Stems view stays until seen or dismissed. Several can show at once.
+- **Readout band** (Practice): the measure and beat (or the time with an "Add a
+  measure map" link) readable at a distance, the passage card (LOOPING or
+  PASSAGE, its extent in measures or times, length, the matching section and
+  "count-in each repeat"), speed with exact entry and 5/10-point steps, and the
+  Pitch tile. Pitch shows transposition and the recording's reference tuning,
+  each highlighted only when changed; it opens a popover with the transpose
+  stepper and "Recording tuned to A = … Hz" (the engine still applies ±50 ¢,
+  about A = 427.5–452.9 Hz). The measure opens "Go to measure".
+- **Sections**: a collapsible list beside the waveform (nested sections
+  indented, ranges in measures when mapped) plus the timeline lane. `[` and `]`
+  step through them.
+- **Passage bar**: the sections toggle, snap to measures (mapped songs only),
+  A and B as jump buttons showing measure · beat (times without a map), Fit
+  passage, Save as section and Clear.
+- **Playback bar** (`PlaybackBar.svelte`): step back/forward by a measure (5 s
+  without a map), Play/Pause, Count-in before Play, and Loop with its joined
+  "each" segment for a count-in before every repeat. Count-in and Loop are
+  independent. The mixer starts with the Click knob and its On/Off button,
+  then up to six stem knobs with M/S; without stems it links to the Stems view.
+- **No measure map**: count-in, "each" and the click stay visible but
+  unavailable (`aria-disabled`, still focusable), each saying in its tooltip
+  that it needs a measure map; snapping is hidden.
+- **Separation running**: Play, the step buttons, speed, pitch, loop and the
+  mixer are disabled, and a progress toast says playback is paused until it
+  finishes. Waveform browsing and notes still work.
+- **Window**: default 1180 × 810, minimum 1180 × 680; the waveform gives up
+  height first.
+- **Passage bounds**: the A and B chips jump to the bounds. Exact seconds for
+  both are entered in a popover opened from the passage card, with or without
+  a measure map.
+
+Known gap: decision 15 asks for a **Song** volume knob in the mixer when there
+are no stems. The engine has no song-level gain yet, so the mixer shows only
+the click and the "Split into stems" link until that is added.
+
 
 Use left alignment throughout. The waveform, rather than decorative cards,
 gets the visual emphasis. Avoid gradients, dashboard statistics, and motion
@@ -60,15 +117,19 @@ Interaction defaults:
   numbers in mapped audio and timecodes in free time. Thin sage barlines extend
   through the waveform. Thin number labels with zoom density, keeping all barlines.
   There is no separate practice measure lane.
-- Practice has the same authored-map metronome and click level as mapping.
-  Enable/level are shared session preferences and default to on/50%; practice
-  clicks use the accepted map, while mapping can audition its displayed draft.
-- Follow playhead defaults on in both screens, with an independent session toggle
-  per screen. Playback pages forward/backward at viewport edges and loop wraps,
-  preserving zoom. Manual navigation never disables following; paused playback
+- Practice's authored-map metronome has its own on/off and click level, session
+  preferences that default to on/50%; practice clicks use the accepted map. The
+  Measure map always clicks its displayed map or draft at full level and leaves
+  Practice's setting alone.
+- Practice and the Measure map always follow the playhead while playing (there
+  is no toggle; `followPage` in `ui/timeline.ts`). They page when playback
+  starts off-page, when the playhead crosses the page's right edge, and on loop
+  wraps and backward seeks, preserving zoom. A minimap move or pan during
+  playback holds until the playhead next leaves the page; paused playback
   leaves the view still unless explicitly seeking.
-- Scroll over the waveform to zoom at the pointer; middle-button drag pans
-  the view without seeking or editing loop boundaries.
+- Scroll over the waveform to zoom at the pointer; there are no zoom buttons.
+  `=`, `-` and `0` zoom in, out and to the whole song.
+  Middle-button drag pans the view without seeking or editing loop boundaries.
 - Click or left-button drag the whole-song minimap to move the detailed
   viewport at its current zoom level, bounded by the start and end of the song.
 - Resize loop boundaries using handles or exact time inputs. Exact inputs and
@@ -77,11 +138,12 @@ Interaction defaults:
 - Select a saved section to seek to its start, preserving play/pause state.
   With loop mode enabled, selecting a section moves the loop to that range.
 - Save the current range as a named section; edit its name and bounds later.
-- Space toggles playback; L toggles looping; A/B set loop boundaries;
+- Space toggles playback; L toggles looping; C toggles count-in; A/B set loop boundaries;
   comma jumps to A, period jumps to B, and Enter rewinds to song start;
   seeking to B turns looping off while preserving play/pause state;
   X clears the temporary A–B range and turns looping off;
-  arrow keys seek; brackets navigate sections; Cmd/Ctrl+O opens a song.
+  arrow keys seek; brackets navigate sections; S saves the passage as a section;
+  N shows or hides notes; Cmd/Ctrl+O opens a song.
 - Shortcuts do not fire while typing into an input or dialog.
 - Timeline focus outlines appear during keyboard navigation; pointer clicks
   and dragging keep the minimap and waveform free of focus outlines.
@@ -109,139 +171,334 @@ with an accessible name describing what closes, a hover description and visible
 keyboard focus. Avoid a footer Cancel button when its only purpose is dismissal.
 Keep cancellation of running work distinct from closing its presentation.
 
-Replacement opens from **Library → Edit**, below File location. Its dialog has
+Replacement opens from the Library's details panel (**⋯ → Replace recording…**). Its dialog has
 one leading X, clear spacing between the heading, explanation and choices, and
 stacked actions that fit narrow windows. Explain that unchanged timing preserves
 the current annotations, while changed timing clears the map, sections, loop and
 position. A song has one current recording/map; there is no recording-history UI.
 
-## Measure-mapping screen
+## Measure map (concept MB)
 
-Current implementation: updated 2026-10-11.
-
-The button above the practice waveform opens **Measure map**; the **X** beside the panel title returns from the
-dedicated screen in the same window. It shares the song and
-transport, but has a separate viewport and editing selection. Its waveform
-uses the existing zoom, pan and minimap conventions while showing measure
-boundaries, beat anchors and meter changes instead of A–B editing handles.
-
-The shared metronome defaults on for the app session. Paged Follow playhead
-defaults on for the song session; mapping clicks follow the displayed authored
-map/draft. View navigation preserves following; explicit
-seeks reveal the playhead even while paused. Waveform clicks select the containing
-measure at the exact clicked time; measure-lane clicks seek to the measure start.
-Playback selects its current measure independently of viewport following.
-
-A musical ruler and editing panel support pulse interpretation, pickups,
-incomplete measures and protected corrections. Automatic analysis supplies
-an editable draft; manual mapping remains available without a model. The
-interaction contract and implementation scope are recorded in
+The design pass chose **MB, a floating toolbar** ([brief](design/measure-map.md),
+2026-11-18/19), in `MeasureMapScreen.svelte`. It's a song view in the header
+(Practice · Measure map · Stems) and shares the song and transport, with its own
+viewport, editing selection and session state. Behaviour and edit rules are in
 [MEASURE_MAPPING.md](MEASURE_MAPPING.md).
 
-The waveform carries the map review. Detected suggestions are optional and beat
-lines thin with density instead of overlapping labels. Analysis and draft creation
-live in the right sidebar; model installation is a secondary disclosure. A compact
-play/speed overlay sits at the waveform's lower left. The full-width panel beneath
-it holds selected-measure tools, grouped into Measure, Join / Split / Shift,
-and Free time. Keep the existing palette and type hierarchy; give
-vertical space to the waveform rather than a second large speed/pitch panel.
+```
+Library › Song title        [ Practice | Measure map | Stems ]   ✓ Saved  Notes  ⌨
+──────────────────────────────────────────────────────────────────────────────────
+MEASURE 37 ■■□□ beat 2 · 4/4 · 124.6 BPM · 1:24.6 / 3:48   ↶ ↷ │ Redraft  Song settings
+[ whole-song minimap · mapped strip · viewport ]
+│ 33   34   35🔒 36  [37]  38   39  free time   41 │  ← ruler: measure numbers
+│        ┌─▲────────────────────────────────────┐ │
+│        │ m. 37 │ 4/4 · Full ▾ │ Split at beat 2 │ Join │ ◀ Shift ▶ │ 🔒 │ ⋯ │
+│        └──────────────────────────────────────┘ │
+│ waveform · barlines · dotted beats · ◆ diamonds on the selected measure │
+│ ▲ ▲ ▲ ▲ detected beats (amber) along the bottom                          │
+[Detected beats]  | Map ▲ Detected ┆ Draft                 Fit measure  Whole song
+──────────────────────────────────────────────────────────────────────────────────
+⏮ ▶ ⏭   Go to m. [37]   SPEED − [75 %] + ↺   (Turn looping off)      Click follows the map
+```
 
-The Measure panel gives the compact `4 / 4` meter pair, kind and one Apply changes
-action the primary row. Two 48 px numeric inputs use tabular figures and an 18 px
-type size; the slash is larger and quiet. Keep the existing Avenir/Segoe/Noto
-type stack, pale `#f9fafc` surface, `#e0e6f0` dividers, `#334966` text and muted
-`#7a879d` hints. A small lock beside the title uses the map's green accent when
-protected. Advanced folds away grouping, pulse and boundary positions; it can
-scroll within the editing panel without filling the default view. The sidebar's
-Batch tools owns global numbering and batch grouping (Preview/Apply). A compact
-signature dropdown and grouping field show changed/locked counts; blank grouping
-clears it. Grouping affects all unlocked measures with that exact signature and
-preserves timing corrections and pulse values. Create measures remains a separate
-draft form with derived detected-measure counts and the epsilon field.
+- **Readout band** (`MapReadout.svelte`, decision 3): compact, so the waveform
+  gets the height. It has no close X: the view switcher returns to Practice
+  (Foundations). The measure,
+  beat boxes, beat, meter, local tempo and time come from the displayed map or
+  draft; in free time or without a map it shows the time. Undo and Redo are icon
+  buttons; once a map exists, **Redraft** (a toggle for the drawer) and **Song
+  settings** follow.
+- **Waveform** (`MapWaveform.svelte`): the minimap with the mapped extent (green
+  while a draft shows), then the field with a 24 px ruler band. Measure numbers
+  thin like Practice's ruler (a locked measure shows a lock); times label free
+  time only. Barlines are thin lines, beats dotted lines across the full height,
+  detected beats amber marks along the bottom (downbeats larger). The selected
+  measure is tinted with blue barlines; grips on them and diamonds on its beats
+  (filled when anchored) are the drag handles, and only they are Tab stops.
+  A draft shows in dashed green with green numbers; free time is hatched, and a
+  selected free-time range is outlined. When lines would crowd, a note says
+  "Every 2 beats · zoom in for detail". The waveform field stays dark in both
+  themes; its overlay colours are fixed for that background.
+- **Floating toolbar** (`MapToolbar.svelte`, placement in `map-toolbar.ts`):
+  just below the ruler, centred on the selected measure, notch up. At an edge
+  it stays inside with the notch sliding; out of view it becomes an edge tab
+  ("m. 37") that shows the measure again. It fades while a line is dragged. One
+  Tab stop; during keyboard navigation ←/→, Home and End move between its
+  buttons (`data-nav-keys`). Unavailable tools stay focusable (aria-disabled)
+  with the reason as their tooltip. It hides while a preview shows.
+- **Panels** are popovers below the toolbar (`Popover.svelte`): properties
+  (`MeasureProperties.svelte`, Cancel/Apply) and ⋯ (`MeasureExpert.svelte`:
+  exact positions, beats, shift step with re-snap and ε, Mark as free time). For
+  free time the toolbar offers **Count as a measure ▾** (`FreeTimeCount.svelte`).
+- **View bar** (`MapViewBar.svelte`): the Detected beats toggle (amber when on,
+  unavailable until there are suggestions), the legend, Fit measure and Whole
+  song. A numbering or grouping preview replaces the legend with "Preview · shown
+  in green" and Discard / Apply map.
+- **Drafting drawer** (`DraftDrawer.svelte`): 340 px on the right, from below
+  the header to the playback bar, like Notes on Practice; the readout band and
+  waveform narrow beside it. It shows while the map is empty and while Redraft
+  is on, and closes once a draft is applied. Steps are numbered, current in
+  blue, done with a check, upcoming dimmed (`draft-steps.ts`).
+- **Song settings** (`SongMapDialog.svelte`): a modal dialog, 480 px, leading
+  X: Measure numbering, Beat grouping, Start over (Clear map… with an inline
+  confirmation), and a footnote that previews show on the waveform.
+- **Playback bar**: the shared `PlaybackBar` and `TransportButtons`, Go to m.,
+  the compact `SpeedControl`, Turn looping off while looping, and on the right
+  what the click follows ("Click follows the map", "the draft", "Click off: no
+  audio output", or "The click starts once there's a map").
+- **Split toast:** after a split, an info toast ("Split m. 37 before beat 3.
+  Later measures renumbered.") with Undo, timing out like other info toasts.
 
-Join / Split / Shift arranges all three tools horizontally with vertical
-separators. The compact split dropdown shows only beat numbers; the shift tool
-contains a pulse-count input, Shift left/right buttons, and an optional
-Re-snap to detected beats checkbox. When enabled, its epsilon input shares the
-Create measures tolerance (initially 30 ms). Re-snapping defaults on; the checkbox
-can always be toggled. Restore saved detection on opening the editor. Without
-detected beats, explain why re-snapped shifts are unavailable; unchecked shifts
-retain authored timing. At narrow widths,
-stack the tools with horizontal separators to keep controls accessible. Show
-the selected pulse unit and explain the endpoint effects beside the controls.
-Shift retains authored timing, absorbing consumed bars at fixed endpoints and
-growing meters to avoid overfull bars. Join/Split/Shift and notation use direct
-validated edits with Undo. Numerical anchor corrections are behind their own
-Advanced disclosure.
-Free time has a selected-measure removal action and an uncounted-range picker
-with meter/pulse and Create measure from range. Reclaimed measures return to
-the Measure panel. Inactive panel markup is omitted while form/command state
-remains mounted, so WebKit accessibility follows panel changes reliably.
+States the brief left undesigned, as implemented (2026-11-19):
+
+- **Free-time range selected:** the range is outlined in the accent blue; the
+  toolbar sits over it with "Free time", its extent and **Count as a measure ▾**.
+- **Edit rejected:** a rejection from a panel, the drawer or Song settings shows
+  as a red alert inside it, which stays open with what was typed. A rejected
+  toolbar, key or drag edit shows as a red "Not changed: …" bubble over the
+  bottom of the waveform with a dismiss X. Both use `role=alert`, so they're
+  announced; the map is unchanged.
+- **Analysis notes outside the drawer:** with a map and the drawer closed, the
+  view bar shows a quiet amber note with a Redraft… link when analysis is out of
+  date, failed, or waits for stem separation.
+- **Edge tab and keys:** while the toolbar is collapsed to its edge tab, a
+  toolbar key (M, S, J, `[`, `]`, L…) first brings the measure back into view,
+  keeping zoom when it fits; the next press acts. Nothing acts on a measure
+  you can't see.
+- **Stale or missing analysis:** missing is step 1's one-time download (size,
+  progress, Cancel, a link to Settings › Beat analysis, and the failure when a
+  download failed). Stale shows in the drawer as an amber note that the map
+  changed since the analysis. A refused download outside Settings is an error
+  toast.
+- **Separation running:** analysis waits; step 1 says so in amber and Analyze is
+  absent; By hand and all map edits keep working. Playback controls freeze as on
+  Practice.
+- **Dense map:** barlines thin as well as beats and numbers, with a note naming
+  the step. Grips and diamonds hide on a measure narrower than about 28 px (Fit
+  measure, F, zooms in); its blue barlines still show.
+
+Keys on this screen: M properties, S split, J join, `[` `]` shift, L lock, F fit
+(and show the selected measure), W whole song, D detected beats; ⌘Z/⇧⌘Z undo and
+redo; arrows step measures (Shift for 0.1 s); Enter goes to the first measure;
+Esc closes a panel, then returns home, then turns looping off. See
+[KEYMAP.md](KEYMAP.md#mapping-actions).
 
 ## Music library
 
-The top-right Library button opens a full-width catalogue screen and pauses playback;
-it becomes Practice while browsing. Import song is in the library panel heading. Library settings owns Create library and Open existing library. Delete song appears only in the song edit panel and requires permanent-deletion confirmation.
-Measure map is above the practice waveform, replacing the former workspace title.
-The waveform interaction hints sit below the minimap in place of Whole song.
-Mapping and notes use an X beside their white-panel titles to return to practice, retaining Library at the
-top right. Shortcut help lives in the footer.
-Use the existing Avenir/Segoe/Noto family, navy text (#24314c), pale background
-(#f3f5fa), white surface (#ffffff), blue controls (#526fc0) and sage current-song
-indicator (#66877a). One searchable table is the focus; avoid artwork cards or a
-second sidebar navigation hierarchy in this first pass.
+The Library is concept **LD, "open without editing"** ([brief](design/library.md)):
+opening a song never shows its edit fields. The Library breadcrumb at the top
+left of the header opens it as a full screen and pauses playback. Its header has
+no song views and no Notes button; it holds the save state, the **Settings**
+button (`show_settings`, ⌘, / Ctrl+,; the home of [app-wide Settings](#settings))
+and the keyboard-shortcuts button.
 
-A left-aligned heading/count sits above Search, Sort by and direction controls.
-Column buttons expose ascending/descending state and cover title, artist, album,
-file location, date added and last opened. A title button opens practice; a row
-Edit button opens a compact right-side details panel. Keep precise file location
-and local timestamps visible, with overflow scrolling on narrow screens. Current
-song uses a quiet sage label. Empty and failed states explain how to open a song
-or retry, respectively. The details form edits only artist/title/album and retains
-input on failed save; dates and path are read-only. Native screenshot review and
-verification evidence are in IMPLEMENTATION_STATUS.md.
+```
+Library                                      ✓ Saved  ⚙ Settings  ⌨
+Your songs 12 songs  [🔍 Find by title, artist…  (⌘F)] ⇅[Last opened] ↓     [+ Import song]
+     TITLE                     ARTIST                LENGTH
+ →  Autumn Leaves  CURRENT     Cannonball Adderley    10:58   ⋯ │ EDIT DETAILS (⋯ / ⌘I)
+    Blue Bossa                 Kenny Dorham            6:44     │ Title / Artist / Album
+ …                                                              │ Length · Added · Last opened · File
+Double-click a song or press Enter to practise it · ⋯ or ⌘I edits its details │ Replace recording… · Delete song…
+```
+
+- **Rows** (`SongList.svelte`, a single-select listbox and the screen's home
+  focus) show title, artist and length, 46 px tall. The loaded song has a blue
+  bar and a CURRENT tag. Hover shows → before the title and ⋯ at the end; the
+  loaded song always shows its →, which returns to Practice as it was left
+  (`library_close`, also **Esc**) without reloading. Any other → opens the song
+  in Practice, paused (`library_open`).
+- **Mouse and keyboard:** a click selects; double-click or **Enter** opens. ↑/↓,
+  Home/End and Page Up/Down move the selection; the list owns only those keys
+  and Enter, so everything else reaches the shortcuts. Keyboard focus shows as a
+  ring on the selected row. **Touch** (coarse pointer): → and ⋯ are always
+  visible, a tap opens and a long press edits.
+- **Editing** (`SongEditor.svelte`): ⋯ or **⌘I** (`library_edit`) opens a 340 px
+  panel beside the list with Title, Artist and Album fields, Save details and
+  Cancel once something changed, read-only length, dates and file, and at the
+  bottom Replace recording… and Delete song…. A failed save keeps the edits and
+  says so in the panel. Selecting another song while editing saves first and
+  the panel follows, with focus staying in the list; only an explicit edit
+  focuses Title. Leaving the Library by any route, or quitting, saves pending
+  details first, and a failed save keeps the Library open. Esc unwinds: the
+  field returns to the list, the next Esc closes the panel (discarding unsaved
+  edits), the next returns to Practice.
+- **Scrolling:** the song list scrolls inside the pane; the column header and
+  the hint stay in place.
+- **Toolbar:** "Your songs" with the count, search (**⌘F**, `library_find`;
+  title, artist, album or file location), sort (last opened, title, artist,
+  length, date added) with a reverse button, and Import song.
+- **States:** loading; empty (also first launch: a dashed drop area with Import
+  song and the supported formats); no match with Clear search; list failed with
+  Reload; library missing (amber notice with its last location, Retry, Locate
+  library…, Open another library…).
+- **Drop to import** (`DropOverlay.svelte`, `file-drop.ts`): dragging files
+  over any view shows a dashed drop target; one file imports through the same
+  flow as Import song, several are refused with a toast.
+- **Dialogs** (`ManagedLibraryDialog.svelte`): first-import setup ("Where should
+  your songs live?"), the one-time copy notice, the duplicate choice and the
+  delete confirmation ("Keep song" is the default button). The leading X closes.
+
+## Settings
+
+App-wide Settings are concept **GA, the sidebar dialog** ([brief](design/settings.md)):
+a modal `<dialog>` (`SettingsDialog.svelte`, 820 × 620, smaller in a smaller
+window) over the current screen, opened by the Library's Settings button, ⌘, /
+Ctrl+, from any screen, the macOS app menu's Settings…, and links from other
+screens that land on a section (`show_settings` with a section). A leading X,
+Esc or `close_settings` closes it, and focus returns to where it was. Playback
+is untouched.
+
+```
+✕ Settings
+┌──────────────────────┬───────────────────────────────────────────────┐
+│ Library              │ Stem separation                               │
+│ OhMyLoop Library · 12│ Splits songs into instrument tracks, offline…  │
+│ Appearance           │ Separation tools   Installed     Reinstall Remove…│
+│ Dark · mono notes    │ Roformer-SW model  Installed · 699.4 MB  …     │
+│ Audio · Shortcuts …  │ Check again · ▸ Storage location              │
+└──────────────────────┴───────────────────────────────────────────────┘
+```
+
+- **Sidebar:** Library, Appearance, Audio, Shortcuts, Stem separation, Beat
+  analysis, each with a one-line status (`settings.ts`). It's a vertical tab
+  list: ↑/↓, Home and End move between sections. One section shows at a time
+  (`Settings*.svelte`); changes apply at once.
+- **Library** (`SettingsLibrary.svelte`): the open library's name, folder and
+  song count with Show in Finder (Explorer, file manager); Open another
+  library… and Create a new library…; how to move or back up a library; when
+  missing, an amber notice with Retry and Locate…. The first-import setup,
+  copy notice, duplicate choice and delete confirmation stay in
+  `ManagedLibraryDialog.svelte`.
+- **Appearance:** Auto / Light / Dark and the notes font (Proportional /
+  Monospaced) with a chord-chart-and-tab preview.
+- **Audio:** the output in use, or the lost device with Retry audio. The output
+  chooser is drawn, disabled, in a dashed box marked "Future · #18".
+- **Shortcuts:** "Show the shortcuts button on Practice", View all shortcuts,
+  the shortcut file's path with Open file, Show in Finder and Reload, and its
+  status: built-in, custom, or rejected with the reason. The shortcut list
+  dialog links here instead of showing the file itself.
+- **Stem separation / Beat analysis:** status, size, install with progress and
+  Cancel, repair (Reinstall / Verify, Check again), and Remove… with an inline
+  confirmation saying stems, maps and analysis results stay. The Stems screen
+  keeps first-time setup and links here only when the tools need repair or
+  setup stopped; the Measure map
+  keeps "Download analysis model" for drafting and links here.
+- **Background work** (decision 6): while separation, beat analysis, an import
+  or a tool download that wasn't started in Settings (on the Stems screen or
+  the Measure map) runs, the Settings button, ⌘, and the menu item are
+  disabled, and the button's tooltip says why. Where ⌘, reaches the window
+  (Windows, Linux) a notice says why too; on macOS the disabled menu item may
+  take the keystroke first. A download started inside Settings keeps it open
+  with its progress, and the other sections' actions are dimmed until it ends;
+  closing Settings meanwhile doesn't block it, and reopening lands on that
+  download's section with its progress and Cancel.
+- **Known gap:** the engine doesn't report the separation tools' size on disk
+  (only the model download size), so Stem separation shows the model size and
+  C1 ("the disk space they use") is only partly met. The beat model's size is
+  a fixed estimate (about 83 MB) for the same reason.
+- **Preferences** (theme, notes font, Practice shortcuts button) are stored per
+  computer, never per song; unknown stored values fall back to the default
+  without being overwritten.
 
 ## Song notes
 
-Place Notes immediately left of Measure map above the practice waveform. Its
-screen has a single full-height plain textarea on a white surface, with a Song
-notes heading and save status. Keep line breaks and whitespace; Markdown syntax
-is displayed as text. An X beside the Song notes title inside the white panel returns to practice after
-saving; mapping uses the same placement. Library remains at the top right on
-both screens. Opening Library pauses playback, while switching between notes
-and practice preserves transport. A failed save keeps the text with Retry save.
+Notes is a tall drawer (concept NC, [brief](design/notes.md)) on the right edge
+of Practice, from below the header down to the playback bar, beside both the
+readout band and the waveform. The sections sidebar on the left is unaffected,
+and the minimum window (1180 × 680) fits both side panels. The header's Notes
+button and N toggle it; there is no close X. A "Notes" heading sits above a
+full-height plain textarea in the UI font, or monospaced when chosen in
+Settings → Appearance (`notes-font.ts`), with a placeholder when empty and a
+one-line hint below: "Typing · Esc closes the notes, so Space plays again"
+while typing, "Saved as you type" otherwise. Keep line breaks and
+whitespace; Markdown syntax is displayed as text.
 
-Inactive Library and Notes markup is removed while session state remains mounted,
-so WebKit accessibility updates correctly when switching between screens.
+The header's save state covers notes. The drawer shows "Saving…" beside its
+heading only when a save is slow, an alert with Retry save when a save fails,
+and an alert without Retry when the notes exceed 1 MiB. Opening the drawer
+focuses the text; closing it returns focus to where it was, or home. Esc in
+the text closes the drawer like N and returns focus home; a failed save or
+over-long notes keep it open with its alert and focus in the text. Opening
+Library pauses playback after notes have saved, while opening or closing the
+drawer never changes the transport.
 
-## Practice mixer — agreed design for issue #5
+Inactive Library markup is removed while session state remains mounted, so
+WebKit accessibility updates correctly when switching between screens. The
+closed drawer is removed the same way.
 
-The maintainer selected transport-strip mockup A. Place a compact, centered group
-of track controls beside playback, with 26 px gaps at desktop widths: track name,
-rotary gain knob, percentage and M/S buttons. Condense speed and pitch into a
-shallow row below the transport. Put position/duration directly below Play;
-omit the playback-status text.
+## Practice mixer
 
-Stack Count-in above Loop. Both buttons have permanent outer borders and equal
-widths. Loop contains the loop and hourglass icons inside one shared border;
-use the same hourglass drawing as Count-in. Cycle Off → Loop → Loop with count-in
-→ Off. Highlight only the loop icon in the second state, both icons in the third.
-Selecting loop with count-in enables Count-in; disabling Count-in downgrades to
-ordinary looping. Turning looping off leaves Count-in enabled.
+Issue #5 introduced rotary track knobs with M/S buttons beside playback. The
+Stage redesign keeps the knobs and moves the mixer to the right end of the
+playback bar, after the Click knob. Count-in and Loop are no longer stacked
+or cycled: Count-in (C) means only "before Play", Loop (L) is on/off, and the
+"each" segment joined to Loop counts in before each repeat.
 
 There is no Original/Stems selector or A/B control. Play the reference recording
 when every track is at 100%, unmuted and unsoloed; otherwise play the attached stem
 set. Track controls remain operable in the default state. One song owns at most
 one stem set. Attaching another requires confirmation and replaces the prior set
 only after successful validation, copying and saving; retain controls for matching
-roles. Runtime availability, shortcuts and preparation are refined separately.
+roles. The Stems view (header segment, or "Split into stems" in the mixer)
+sets up separation, separates, attaches, replaces and removes the set; see
+[Stems view](#stems-view).
 
-The throwaway source is `ui/TrackMixer.prototype.svelte`, hosted in Practice via
-`npm run prototype:mixer`; it contains synthetic display data and no audio.
+## Stems view
 
-For #5, a Stems button beside Notes and Measure map opens attachment/replacement,
-current-set details and errors. Integrated model installation/separation extends
-that same screen in #6.
+Concept SC, "guided steps" ([stems.md](design/stems.md)), in
+`StemsScreen.svelte`. What the screen shows is a pure function of the
+separation status, the song's stem set and a manual attachment
+(`stems-screen.ts`), so every state is unit-tested.
+
+- **Step list** (left, 300 px): the heading "Stems for this song" (no close
+  X; the view switcher returns to Practice), then **1 Set up separation → 2 Separate this song → 3 Review the
+  stems**. The current step is tinted with a blue number; done steps show a
+  check and a one-line summary (Ready · works offline; Five instruments, or
+  ", attached"; Running · 58 %; Stopped · retry; Waits for beat analysis).
+- **Quiet links** under the steps: "Made stems with another tool? Attach
+  stems…" without a set; "Replace with attached stems…" and "Remove stems…"
+  with one. They are disabled while work runs. A footnote says the original
+  recording stays the source for the waveform and the measure map.
+- **Pane** (right) holds the current step:
+  - *Checking*, then *unsupported* ("Separation can't run on this computer",
+    Attach stems… as the primary action);
+  - *setup* (download size, playback keeps working, **Set up separation**);
+    *repair* when the tools on disk no longer verify (**Repair in Settings**);
+  - *ready* ("Split this song into stems": takes, disk estimate, memory,
+    playback paused; **Separate song**), with an amber note while beat
+    analysis holds the shared slot. When the stems' volume has less free
+    space than the estimate (D2), an amber "Not enough free disk space" note
+    names both sizes and Separate song (and Separate again…) is disabled with
+    that reason as its tooltip. Free space is read each time Stems opens;
+    separation still checks again when it starts;
+  - *running* setup, separation or attachment: the fixed-title bar, percent
+    only when measured, the phase, elapsed time and Cancel (Stopping…,
+    Finishing save… disabled), and **Show steps** for the checklist;
+  - *stopped*: the bar in red, the error with **Copy details**, the checklist
+    open, **Retry**, and **Back to current stems** when an earlier set
+    remains, or **Back** after a failed attachment (setup adds a
+    **Separation settings** link). A cancellation keeps the checklist open
+    in neutral tones, without an error;
+  - *review*: a dismissible "Separation finished" / "Stems attached" banner,
+    "Review the stems" with where the set came from (Separated here with
+    Roformer-SW, or Attached from another tool; the stored set records its
+    origin, and sets saved before that, version-1 stem records, show as
+    attached), an amber "Playing the
+    original recording" note when playback falls back, instrument chips with
+    near-silent ones struck through, Details (model, shared headroom, storage)
+    and **Separate again…** (or Set up separation / Repair in Settings).
+- **Confirmations** are modal dialogs with a leading X, Cancel and the action:
+  Replace stems? (Separate and replace, or Choose stems…) and Remove stems?
+  (red, Cancel is the default). After confirming, or after Back, focus moves
+  to the new pane's Cancel or its heading.
+- **Elsewhere:** a persistent toast shows setup or separation progress with
+  **Open Stems**; when separation finishes or fails off-screen it stays as
+  "Stems ready" (with kept and near-silent instruments) or "Separation
+  stopped" until Stems is opened or the toast is dismissed. There is no
+  automatic navigation and no Go to Practice button (decision 8).
+- **Deferred:** per-stem review rows (play alone, rename, hide, delete;
+  [#15](https://github.com/zantoku/OhMyLoop/issues/15)) and the set's date.
 
 ## Integrated separation flow
 
@@ -264,12 +521,13 @@ The separation progress bar has the static title **Splitting song into stems**.
 Show the current phase title below the bar as its subtitle; individual step names
 remain in the checklist. Completion and stopped status also appear in the subtitle.
 
-Completion automatically attaches the validated set, displays retained/skipped
-tracks, and offers Go to Practice. It changes neither reference recording nor
-measure map. Playback stays paused after publication. Model removal leaves stems
-intact. Attach existing outputs remains secondary, as does installed-model
-management. The top-leading X returns to Practice without cancelling active work;
-the Stems button shows a compact ongoing-work indicator.
+Completion automatically attaches the validated set and shows it on the review
+step with retained/skipped tracks and a dismissible banner; it doesn't navigate.
+It changes neither reference recording nor measure map. Playback stays paused
+after publication. Model removal leaves stems intact. Attach existing outputs
+remains secondary; installed-model management lives in Settings. Switching to
+another view leaves active work running; the other views show a
+persistent progress toast.
 
 The [approved primary-source demo](https://github.com/zantoku/OhMyLoop/blob/prototype/stem-separation-flow-2026-10-14/ui/StemSeparation.prototype.html) is archived on
 `prototype/stem-separation-flow-2026-10-14` and can be opened directly in a browser. It uses in-memory state, simulated audio/progress and illustrative
@@ -304,13 +562,14 @@ Cancel, without an automatic overall deadline.
 
 ## Stem processing transparency
 
-During attachment, show a prominent overall progress bar near the top of Stems,
-above the explanatory copy and set details. Below it, list the actual processing
-steps in a keyboard-scrollable region. Labels are short (at most eight words),
+During attachment, show a prominent overall progress bar at the top of the Stems
+pane. The actual processing steps sit behind **Show steps** while work runs and
+are open when it stops, in a keyboard-scrollable list (it owns ↑/↓, Page Up/Down
+and Home/End). Labels are short (at most eight words),
 use instrument names where useful, and do not include filenames or paths. Pending
 steps have hollow circular bullets, measured active progress fills a green pie,
-and completed steps have solid green bullets. Keep the completed checklist after
-attachment; an error leaves incomplete steps incomplete.
+and completed steps have solid green bullets. After attachment the review step
+replaces the checklist; an error leaves incomplete steps incomplete.
 
 New attachments omit tracks with a whole-track peak below −60 dBFS. Show those
 steps as “Skip near-silent <instrument>”, with a green bullet and “Skipped” status;

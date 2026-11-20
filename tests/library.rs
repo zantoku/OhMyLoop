@@ -1,7 +1,7 @@
 use ohmyloop::{
     audio::{Audio, write_wav},
     desktop::Desktop,
-    library::{Metadata, Store, read_tags},
+    library::{Metadata, Store, ensure_importable, read_tags},
     project::{Section, SongId},
 };
 use std::{
@@ -210,6 +210,11 @@ fn desktop_reopens_library_song_with_practice_data_and_rejects_changed_files() {
         ))
         .unwrap();
     assert_eq!(restored.library().unwrap().songs.len(), 1);
+    // The list reports the recording's length, read at load time, but never
+    // writes it: older builds reject unknown catalogue fields.
+    assert!(restored.library().unwrap().songs[0].duration_ms > 0);
+    let stored = fs::read_to_string(temp.0.join("practice/library.json")).unwrap();
+    assert!(stored.contains(&key) && !stored.contains("duration_ms"));
     assert_eq!(
         restored
             .library()
@@ -251,4 +256,28 @@ fn corrupt_library_reports_error_but_keeps_existing_practice_workflow() {
     assert!(desktop.library().is_err());
     assert_eq!(fs::read(library).unwrap(), b"broken JSON");
     desktop.shutdown();
+}
+
+#[test]
+fn only_supported_recordings_can_be_imported() {
+    for name in [
+        "a.wav", "b.MP3", "c.flac", "d.ogg", "e.m4a", "f.aac", "g.aiff", "h.AIF",
+    ] {
+        assert!(
+            ensure_importable(std::path::Path::new(name)).is_ok(),
+            "{name}"
+        );
+    }
+    for name in [
+        "notes.pdf",
+        "folder",
+        "song.wav.part",
+        ".wav",
+        "archive.zip",
+    ] {
+        assert!(
+            ensure_importable(std::path::Path::new(name)).is_err(),
+            "{name}"
+        );
+    }
 }

@@ -22,8 +22,8 @@ npm run desktop
 
 Optional stem separation also needs its bundled setup resources prepared before a
 maintainer desktop build. See [managed-runtime build/setup](scripts/separation_runtime/README.md).
-End users perform explicit **Set up stem separation** inside Stems; they need no
-system Python, compiler or FFmpeg. Installed inference works offline.
+End users perform explicit **Set up separation** inside Stems (step 1 of its guided
+steps); they need no system Python, compiler or FFmpeg. Installed inference works offline.
 
 Development builds optimize inference and resampling dependencies while keeping
 app code debuggable. The first build after these profile changes takes longer;
@@ -42,11 +42,14 @@ Windows and Linux use their platform's Tauri bundle formats. Linux also needs
 the WebKitGTK and desktop integration packages listed in
 [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Use **Library → Import song**, or try the built-in demo. Click the waveform to seek; drag to
-choose a temporary loop. The A/B handles and numeric fields adjust the bounds.
+Use **Library → Import song**, or drop one audio file onto the window. Click the waveform to seek; drag to
+choose a temporary loop. The A/B handles adjust the bounds; click the passage card above the waveform
+to type exact seconds.
 Scroll over the waveform to zoom at the pointer; hold the middle mouse button
 and drag to pan. Click or drag the whole-song minimap to move the detailed
-view while keeping its zoom level. Zoom buttons also let you adjust the view.
+view while keeping its zoom level; **=**, **-** and **0** zoom in, out and to
+the whole song. While playing, Practice pages the view to follow the playhead;
+a manual move holds until the playhead next leaves the page.
 
 Named sections have explicit start/end ranges and may overlap. Selecting a
 section prepares its range and seeks to its start while preserving play/pause
@@ -60,7 +63,8 @@ Comma jumps to A, period jumps to B, and Enter jumps to the first mapped measure
 (including a pickup), or the song start without a map.
 Jumping to B turns looping off; seeking preserves play/pause state.
 X clears the A–B range and turns looping off, brackets navigate sections,
-N adds a section, and Cmd/Ctrl+O opens a song. Arrow keys
+S saves the passage as a section, N shows or hides notes (Esc in the notes text
+also closes them), and Cmd/Ctrl+O opens a song. Arrow keys
 jump to the preceding/following measure start when a map has measures, or seek
 five seconds without one. Shift+arrows always seek 0.1 seconds. Shortcuts are suspended while
 editing fields or dialogs. The in-app shortcut panel lists these controls.
@@ -89,19 +93,21 @@ The playhead follows native output-frame positions rather than a frontend
 playback timer; adaptive stretching and physical device latency still make
 it an estimate.
 
-`npm run dev` opens a frontend-only development preview with demo fixtures.
+`npm run dev` opens a frontend-only development preview with a synthetic fixture song.
 Audio, analysis and native musical-map edits require `npm run desktop`.
 
 ## Count-in
 
-On **Practice**, build and apply a measure map, then enable **Count-in on**
+On **Practice**, build and apply a measure map, then enable **Count-in**
 beside the playback buttons (or press **C** to toggle it).
 After each Play/Space start, including resume, it waits one silent mapped beat
 then sounds one full measure: “Space — one — two — three — four — Start” in 4/4.
-The extra beat follows the local pulse and playback speed. Enable
-**Before each loop repetition** separately to add a count-in between loop passes;
-repetitions start their clicks immediately, without the extra silent beat.
-The count-in and metronome buttons highlight when on. Count-in is unavailable
+The extra beat follows the local pulse and playback speed. With looping on,
+enable **each** (joined to the **Loop** button) to add a count-in before every
+loop repeat; repetitions start their clicks immediately, without the extra
+silent beat. Count-in before Play, Loop and count-in before each repeat are
+independent: turning one on or off never changes another.
+The count-in, loop and click buttons highlight when on. Count-in is unavailable
 in measure mapping and uses only the accepted map, never a draft or detected
 beat suggestions. Both count-in options default off when opening a song and are
 session preferences.
@@ -137,19 +143,35 @@ CARGO_HOME="$PWD/.cargo-home" cargo test --locked --release -p ohmyloop --test c
 
 ## Music library
 
-Open **Library** from the header to browse your songs. **Import song** copies a
-recording into your selected library and leaves the external original untouched.
-The first import asks you to create an **OhMyLoop Library** subfolder or open an
-existing library; the demo needs no setup. Imports show copy progress and open
-Practice paused. Exact duplicates offer **Open existing song** or **Import separate
-song**; separate imports own independent copies, notes and maps.
+Open **Library** from the header to browse your songs; a first launch shows the
+empty Library with **Import song** (there is no built-in demo). **Import song**
+(⌘O / Ctrl+O), or dropping one audio file onto any view, copies a recording into
+your selected library and leaves the external original untouched. Several files
+or an unsupported file are refused with an explanation. The first import asks
+you to create an **OhMyLoop Library** subfolder or open an existing library.
+Imports show copy progress and open Practice paused. Exact duplicates offer to
+open the existing song or **Import as a separate song**; separate imports own
+independent copies, notes and maps.
 
-Artist, title and album come from embedded tags with filename fallback. **Edit →
-Save details** changes stored metadata without modifying audio. Search title,
-artist, album or file location; sort by those fields, Date added or Last opened.
-Opening Library pauses playback. Click a song title to reopen its practice state.
-**Library settings** provides Create library and Open existing library. Switching
-saves pending edits and unloads the song without selecting another.
+Each row shows title, artist and length; the loaded song has a blue bar and a
+CURRENT tag. A click selects a row; double-click, **Enter** or the row's **→**
+opens the song in Practice, paused. The loaded song's → (or **Esc**) returns to
+Practice as you left it. Arrow keys, Home/End and Page Up/Down move the
+selection; **⌘F** (Ctrl+F) finds a song by title, artist, album or file
+location; sort by last opened, title, artist, length or date added, and reverse
+the order. Opening a song never shows its edit fields: **⋯** or **⌘I** (Ctrl+I)
+opens the details panel, where title, artist and album (from embedded tags with
+filename fallback) can be corrected without modifying audio. Opening Library
+pauses playback. **Settings** (the Library header's button, ⌘, / Ctrl+,, or
+the macOS app menu) opens app-wide Settings: the library (open another, create
+one, show its folder, recover a missing one), appearance (theme and notes font),
+the audio output in use, shortcuts (the Practice shortcuts button, the shortcut
+file with Open and Reload), and installing, repairing or removing the stem
+separation tools and the beat analysis model. Changes apply at once. Settings
+can't open while separation, beat analysis, an import, or a tool download
+started on the Stems screen or the Measure map is running; one started in
+Settings reopens it on its progress. Switching libraries saves pending edits and unloads the
+song without selecting another.
 
 The selected folder owns recordings and authoritative song documents under
 `songs/<song-uuid>/`; `catalogue.json` is a rebuildable projection. App data holds
@@ -157,12 +179,12 @@ the selected library and last-song pointer. To move or back up a library, close
 the app and move/copy the whole folder, then open it at its new location.
 
 Opening a song checks its recording's content hash. Missing/changed audio uses
-**Library → Edit → Replace recording…**, below **File location**. Explicit
+**Library → ⋯ → Replace recording…** in the song's details panel. Explicit
 unchanged-timing confirmation requires matching decoded rate/frame count and
 preserves annotations; changed timing clears the map, sections, loop and saved
 position. Notes, controls and song UUID survive. No recording/map history.
 
-**Delete song** appears only in the Library edit panel and permanently deletes
+**Delete song…** appears only in the Library details panel and permanently deletes
 managed song files after confirmation. External originals remain untouched.
 No trash/restore, journaling/restart recovery, locking, import cancellation,
 storage-size UI or in-app move command. Assume one instance accesses a library.
@@ -170,104 +192,96 @@ See [docs/LIBRARY.md](docs/LIBRARY.md) for behavior and failure limits.
 
 ## Song notes
 
-Open **Notes**, to the left of Measure map above the practice waveform, for a
-plain-text editor. Notes are saved with the song, including line breaks and
-whitespace. The **X** beside the Song notes title saves and returns to practice; **Library** stays
-at the top right. Edits autosave, and normal app quit flushes pending text.
-Failed writes retain the text and offer Retry save. Markdown rendering is deferred.
+The header's **Notes** button, or **N**, opens a notes drawer on the right
+edge of Practice, beside the readout and the waveform; the same button or N
+saves and closes it. Notes are plain text saved with the song, including line
+breaks and whitespace. Playback keeps running while you write: shortcuts don't
+fire while typing, and **Esc** returns focus to the waveform so Space plays
+again. Edits autosave, and normal app quit flushes pending text. The header's
+save state shows "Notes not saved" when a write fails; the drawer keeps the text
+and offers Retry save. Notes over 1 MiB are kept in the drawer but not saved.
+Markdown rendering is deferred. Saving a named section moved from N to **S**.
 See [docs/NOTES.md](docs/NOTES.md) for persistence and lifecycle details.
 
 ## Measure mapping
 
-Open **Measure map** above the practice waveform; the **X** beside its title returns to the
-player. **Library** stays in the top-right corner. Both screens share transport and retain their own viewports.
+Open **Measure map** from the views in the header (Practice · Measure map ·
+Stems); **Practice** there, or the **X** at the start of its readout band,
+returns to the player. **Library** is the breadcrumb at the top left. Both
+screens share transport and retain their own viewports. The screen is concept MB
+of the redesign, a floating toolbar ([layout](docs/UI_DESIGN.md#measure-map-concept-mb)).
 
-In **Measure map**, **Metronome** defaults on to play the displayed authored map,
-including a green draft before applying it. **Click level** adjusts its volume;
-clicks follow the chosen pulse and accent measure/group starts. **Follow playhead**
-also defaults on in both screens and pages the waveform during playback without
-changing zoom. Each screen retains its own follow preference.
-Panning, minimap navigation, zoom and view-fitting preserve this setting; only
-the Follow playhead toggle turns it off. Returning to practice uses accepted-map
-clicks and preserves the shared metronome enable/level preference.
-Left, Right and Enter also reveal the playhead in
-the waveform while paused, preserving zoom. See [map review behavior and timing limits](docs/MEASURE_MAPPING.md#listening-to-the-displayed-map).
+On an empty map, the **drafting drawer** on the right leads you through a first
+draft:
 
-The **Analysis** sidebar holds Analyze song and **Show detected beats**. Raw
-suggestions hide by default once a map or draft is displayed; the checkbox can
-restore them. Beat markers thin as you zoom out and regain detail when you zoom
-in. Play/pause and speed sit in a compact waveform overlay. The panel below the
-waveform holds measure timing, notation, beat-anchor and range-editing tools.
-Selecting a measure in the timeline seeks to its start while preserving the
-current playing/paused state, including when reviewing a draft.
-Clicking waveform space selects the containing measure and seeks to the clicked
-time. Selection follows the current measure during playback. Moving a measure
-boundary evenly spaces beats in both adjacent measures; Undo restores the
-previous boundary and anchors.
-The Measure panel uses a compact meter pair and one **Apply changes** action with
-Undo. Its **Advanced** fold-out contains pulse, grouping and exact boundary
-positions; the title lock protects the measure. **Batch tools**, below Create
-measures, holds global numbering and batch beat grouping, both with Preview/Apply.
-Choose a time signature and groups such as `2+2+3` for 7/8, or leave grouping blank
-to clear it. Grouping applies throughout the song to unlocked measures with that
-exact signature, including pickups and partial measures; the form reports changed
-and skipped locked measures. It preserves corrected timing and pulse values and
-creates one Undo step. Pulse controls click spacing; grouping accents clicks only
-where group starts coincide with a pulse.
-**Join / Split / Shift** lays out all three tools horizontally with vertical
-separators. Join sums numerators over a common denominator; Split before beat
-shows only beat numbers and produces two incomplete measures retaining the prior
-meter (4/4 split at beat 3 becomes two partial 4/4 bars). Numeric
-anchor controls are under Advanced. **Free time** can remove a measure's map or
-create a new, evenly spaced measure over a selected uncounted waveform range.
-Shift left/right moves the selected and remaining measure boundaries by a chosen
-number of the selected measure’s pulses, preserving source beat timing and outer
-endpoints. Right expands the preceding meter; left makes it partial and extends
-the final measure. Measures consumed at an endpoint are absorbed into surviving
-bars. Each operation supports Undo. Range re-spacing is no longer a desktop tool.
+- **From detected beats** (the default): download the analysis model once if
+  needed, **Analyze song**, then say how to read the beats: time signature, the
+  note one beat is, and where the first full measure starts (or **Playhead**).
+  **Preview draft** places measure boundaries at detected source frames and
+  reports full/partial measures and timing corrections. **Tolerance** holds
+  **ε (ms)**, 30 ms by default: internal beats interpolate unless timing anchors
+  are needed to stay within that error of detection; 0 ms fits exactly.
+- **By hand**: mark a span (start and end at the playhead or as exact times) and
+  how many measures fit; it needs no model and ignores detected beats.
 
-**Create measures** provides two explicit sources:
+Review the green draft (the click follows it), then **Apply map**; changing an
+input requires another preview. Once a map exists the drawer steps aside;
+**Redraft** brings it back. Detected drafts end at the last observed pulse;
+leading/trailing audio can remain free time.
 
-- **Detected beats** is selected after analysis. Choose the time signature and the
-  note value of each detected pulse, then set the first downbeat. Its position
-  snaps to the nearest detected beat in the selected span. **Preview detected
-  measures** calculates the number of full/partial measures and places their
-  boundaries at detected source frames. **Beat timing tolerance ε (ms)** defaults
-  to 30 ms: internal beats interpolate unless timing anchors are needed to stay
-  within that error of detection. Set 0 ms for an exact fit. The summary shows
-  retained anchors. Review the green draft, then **Apply map**. Changing draft
-  settings requires another preview.
-- **Even spacing (manual)** uses a span and an explicit measure count. It ignores
-  detected beats and is available without installing or running a model.
+Correcting happens at the **floating toolbar** over the selected measure: its
+number, properties (`4/4 · Full ▾`: meter, kind, how long a pickup lasts,
+grouping, the beat note, also the following measures; Apply with Undo), **Split
+at beat n** (before the beat nearest the playhead), **Join**, **Shift ◀ ▶**,
+**Lock** and **⋯** (exact barline positions, beat positions and anchors, the
+shift step with re-snapping and ε, and **Mark as free time**). Click the
+waveform to select a measure and seek to that exact time; selection follows
+playback. When the measure scrolls away the toolbar becomes an edge tab that
+brings it back. Drag barlines, or the diamonds on the selected measure's beats,
+to correct timing, or nudge a focused handle with the arrows (10 ms; Shift
+gives 1 ms). Moving a boundary evenly spaces beats in both adjacent measures.
+Keys: **M** properties, **S** split, **J** join, **[ ]** shift, **L** lock,
+**F** fit the measure, **W** whole song, **D** detected beats.
 
-**Span** expands the target range and optional grouping controls. Detected drafts
-end at the last observed pulse; leading/trailing audio can remain unmapped. Meter
-changes, pickups and partial bars can then be corrected locally. Draft settings
-and the selected measure's notation controls are independent.
+Join sums numerators over a common denominator; Split produces two incomplete
+measures keeping the prior meter (4/4 split at beat 3 becomes two partial 4/4
+bars), and a toast offers Undo. Shift moves the selected and remaining
+boundaries by the shift step in the measure's pulses, preserving source beat
+timing and outer endpoints; with detected beats it re-snaps the new barlines
+(re-snapping defaults on). Free time can be counted as a measure again from the
+toolbar. Each operation supports Undo; range re-spacing is no longer a tool.
 
-Drag measure/beat lines to correct timing, or use exact source positions and
-arrow-key nudges (10 ms; Shift gives 1 ms). The inspector supports meter changes,
-pickups, incomplete bars, beat anchors, splits/merges, free-time gaps and protected
-corrections. **Clear map** removes all measures/anchors, including protected ones;
-**Undo** restores them. It retains detected beats for rebuilding and keeps practice
-sections, loops and playback settings. Mapping undo/redo retains up to 50 edits
-during the same song session and survives switching back to practice; it is not
-saved across restarts. The accepted map is
-persisted in the song’s reference-timeline record. Pre-UUID metadata is reset once
-on launch instead of migrated; future/malformed UUID records remain preserved.
+**Song settings** holds the whole-song settings: the first full measure number
+and batch beat grouping (both previewed in green, then applied or discarded
+below the waveform), and **Clear map…**. Grouping such as `2+2+3` for 7/8 applies
+to unlocked measures with that exact signature, including pickups and partial
+measures, and reports skipped locked ones; leave it blank to clear grouping.
+Clearing removes all measures/anchors, including protected ones; **Undo**
+restores them. It retains detected beats and keeps practice sections, loops and
+playback settings. Mapping undo/redo retains up to 50 edits during the same song
+session and survives switching back to practice; it is not saved across restarts.
+
+On this screen the metronome always plays the displayed map or draft at full
+level, with accented measure and group starts; the playback bar says which it
+follows. Practice keeps its own click on/off and level (on/50% by default) and
+uses the accepted map. Both screens page the waveform to follow playback without
+changing zoom. Left, Right and Enter also reveal the playhead while paused. See
+[map review behavior and timing limits](docs/MEASURE_MAPPING.md#listening-to-the-displayed-map).
+The accepted map is persisted in the song’s reference-timeline record. Pre-UUID
+metadata is reset once on launch instead of migrated; future/malformed UUID
+records remain preserved.
+
 Practice uses a single waveform ruler: measure numbers and vertical barlines in
 mapped audio, timecodes in free time. The separate section lane stays. Loops
 snap to whole measures by default; turn off **Snap to measures** or Shift-drag
 for free placement. Loop handles and A/B shortcuts use barlines; exact time
-inputs and saved section ranges remain precise. Both screens share metronome
-on/off and click level, defaulting to on/50%. Practice follows the accepted map;
-mapping auditions the displayed draft. Measure navigation remains in the footer.
+inputs and saved section ranges remain precise.
 
-**Analysis model → Download analysis model** optionally installs the pinned
-Beat This! model (about 83 MB). **Analyze song** runs CPU inference in a separate,
-cancellable process. Download progress shows received bytes; analysis shows
-per-stage progress, completed segments and elapsed time. The model folder is
-shown beneath Verify / reinstall. Downbeat conflicts produce review warnings.
+**Download analysis model** in the drafting drawer (or Settings › Beat analysis)
+optionally installs the pinned Beat This! model (about 83 MB). **Analyze song**
+runs CPU inference in a separate, cancellable process; it waits while stems are
+being separated. Download and analysis show their progress with Cancel. Settings
+› Beat analysis verifies, reinstalls and removes the model. Downbeat conflicts produce review warnings.
 Analysis never applies a map automatically; protected spans block replacement.
 Installed models work offline, and manual mapping needs no download or Python
 runtime. For development/offline provisioning, `OHMYLOOP_MODEL_DIR` selects a

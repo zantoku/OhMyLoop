@@ -13,5 +13,5 @@ export type Action = { type: 'toggle_play' | 'pause' | 'retry_audio' } | { type:
 export type View = { start: number; end: number };
 
 export type LibraryStatus = { selected: { id: string; root: string } | null; available: boolean; error: string | null; import_notice_seen: boolean };
-export type ImportSelection = { path: string; candidates: import('./library').LibraryEntry[] };
+export type ImportSelection = { path: string; candidates: import('./library').CatalogueEntry[] };
 export type ImportProgress = { copied: number; total: number };

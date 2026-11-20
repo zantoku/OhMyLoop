@@ -96,6 +96,64 @@ impl Catalogue {
     }
 }
 
+/// A song in the list the UI shows: the persisted catalogue entry plus facts
+/// read from the song's recording at read time. Never written to disk, so
+/// catalogue files stay readable by older builds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LibraryRow {
+    #[serde(flatten)]
+    pub entry: Entry,
+    /// Length of the recording in milliseconds; 0 when it can't be read.
+    pub duration_ms: u64,
+}
+/// The song list as the UI reads it; see [`LibraryRow`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LibraryView {
+    pub version: u32,
+    pub songs: Vec<LibraryRow>,
+}
+impl LibraryView {
+    pub fn new(catalogue: Catalogue, duration_ms: impl Fn(&str) -> u64) -> Self {
+        Self {
+            version: catalogue.version,
+            songs: catalogue
+                .songs
+                .into_iter()
+                .map(|entry| LibraryRow {
+                    duration_ms: duration_ms(&entry.song_key),
+                    entry,
+                })
+                .collect(),
+        }
+    }
+    pub fn entry(&self, key: &str) -> Result<&Entry> {
+        self.songs
+            .iter()
+            .map(|row| &row.entry)
+            .find(|s| s.song_key == key)
+            .context("Song is not in the library")
+    }
+}
+
+/// Audio files that can be imported, by extension.
+pub const SONG_EXTENSIONS: [&str; 8] = ["wav", "mp3", "flac", "ogg", "m4a", "aac", "aiff", "aif"];
+/// Rejects a file that isn't a supported recording before it is hashed or copied.
+pub fn ensure_importable(path: &Path) -> Result<()> {
+    let supported = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            SONG_EXTENSIONS
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        });
+    ensure!(
+        supported,
+        "This file can't be imported. Choose a WAV, MP3, FLAC, Ogg, M4A, AAC or AIFF recording."
+    );
+    Ok(())
+}
+
 pub struct Store {
     path: PathBuf,
 }

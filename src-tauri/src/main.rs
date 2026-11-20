@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod lifecycle;
+mod locations;
 use ohmyloop::{
     desktop::{Action, Desktop, Snapshot, Transport},
     project::Document,
@@ -66,19 +67,10 @@ async fn initialize(app: tauri::AppHandle, state: State<'_, Desktop>) -> Result<
     .await
 }
 
-#[tauri::command]
-async fn load_demo(state: State<'_, Desktop>) -> Result<Snapshot, String> {
-    let desktop = state.inner().clone();
-    work(move || desktop.load(None)).await
-}
-
 fn pick_recording(app: &tauri::AppHandle) -> anyhow::Result<Option<String>> {
     app.dialog()
         .file()
-        .add_filter(
-            "Songs",
-            &["wav", "mp3", "flac", "ogg", "m4a", "aac", "aiff", "aif"],
-        )
+        .add_filter("Songs", &ohmyloop::library::SONG_EXTENSIONS)
         .blocking_pick_file()
         .map(|file| Ok(file.into_path()?.to_string_lossy().into_owned()))
         .transpose()
@@ -129,6 +121,11 @@ struct ImportSelection {
     path: String,
     candidates: Vec<ohmyloop::library::Entry>,
 }
+fn import_selection(desktop: &Desktop, path: String) -> anyhow::Result<ImportSelection> {
+    ohmyloop::library::ensure_importable(std::path::Path::new(&path))?;
+    let candidates = desktop.import_candidates(path.clone())?;
+    Ok(ImportSelection { path, candidates })
+}
 #[tauri::command]
 async fn pick_import_song(
     app: tauri::AppHandle,
@@ -137,13 +134,19 @@ async fn pick_import_song(
     let desktop = state.inner().clone();
     work(move || {
         pick_recording(&app)?
-            .map(|path| {
-                let candidates = desktop.import_candidates(path.clone())?;
-                Ok(ImportSelection { path, candidates })
-            })
+            .map(|path| import_selection(&desktop, path))
             .transpose()
     })
     .await
+}
+/// A file dropped onto the window, checked like a picked one.
+#[tauri::command]
+async fn inspect_import_song(
+    path: String,
+    state: State<'_, Desktop>,
+) -> Result<ImportSelection, String> {
+    let desktop = state.inner().clone();
+    work(move || import_selection(&desktop, path)).await
 }
 #[derive(Clone, serde::Serialize)]
 struct ImportProgress {
@@ -214,11 +217,14 @@ async fn replace_library_reference(
 }
 
 #[tauri::command]
-async fn read_library(state: State<'_, Desktop>) -> Result<ohmyloop::library::Catalogue, String> {
+async fn read_library(state: State<'_, Desktop>) -> Result<ohmyloop::library::LibraryView, String> {
     let desktop = state.inner().clone();
     work(move || {
         if desktop.managed_status()?.selected.is_none() {
-            Ok(ohmyloop::library::Catalogue::default())
+            Ok(ohmyloop::library::LibraryView::new(
+                ohmyloop::library::Catalogue::default(),
+                |_| 0,
+            ))
         } else {
             desktop.library()
         }
@@ -242,7 +248,7 @@ async fn update_library_song(
     song_key: String,
     metadata: ohmyloop::library::Metadata,
     state: State<'_, Desktop>,
-) -> Result<ohmyloop::library::Catalogue, String> {
+) -> Result<ohmyloop::library::LibraryView, String> {
     let desktop = state.inner().clone();
     work(move || desktop.update_library(song_key, metadata)).await
 }
@@ -399,6 +405,39 @@ async fn transport_status(state: State<'_, Desktop>) -> Result<Transport, String
 }
 
 #[tauri::command]
+async fn remove_analysis_model(
+    state: State<'_, ohmyloop::analysis::AnalysisManager>,
+) -> Result<ohmyloop::analysis::JobStatus, String> {
+    let manager = state.inner().clone();
+    work(move || manager.remove_model()).await
+}
+#[tauri::command]
+async fn reveal_location(
+    location: locations::Location,
+    desktop: State<'_, Desktop>,
+    keymap: State<'_, KeymapPath>,
+) -> Result<(), String> {
+    let desktop = desktop.inner().clone();
+    let keymap = keymap.inner().0.clone();
+    work(move || {
+        let path = match location {
+            locations::Location::Library => desktop
+                .managed_status()?
+                .selected
+                .map(|library| std::path::PathBuf::from(library.root))
+                .ok_or_else(|| anyhow::anyhow!("No library is open"))?,
+            locations::Location::ShortcutFile => keymap,
+        };
+        locations::reveal(&path)
+    })
+    .await
+}
+#[tauri::command]
+async fn open_shortcut_file(keymap: State<'_, KeymapPath>) -> Result<(), String> {
+    let path = keymap.inner().0.clone();
+    work(move || locations::open(&path)).await
+}
+#[tauri::command]
 async fn analysis_status(
     state: State<'_, ohmyloop::analysis::AnalysisManager>,
 ) -> Result<ohmyloop::analysis::JobStatus, String> {
@@ -452,7 +491,7 @@ async fn separation_estimate(
     reference_token: String,
     desktop: State<'_, Desktop>,
     state: State<'_, ohmyloop::separation::SeparationManager>,
-) -> Result<u64, String> {
+) -> Result<ohmyloop::separation::ProcessingEstimate, String> {
     let manager = state.inner().clone();
     let desktop = desktop.inner().clone();
     work(move || manager.processing_estimate(&desktop, reference_token)).await
@@ -599,17 +638,20 @@ fn main() {
             analysis_status,
             read_cached_analysis,
             install_analysis_model,
+            remove_analysis_model,
+            reveal_location,
+            open_shortcut_file,
             cancel_analysis,
             start_analysis,
             preview_measure_map,
             measure_map_view,
             initialize,
-            load_demo,
             library_status,
             acknowledge_import_notice,
             choose_library,
             retry_library,
             pick_import_song,
+            inspect_import_song,
             import_song,
             delete_library_song,
             replace_recording,

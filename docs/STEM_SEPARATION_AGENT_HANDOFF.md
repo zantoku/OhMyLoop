@@ -222,7 +222,8 @@ Rewrite the approved flow using production Svelte modules; do not promote the
 throwaway HTML/reducer. Show the selected model card, truthful installation/
 runtime status, actual sizes, explicit Download/Separate, replacement confirmation,
 semantic progress checklist, Cancel/Stopping/Finishing save and completion/Go to
-Practice. Use the project's top-leading X and existing component/theme conventions.
+Practice. Use the existing component/theme conventions; song views reached through
+the view switcher have no close X (dialogs keep their leading X).
 Keep installed-model management/manual output attachment secondary. A compact
 ongoing-work indicator opens Stems from the active song screens. Keyboard, narrow
 820×620 and ordinary 1180×810 layouts must remain usable and scrollable.

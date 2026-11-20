@@ -38,6 +38,8 @@ export class MappingSession {
     finally { this.state.pending = false; this.emit(); }
   }
   discard() { if (!this.state.pending) { this.state.preview = null; this.state.error = ''; this.emit(); } }
+  /** Dismisses the last rejection, keeping any preview. */
+  clearError() { if (this.state.error) { this.state.error = ''; this.emit(); } }
   async history(direction: 'undo' | 'redo') {
     const from = direction === 'undo' ? this.past : this.future, to = direction === 'undo' ? this.future : this.past;
     if (this.state.pending || !from.length) return;

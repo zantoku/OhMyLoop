@@ -1,13 +1,17 @@
 # Integrated stem separation
 
-Open a managed-library song, choose **Stems**, and explicitly **Set up stem separation**.
+Open a managed-library song, choose **Stems**, and explicitly **Set up separation**
+(step 1 of the screen's guided steps).
 Setup installs private tools and downloads the model, shared across songs and libraries,
 while playback remains available. Tools and model readiness are shown separately. Once
-both show **Ready**, choose **Separate song**. Setup never starts separation automatically. Replacing an existing set requires confirmation.
+both are ready, step 2 offers **Separate song**. Setup never starts separation automatically. Replacing an existing set requires confirmation.
 
 Separation pauses at the current source position. Playback, seeking, speed, pitch,
-loop/count-in and mixer edits stay disabled until processing ends. Close Stems
-with its leading X to return to Practice; the ongoing-work indicator reopens it.
+loop/count-in and mixer edits stay disabled until processing ends. Return to
+Practice through the view switcher; on the other views a persistent toast
+shows the progress and **Open Stems** reopens it. When the work finishes or
+fails away from Stems, the toast stays (Stems ready / Separation stopped) until
+Stems is opened or the toast is dismissed.
 Notes and manual measure-map editing remain available. Switching songs/libraries,
 recording replacement, deletion and manual stem mutation wait until processing ends.
 Timing analysis and separation share one heavy-work slot, with no queue.
@@ -17,22 +21,27 @@ full-song development runs. Measured bytes, frames and inference chunks drive
 progress within their stages. Unknown work holds the overall bar while its step
 remains indeterminate. Manual attachment and playback-cache preparation retain
 task-unit progress. The checklist follows active work; scrolling away pauses
-following, and returning to the active step resumes it. Elapsed time is shown
+following, and returning to the active step resumes it. While work runs the
+checklist sits behind **Show steps**; when it fails or is cancelled the list is
+open, with the error and **Copy details**. Elapsed time is shown
 without an ETA. **Cancel** becomes **Stopping** until child and native
 cleanup finish; **Finishing save** cannot be cancelled. Normal quit asks **Keep app
 open** or **Quit and cancel**, which waits for cleanup or a save already in progress.
 
 Completion attaches the validated tracks automatically. Tracks whose whole-file
 peak is strictly below −60 dBFS are omitted; the checklist retains their Skipped
-state. If every track is omitted, the previous set stays unchanged. **Go to Practice**
-returns to the existing mixer, still paused at the original position. Matching saved
+state. If every track is omitted, the previous set stays unchanged. Stems then shows
+step 3, **Review the stems**: the instruments (near-silent ones struck through),
+"Separated here with Roformer-SW", and a dismissible **Separation finished** banner;
+it doesn't navigate on its own. Practice is still paused at the original position. Matching saved
 gains and mutes survive replacement; transient solo clears. Neutral track controls
 play Original; any gain/mute/solo adjustment uses stems with common fixed headroom.
 The reference remains the source for waveforms and measure maps.
 
 Failures preserve the previous association and provide explicit Retry, a short
-reason and expandable **Processing details / Copy details**. A checksum mismatch
-requires explicit **Model management → Reinstall model**. Removing the model leaves
+reason and **Copy details**; with an earlier set, **Back to current stems** returns
+to it. A checksum mismatch requires explicit **Settings → Stem separation → Reinstall**
+for the model; when the tools no longer verify, Stems links there (**Repair in Settings**). Removing the model leaves
 completed stems playable; removing stems leaves the reference, notes and map intact.
 
 ## Setup and testing
@@ -41,18 +50,18 @@ completed stems playable; removing stems leaves the reference, notes and map int
 
 1. Launch an installed app, or prepare the development build resources as described below
    and launch with `CARGO_HOME="$PWD/.cargo-home" npm run desktop`.
-2. Open a song (M4A is supported), open **Stems**, and choose **Set up stem separation**.
+2. Open a song (M4A is supported), open **Stems**, and choose **Set up separation**.
    Check the tools/model checklist and that playback remains available. Setup completion
-   should show **Ready** without starting separation.
+   should move to step 2 without starting separation.
 3. Pause at a recognizable position, then choose **Separate song**. Playback and
    mixer controls should stay disabled while the checklist progresses. Close Stems,
-   edit a note, and reopen through the ongoing-work indicator.
-4. On completion, choose **Go to Practice**. Position should be preserved and playback
-   still paused. Play, mute/solo tracks and drag gains; check smooth sound. Reset
+   edit a note, and reopen through **Open Stems** on the progress toast.
+4. On completion, Stems shows the instruments with a **Separation finished** banner.
+   Choose **Practice**; position should be preserved and playback still paused. Play, mute/solo tracks and drag gains; check smooth sound. Reset
    controls to neutral to hear Original. Check that notes and the measure map remain.
-5. Start a replacement, confirm it, then cancel during processing. Wait for
+5. Start a replacement (**Separate again…**), confirm it, then cancel during processing. Wait for
    **Stopping** to finish; the previous stem set should remain usable.
-6. Optionally remove the model through **Model management**. Existing stems should
+6. Optionally remove the model in **Settings → Stem separation**. Existing stems should
    still play, including after restarting the app. Separating again needs a download.
 
 Allow several minutes for a full song and several GiB of RAM. In local debug QA,
@@ -75,8 +84,8 @@ incomplete environment and reuses verified downloads. Download caches are cleare
 after success; the managed interpreter remains. There is no background installation,
 journal, dependency-install resume or automatic repair.
 
-**Model management** provides **Reinstall separation tools**, **Remove separation
-tools**, and separate model controls. Removing/repairing tools preserves model weights
+**Settings → Stem separation** provides **Reinstall** and **Remove…** for the tools,
+and separate model controls. Removing/repairing tools preserves model weights
 and every song. Removing either tools or model leaves completed stems playable.
 Native checks run after setup and before separation; ordinary status checks are quick.
 A failed check requires explicit repair. Supported inference targets are macOS arm64
@@ -106,7 +115,7 @@ RAM gate or overall inference timeout is introduced.
 
 Model storage is `<Tauri app-data>/models/separation/roformer-sw-v1`. The usual
 macOS default is `~/Library/Application Support/org.ohmyloop.desktop/models/separation/roformer-sw-v1`.
-**Model management** displays the resolved authoritative path. The package is
+**Settings → Stem separation → Storage location** displays the resolved authoritative path. The package is
 699,416,805 bytes: `BS-Roformer-SW.ckpt`, `BS-Roformer-SW.yaml` and a small
 `package.json` marker. Install verifies exact sizes/hashes before publication;
 every separation verifies hashes again. Typical model/file edits are also detected

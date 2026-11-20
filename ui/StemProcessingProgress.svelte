@@ -1,19 +1,27 @@
 <script lang="ts">
- import {tick,untrack} from 'svelte';
+ // Setup, separation or attachment work on the Stems screen: one overall bar
+ // with a fixed title, the phase and elapsed time beneath it, and the step
+ // checklist. While work runs the checklist sits behind "Show steps"; when it
+ // stops, the list is open with the error and its details to copy (stems.md
+ // decision 4). Unmeasured work stays indeterminate; no ETA.
+ import {tick,untrack,type Snippet} from 'svelte';
+ import Icon from './Icon.svelte';
  import {ChecklistFollow} from './checklist-follow';
- import type {StemProgress,StemProcessingStep} from './stems';
- let {progress,busy,failed=false,operation='Processing stems',title,completionTitle='Stems ready'}:{progress:StemProgress|null;busy:boolean;failed?:boolean;operation?:string;title?:string;completionTitle?:string}=$props();
- const workflow=$derived(progress?.workflow);
- const known=$derived(!!workflow&&workflow.total>0);
- const fraction=$derived(known?Math.max(0,Math.min(1,workflow!.completed/workflow!.total)):0);
- const finished=$derived(known&&fraction===1&&!failed);
- const phaseTitle=$derived(failed?'Processing stopped':finished?completionTitle:operation.replace(/…$/,''));
- const current=$derived(workflow?.steps.find(step=>step.state==='active'));
- const activeId=$derived(current?.id);
+ import {percent,type Work} from './stems-screen';
+ import type {StemProcessingStep} from './stems';
+ let {work,actions}:{work:Work;actions?:Snippet}=$props();
+ const workflow=$derived(work.progress?.workflow);
+ const value=$derived(percent(work.progress));
+ let stepsShown=$state(false);
+ const stepsOpen=$derived(work.stopped||stepsShown);
+ let copied=$state(false);
+ const activeId=$derived(workflow?.steps.find(step=>step.state==='active')?.id);
  let list:HTMLUListElement|undefined=$state();
  const follow=new ChecklistFollow();
  let previousAttempt:string|undefined;
- let wasBusy=false;
+ let wasRunning=false;
+ // Keys the scrollable list handles itself; every other key reaches the shortcuts.
+ const LIST_KEYS='ArrowUp ArrowDown PageUp PageDown Home End';
  function geometry(){
   const row=list?.querySelector<HTMLElement>('[aria-current="step"]');
   if(!list||!row)return null;
@@ -21,35 +29,65 @@
   return {top:viewport.top+list.clientTop,bottom:viewport.top+list.clientTop+list.clientHeight,rowTop:item.top,rowBottom:item.bottom};
  }
  function scrolled(){const value=geometry();if(value)follow.scrolled(value);}
+ // The list follows the active step unless the player scrolls away from it.
  $effect(()=>{
-  const active=activeId,attempt=progress?.operation_id??progress?.reference_token,running=busy;
+  const active=activeId,attempt=work.id,running=work.running,open=stepsOpen;
   untrack(()=>{
-   if(attempt!==previousAttempt||(running&&!wasBusy))follow.reset();
-   previousAttempt=attempt;wasBusy=running;
+   if(attempt!==previousAttempt||(running&&!wasRunning))follow.reset();
+   previousAttempt=attempt;wasRunning=running;
   });
-  if(!running||!active)return;
+  if(!running||!active||!open)return;
   let disposed=false;
   tick().then(()=>{if(disposed)return;const value=geometry();if(value&&list)list.scrollTop+=follow.reveal(value);});
   return ()=>{disposed=true;};
  });
  function stepFraction(step:StemProcessingStep){return (step.state==='complete'||step.state==='skipped')?1:step.total&&step.total>0?Math.max(0,Math.min(1,step.completed/step.total)):0;}
+ function stepStatus(step:StemProcessingStep){
+  if(step.state==='skipped')return 'Skipped';
+  if(step.state==='complete')return 'Complete';
+  if(step.state==='active')return work.stopped?work.cancelled?'Cancelled':'Stopped':step.total?`${Math.floor(stepFraction(step)*100)} %`:'Working';
+  return 'Pending';
+ }
+ async function copy(){try{await navigator.clipboard.writeText(work.details);copied=true;setTimeout(()=>{copied=false;},1500);}catch{copied=false;}}
 </script>
-<section class="processing-progress" aria-label="Stem processing progress">
- <div class="progress-heading"><strong>{title??phaseTitle}</strong><span>{known?`${Math.floor(fraction*100)}%`:''}</span></div>
- <progress aria-label="Overall stem processing" max="1" value={known?fraction:undefined}></progress>
- <div class="processing-status" role="status">{title!==undefined?phaseTitle:failed?'Some steps could not complete.':finished?'All processing steps completed.':current?.label??(busy?'Getting ready…':'Processing paused.')}</div>
+<section class="work" class:stopped={work.stopped} class:failed={work.stopped&&!work.cancelled} aria-label={work.title}>
+ <div class="heading"><h2 tabindex="-1" data-pane-heading>{work.title}</h2><span>{work.stopped||value===null?'':`${value} %`}</span></div>
+ <progress aria-label={work.title} max="100" value={work.stopped?(value??0):value??undefined}></progress>
+ <div class="status-row"><span class="phase" role="status">{work.phase}</span>{#if work.elapsed}<span class="elapsed">{work.elapsed}</span>{/if}{@render actions?.()}</div>
+ {#if work.stopped&&!work.cancelled&&(work.error||work.details)}
+  <div class="error" role="alert"><Icon name="warning" size={16}/><span class="copyable"><b>{work.error||'The work stopped unexpectedly.'}</b></span>
+   {#if work.details}<button class="compact-button ghost" onclick={copy}><Icon name="copy" size={14}/>{copied?'Copied':'Copy details'}</button>{/if}</div>
+ {/if}
  {#if workflow?.steps.length}
- <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard focus makes this scrollable list reachable.) -->
- <ul bind:this={list} onscroll={scrolled} class="processing-steps" aria-label="Processing steps" tabindex="0">
-  {#each workflow.steps as step (step.id)}
-   <li class:active={step.state==='active'} class:complete={step.state==='complete'||step.state==='skipped'} aria-current={step.state==='active'?'step':undefined}>
-    <span class="step-circle" class:running={busy&&step.state==='active'&&step.total===null} style:--sweep={`${stepFraction(step)*360}deg`} aria-hidden="true"></span>
-    <span class="step-label">{step.label}</span><span class="step-status">{step.state==='skipped'?'Skipped':step.state==='complete'?'Complete':step.state==='active'?(failed?'Stopped':step.total?`${Math.floor(stepFraction(step)*100)}%`:'Working'):'Pending'}</span>
-   </li>
-  {/each}
- </ul>
+  {#if !work.stopped}<button class="compact-button ghost toggle" aria-expanded={stepsShown} aria-controls="stem-steps" onclick={()=>{stepsShown=!stepsShown;}}>{stepsShown?'Hide steps':'Show steps'}<span class="chevron" class:open={stepsShown} aria-hidden="true">▾</span></button>{/if}
+  {#if stepsOpen}
+   <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard focus makes this scrollable list reachable.) -->
+   <ul id="stem-steps" bind:this={list} onscroll={scrolled} class="steps" aria-label="Processing steps" tabindex="0" data-owns-keys={LIST_KEYS}>
+    {#each workflow.steps as step (step.id)}
+     <li class:active={step.state==='active'} class:complete={step.state==='complete'||step.state==='skipped'} aria-current={step.state==='active'?'step':undefined}>
+      <span class="circle" class:running={work.running&&step.state==='active'&&step.total===null} style:--sweep={`${stepFraction(step)*360}deg`} aria-hidden="true"></span>
+      <span class="label">{step.label}</span><span class="step-status">{stepStatus(step)}</span>
+     </li>
+    {/each}
+   </ul>
+  {/if}
  {/if}
 </section>
 <style>
- .processing-progress{width:100%;flex-shrink:0;display:grid;gap:10px}.progress-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px}.progress-heading strong{font-weight:600}.progress-heading>span{font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}progress{display:block;width:100%;height:18px;border:0;border-radius:5px;overflow:hidden;background:var(--progress-track);accent-color:var(--blue)}progress::-webkit-progress-bar{background:var(--progress-track);border-radius:5px}progress::-webkit-progress-value{background:var(--blue);border-radius:5px}progress::-moz-progress-bar{background:var(--blue);border-radius:5px}.processing-status{font-size:12px;color:var(--muted);min-height:18px}.processing-steps{list-style:none;padding:4px 12px 4px 0;margin:0;max-height:min(34vh,300px);overflow-y:auto;overscroll-behavior:contain;border-block:1px solid var(--border);scrollbar-gutter:stable}.processing-steps li{display:flex;align-items:center;gap:12px;padding:9px 0;min-height:36px;font-size:12px;color:var(--muted)}.processing-steps .active{color:var(--text);font-weight:600}.processing-steps .complete{color:var(--text-secondary)}.step-circle{width:15px;height:15px;flex:0 0 15px;border:1px solid var(--border-strong);border-radius:50%;background:conic-gradient(var(--success-text) var(--sweep),transparent var(--sweep))}.active .step-circle{border-color:var(--success-text)}.complete .step-circle{border-color:var(--success-text);background:var(--success-text)}.step-label{flex:1}.step-status{font-size:10px;font-weight:400;color:var(--muted)}.running{animation:processing-pulse 1.2s ease-in-out infinite}@keyframes processing-pulse{50%{opacity:.4}}@media(prefers-reduced-motion:reduce){.running{animation:none}}
+ .work{display:flex;flex-direction:column;gap:8px}
+ .heading{display:flex;align-items:baseline;gap:12px}.heading h2{flex:1;font-size:17px;font-weight:600}.heading span{font-size:13px;color:var(--text-secondary)}
+ progress{display:block;width:100%;height:10px;border:0;border-radius:5px;overflow:hidden;background:var(--progress-track);accent-color:var(--blue)}
+ progress::-webkit-progress-bar{background:var(--progress-track);border-radius:5px}progress::-webkit-progress-value{background:var(--blue);border-radius:5px}progress::-moz-progress-bar{background:var(--blue);border-radius:5px}
+ .stopped progress::-webkit-progress-value{background:var(--border-strong)}.stopped progress::-moz-progress-bar{background:var(--border-strong)}.failed progress::-webkit-progress-value{background:var(--error-text)}.failed progress::-moz-progress-bar{background:var(--error-text)}
+ .status-row{display:flex;align-items:center;gap:12px;min-height:30px;font-size:12px;color:var(--text-secondary)}.phase{flex:1}.failed .phase{color:var(--error-text)}
+ .error{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--error-border);border-radius:8px;background:var(--error-bg);color:var(--error-text);font-size:12px;line-height:1.45}
+ .error>span{flex:1;overflow-wrap:anywhere}.error .compact-button{height:22px;padding:0 4px;color:var(--error-text)}
+ .toggle{align-self:flex-start;height:22px;padding:0 4px;margin-left:-4px}.chevron{display:inline-block;font-size:10px}.chevron.open{transform:rotate(180deg)}
+ .steps{list-style:none;margin:0;padding:4px 12px 4px 0;max-height:210px;overflow-y:auto;overscroll-behavior:contain;border-block:1px solid var(--border)}
+ .steps li{display:flex;align-items:center;gap:10px;min-height:30px;font-size:12px;color:var(--text-secondary)}
+ .steps .active{color:var(--text);font-weight:600}.steps .complete{color:var(--text)}.failed .steps .active{color:var(--error-text)}
+ .circle{width:13px;height:13px;flex:none;border:1px solid var(--border-strong);border-radius:50%;background:conic-gradient(var(--success-text) var(--sweep),transparent var(--sweep))}
+ .active .circle{border-color:var(--success-text)}.complete .circle{border-color:var(--success-text);background:var(--success-text)}.stopped .active .circle{border-color:var(--border-strong);background:transparent}.failed .active .circle{border-color:var(--error-text)}
+ .label{flex:1}.step-status{font-size:11px;font-weight:400;color:var(--text-secondary)}
+ .running{animation:processing-pulse 1.2s ease-in-out infinite}@keyframes processing-pulse{50%{opacity:.4}}@media(prefers-reduced-motion:reduce){.running{animation:none}}
 </style>

@@ -98,15 +98,15 @@ barlines in mapped audio, timecodes in free time. Loops snap to whole measures b
 default; handles and A/B use barlines. A checkbox/Shift gestures permit free
 placement, and exact time fields and saved sections retain precise bounds.
 
-**Metronome** defaults on with 50% level, shared between both screens for the app
-session. Practice clicks use the accepted map; mapping clicks use the displayed
-authored draft/map, never raw detections. **Follow playhead** defaults on in both screens, with independent session toggles;
-practice pages with or without a map.
+**Metronome:** on Practice it defaults on at 50% level for the app session and
+clicks the accepted map. On the Measure map it is always on at full level and
+clicks the displayed draft or map, never raw detections; it leaves Practice's
+setting alone. Both screens always follow playback (there is no toggle).
 Grouping controls accents; pulse controls click spacing. Click level adjusts
 volume, speed changes spacing, and pitch does not transpose clicks. Paging keeps
-zoom and handles seeks/loop wraps. Manual viewport navigation never disables
-following; only its toggle does. Explicit seeks reveal the playhead even when
-paused or following is off. These review preferences are session state.
+zoom and handles seeks/loop wraps; a manual pan holds until the playhead next
+leaves the page. Explicit seeks reveal the playhead even when paused. These
+review preferences are session state.
 
 Detailed semantics and limits: [MEASURE_MAPPING.md](MEASURE_MAPPING.md).
 
@@ -135,12 +135,17 @@ subprocess inference; `src/analysis_pcm.rs` prepares source-aligned mono PCM.
 Frontend MappingSession owns save orchestration/history; the app owns one shared
 MetronomeSession, avoiding competing native requests on screen transitions.
 AnalysisSession owns analysis job state. MetronomeSession coalesces click-map
-and level updates. MeasureBuilder, MeasureTools,
-JoinSplitTools, ShiftTools, FreeTimeTools and BatchTools own cohesive forms and
-command adapters. Svelte renders native projections; timeline helpers own gestures
-and density. Action identities, button bindings, scopes and help remain in
+and level updates. The Measure map (concept MB, 2026-11-19) is
+`MeasureMapScreen.svelte`; DraftDrawer, MeasureProperties, MeasureExpert,
+FreeTimeCount and SongMapDialog own cohesive forms and command adapters, and
+pure modules hold the toolbar placement (`map-toolbar.ts`), the toolbar's
+availability rules (`measure-tools.ts`) and the drafting steps (`draft-steps.ts`).
+Svelte renders native projections; timeline helpers own gestures, following and
+density. Action identities, button bindings, scopes and help remain in
 [ui/actions.ts](../ui/actions.ts), with validated configuration in `keymap.ts`.
-New mapping actions have no default keys; old keymaps remain valid.
+The Measure map's toolbar and view keys are newer defaults that give way to a
+person's own binding; old keymaps remain valid, and the retired `map_metronome`
+and `map_follow` load with a warning.
 
 The CLI remains usable without `beat-analysis`; desktop enables that feature.
 Rust 1.89 is the declared minimum. Beat This! 1.1.0 uses RTen CPU inference in a
@@ -174,9 +179,8 @@ writes now live in `storage.rs`. Details and remaining scope are in [LIBRARY.md]
 
 ## Song notes and navigation
 
-Notes sits left of Measure map above the practice waveform and opens a plain-text
-editor. Both notes and mapping have an X beside their white-panel titles returning to practice, while
-Library remains top right. In Library that button still becomes Practice.
+Notes is a drawer on Practice's right edge, toggled by the header's Notes button
+and N (redesigned 2026-11-19; it used to be a separate screen with a close X).
 `NotesSession` owns debounced writes, pending-text retention and retry; the App
 connects it to the serialized document-save queue. Normal close/quit uses a Tauri
 exit handshake to flush pending edits. Song documents are version 4 with empty

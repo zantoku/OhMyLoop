@@ -1,7 +1,7 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {StemsSession,type StemsState} from './stems-session';
 import {usesStems,type StemsSnapshot} from './stems';
-const snapshot=(reference='r'):StemsSnapshot=>({reference_token:reference,set_id:'set',available:true,warning:null,attenuation:.5,model:'roformer-sw',tracks:[{role:'bass',gain:1,mute:false,solo:false},{role:'vocals',gain:1,mute:false,solo:false}]});
+const snapshot=(reference='r'):StemsSnapshot=>({reference_token:reference,set_id:'set',available:true,warning:null,attenuation:.5,model:'roformer-sw',separated:true,tracks:[{role:'bass',gain:1,mute:false,solo:false},{role:'vocals',gain:1,mute:false,solo:false}]});
 afterEach(()=>vi.useRealTimers());
 describe('live stem session',()=>{
  it('coalesces dragging behind one native request and saves the latest gain separately',async()=>{

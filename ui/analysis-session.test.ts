@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 import {AnalysisSession,type AnalysisState} from './analysis-session';
 import type {AnalysisStatus} from './timing';
-const api=vi.hoisted(()=>({analysisStatus:vi.fn(),readCachedAnalysis:vi.fn(),installModel:vi.fn(),startAnalysis:vi.fn(),cancelAnalysis:vi.fn()}));vi.mock('./bridge',()=>({bridge:api}));
+const api=vi.hoisted(()=>({analysisStatus:vi.fn(),readCachedAnalysis:vi.fn(),startAnalysis:vi.fn(),cancelAnalysis:vi.fn()}));vi.mock('./bridge',()=>({bridge:api}));
 const status:AnalysisStatus={id:7,running:true,kind:'analysis',phase:'Analyzing',model_path:'/test/models',progress:null,elapsed_seconds:0,model_ready:true,reference_token:'song',map_revision:3,error:null,result:null};
 beforeEach(()=>{vi.resetAllMocks();api.readCachedAnalysis.mockResolvedValue(null);});
 describe('analysis job orchestration',()=>{
@@ -15,10 +15,13 @@ describe('analysis job orchestration',()=>{
     const publish=vi.fn();const session=new AnalysisSession(()=>({key:'song',revision:3}),publish);const request=session.start();session.dispose();resolve(status);await request;
     expect(api.cancelAnalysis).toHaveBeenCalledWith(7);expect(publish).toHaveBeenCalledOnce();
   });
-  it('reports setup failure without starting inference or modifying a map',async()=>{
-    let state:AnalysisState|undefined;api.installModel.mockRejectedValue(new Error('Network unavailable'));
-    const session=new AnalysisSession(()=>({key:'song',revision:0}),s=>{state=s;});await session.start(true);expect(state?.error).toContain('Network unavailable');expect(api.startAnalysis).not.toHaveBeenCalled();
-  });
+});
+
+it('keeps a start error through later polls until the next start',async()=>{
+  const idle={...status,running:false};api.analysisStatus.mockResolvedValue(idle);api.startAnalysis.mockRejectedValueOnce(new Error('Recordings over one hour can’t be analysed'));
+  let state:AnalysisState|undefined;const session=new AnalysisSession(()=>({key:'song',revision:3}),s=>{state=s;});
+  await session.start();await session.refresh();await session.refresh();expect(state?.error).toContain('over one hour');
+  api.startAnalysis.mockResolvedValue(status);api.cancelAnalysis.mockResolvedValue({...status,running:false});await session.start();expect(state?.error).toBe('');session.dispose();
 });
 
 it('ignores an older status reply that overlaps a new job start',async()=>{

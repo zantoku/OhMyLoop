@@ -115,7 +115,7 @@ enum Response {
     Snapshot(Box<Snapshot>),
     Status(Transport),
     Source(Arc<Audio>),
-    Library(crate::library::Catalogue),
+    Library(crate::library::LibraryView),
     Reference(String),
 }
 struct Request {
@@ -215,7 +215,7 @@ impl Desktop {
             _ => unreachable!(),
         }
     }
-    pub fn library(&self) -> Result<crate::library::Catalogue> {
+    pub fn library(&self) -> Result<crate::library::LibraryView> {
         match self.request(Command::Library)? {
             Response::Library(catalogue) => Ok(catalogue),
             _ => unreachable!(),
@@ -247,7 +247,7 @@ impl Desktop {
         &self,
         key: String,
         metadata: crate::library::Metadata,
-    ) -> Result<crate::library::Catalogue> {
+    ) -> Result<crate::library::LibraryView> {
         match self.request(Command::UpdateLibrary(key, metadata))? {
             Response::Library(catalogue) => Ok(catalogue),
             _ => unreachable!(),
@@ -446,6 +446,17 @@ struct Controller {
 }
 
 impl Controller {
+    /// Adds each song's length, read from its record, to the persisted catalogue.
+    fn library_view(&self, catalogue: crate::library::Catalogue) -> crate::library::LibraryView {
+        crate::library::LibraryView::new(catalogue, |key| {
+            match &self.managed {
+                Some(library) => library.record(key).map(|song| song.record.asset),
+                None => self.store.record(key).map(|record| record.asset),
+            }
+            .map(|asset| asset.duration_ms())
+            .unwrap_or(0)
+        })
+    }
     fn request(&mut self, command: Command) -> Result<Response> {
         if self.separation_busy {
             ensure!(
@@ -723,31 +734,33 @@ impl Controller {
                 let settings = settings.validate()?;
                 let map = self.document.as_ref().and_then(|d| d.measure_map.clone());
                 ensure!(
-                    !settings.enabled || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
+                    !settings.active() || map.as_ref().is_some_and(|m| !m.measures.is_empty()),
                     "Build a measure map before enabling count-in"
                 );
                 let result = if let Some(player) = &self.player {
                     player.set_count_in(settings, map)
                 } else {
                     ensure!(
-                        !settings.enabled,
+                        !settings.active(),
                         "Audio output is unavailable; choose Retry audio"
                     );
                     Ok(())
                 };
                 self.count_in = CountInSettings {
                     enabled: settings.enabled && result.is_ok(),
+                    repeat: settings.repeat && result.is_ok(),
                     ..settings
                 };
                 result?;
                 return Ok(Response::Status(self.transport()));
             }
             Command::Library => {
-                return Ok(Response::Library(if let Some(library) = &self.managed {
+                let catalogue = if let Some(library) = &self.managed {
                     library.catalogue()?
                 } else {
                     self.library.read()?
-                }));
+                };
+                return Ok(Response::Library(self.library_view(catalogue)));
             }
             Command::UpdateLibrary(key, metadata) => {
                 let catalogue = if let Some(library) = &self.managed {
@@ -761,7 +774,7 @@ impl Controller {
                     song.title = catalogue.entry(&key)?.metadata.title.clone();
                 }
                 self.library_error = None;
-                return Ok(Response::Library(catalogue));
+                return Ok(Response::Library(self.library_view(catalogue)));
             }
             Command::OpenLibrary(key) => {
                 let location = self.library.read()?.entry(&key)?.file_location.clone();
@@ -853,6 +866,7 @@ impl Controller {
                                 .is_some_and(|m| !m.measures.is_empty())
                             {
                                 self.count_in.enabled = false;
+                                self.count_in.repeat = false;
                             }
                             player.set_count_in(self.count_in, document.measure_map.clone())?;
                         }
