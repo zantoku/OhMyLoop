@@ -66,7 +66,8 @@ pass and reused afterwards.
   Measure map has a compact version.
 - **Musical position:** current measure and beat; previous/next measure; go to
   a measure number. Shown on Practice and Measure map whenever a map exists.
-- **Metronome:** on/off and click level, shared by Practice and Measure map.
+- **Metronome:** on/off and click level on Practice; always on at full level on
+  the Measure map (measure-map decision 7).
 - **Screen header:** dedicated screens (Notes, Measure map, Stems) have a
   leading X that returns to Practice.
 

@@ -38,8 +38,6 @@ dialog{border:1px solid var(--border);border-radius:10px;padding:26px;width:430p
 .compact-button.ghost{border-color:transparent;background:transparent;color:var(--link)}.compact-button.ghost:hover:not(:disabled){background:var(--hover)}
 .compact-button.danger{color:var(--error-text)}
 
-/* Measure map musical navigation, until the Measure map redesign replaces it. */
-.musical-navigation[hidden]{display:none}.musical-navigation{display:flex;align-items:center;gap:16px;font-size:11px;flex-shrink:0;padding:9px 4px;color:var(--muted)}.musical-navigation>span{margin-right:auto;font-variant-numeric:tabular-nums}.musical-navigation label{display:flex;align-items:center;gap:5px}.musical-navigation input{width:55px;border:1px solid var(--border-strong);border-radius:4px;background:var(--surface);padding:4px 5px;font:inherit}
 
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 

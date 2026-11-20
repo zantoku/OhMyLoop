@@ -31,6 +31,8 @@ export type NoticeState = {
   info?: string;
   /** Separation or setup outside the Stems screen: running, then its outcome. */
   processing: SeparationToast | null;
+  /** A Measure map edit worth confirming (a split), with Undo. */
+  mapNotice?: { id: number; text: string } | null;
 };
 
 const key = (id: string, text: string) => `${id}:${text}`;
@@ -54,6 +56,7 @@ export function notices(state: NoticeState): Notice[] {
     else add(`processing-${work.id}`, { tone: work.kind === 'done' ? 'success' : 'error', title: work.title, text: work.detail, action: open, dismiss: 'hide' });
   }
   if (state.busy) add('busy', { tone: 'progress', text: state.busy, progress: null });
+  if (state.mapNotice && !state.busy) add(`map-${state.mapNotice.id}`, { tone: 'info', text: state.mapNotice.text, action: { button: 'map_undo', label: 'Undo', enabled: true }, dismiss: 'hide' });
   if (state.undoCount && !state.busy) add(`undo-${state.undoCount}`, { tone: 'info', text: 'Section removed.', action: { button: 'undo_delete', label: 'Undo', enabled: true }, dismiss: 'hide' });
   if (state.stemWarning) add('stem-warning', { tone: 'info', text: `${state.stemWarning}${state.stemsUnavailable ? ' Using Original playback.' : ''}`, dismiss: 'hide' });
   if (state.info) add('info', { tone: 'info', text: state.info, dismiss: 'hide' });

@@ -35,15 +35,14 @@
   import PracticeMixer from './PracticeMixer.svelte';
   import { notices } from './notices';
   import { closeTopTransient } from './transient';
-  import MeasureEditor from './MeasureEditor.svelte';
-  import MapPlayback from './MapPlayback.svelte';
+  import MeasureMapScreen, { type MapNotice } from './MeasureMapScreen.svelte';
   import { adjacentMeasure, measureAtFrame, type MapView, type MapPreview, type MeasureMap } from './timing';
   import { bridge, native } from './bridge';
   import { Keymap, loadKeymap, type KeymapSource } from './keymap';
   import { ActionDispatcher, type ActionPayload } from './action-dispatcher';
   import { MAPPING_ACTIONS, type ActionId, type ButtonId, type MappingActionId } from './actions';
   import { clamp, ordered, range, zoom } from './model';
-  import { pageForPlayhead } from './timeline';
+  import { followPage, pageForPlayhead } from './timeline';
   import type { Action, Controls, Loop, PracticeDocument, Section, Snapshot, Song, Transport, View } from './types';
   import { normalized, ORIGINAL, stepSpeed, transpose } from './playback-controls';
   import type { ViewSegment } from './ViewSwitcher.svelte';
@@ -145,11 +144,15 @@
   let reviewMap = $state<{key:string;map:MeasureMap|null}|null>(null);
   const clickSession = new MetronomeSession(value=>{clickState=value;});
   const audibleMap = $derived(screen==='mapping'&&reviewMap?.key===song?.reference_token ? reviewMap!.map : project?.measure_map??null);
+  // Practice uses the shared click preference; the Measure map always clicks
+  // the displayed map or draft at full level (measure-map.md, decision 7).
   $effect(()=>{
-    if(native&&song&&!separationActive)clickSession.set({key:song.reference_token,enabled:clickEnabled&&!!audibleMap?.measures.length&&!transport.audio_error,volume:clickLevel/100,map:audibleMap?$state.snapshot(audibleMap):null});
+    const mapping=screen==='mapping';
+    if(native&&song&&!separationActive)clickSession.set({key:song.reference_token,enabled:(mapping||clickEnabled)&&!!audibleMap?.measures.length&&!transport.audio_error,volume:mapping?1:clickLevel/100,map:audibleMap?$state.snapshot(audibleMap):null});
   });
+  let mapNotice = $state<MapNotice|null>(null);
   let mapView = $state<MapView | null>(null);
-  let measureEditor = $state<MeasureEditor>();
+  let measureMap = $state<MeasureMapScreen>();
   let measureNumber = $state(1);
   let view = $state<View>({ start: 0, end: 12 });
   // Practice always follows the playing playhead: it pages when playback
@@ -159,12 +162,9 @@
   $effect(()=>{
     const {position,playing}=transport,previous=followed;
     followed={position,playing};
-    if(screen!=='practice'||!playing||!song)return;
+    if(screen!=='practice'||!song)return;
     const duration=song.duration;
-    untrack(()=>{
-      const started=!previous.playing,crossed=previous.position<view.end&&position>=view.end,wrapped=position<previous.position;
-      if(started||crossed||wrapped)view=pageForPlayhead(view,duration,position);
-    });
+    untrack(()=>{view=followPage(view,duration,previous,{position,playing});});
   });
   let practiceScreen = $state<PracticeScreen>();
   let sectionDialog: HTMLDialogElement;
@@ -319,7 +319,7 @@
       // Explicit navigation reveals the resulting native position even when
       // paused or continuous following is off, preserving each screen's zoom.
       if(action.type==='seek'&&snapshot.transport.reference_token===song?.reference_token){
-        if(screen==='mapping')measureEditor?.revealPlayhead(snapshot.transport.position);
+        if(screen==='mapping')measureMap?.revealPlayhead(snapshot.transport.position);
         else view=pageForPlayhead(view,song.duration,snapshot.transport.position);
       }
     }
@@ -447,9 +447,9 @@
     if(!song||!mapView?.measures.length)return;
     const frame=Math.round(transport.position*song.rate), measures=mapView.measures;
     const target=adjacentMeasure(measures,frame,direction);
-    if(target){if(screen==='mapping')measureEditor?.selectMeasure(target.id);return action({type:'seek',seconds:target.start/song.rate});}
+    if(target){if(screen==='mapping')measureMap?.selectMeasure(target.id);return action({type:'seek',seconds:target.start/song.rate});}
   }
-  const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureEditor?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
+  const mappingHandlers = Object.fromEntries(Object.keys(MAPPING_ACTIONS).map(id=>[id,()=>measureMap?.command(id as MappingActionId)])) as Record<MappingActionId,()=>Promise<void>>;
   // Notes that can't be saved block leaving the song. The drawer opens to show
   // why and offer Retry, and a blocked Library or quit brings Practice forward.
   function showNotesFailure(){if(song&&screen!=='library')screen='practice';}
@@ -516,7 +516,7 @@
     ...mappingHandlers,
     show_measure_map:()=>showView('mapping'), show_practice:()=>showView('practice'),
     previous_measure:()=>nextMeasure(-1), next_measure:()=>nextMeasure(1),
-    goto_measure:()=>{const measure=mapView?.measures.find(m=>m.number===measureNumber);if(measure&&song){if(screen==='mapping')measureEditor?.selectMeasure(measure.id);return action({type:'seek',seconds:measure.start/song.rate});}},
+    goto_measure:()=>{const measure=mapView?.measures.find(m=>m.number===measureNumber);if(measure&&song){if(screen==='mapping')measureMap?.selectMeasure(measure.id);return action({type:'seek',seconds:measure.start/song.rate});}},
     practice_count_in:()=>{countInEnabled=!countInActive;}, repeat_count_in:()=>{repeatCountIn=!repeatCountIn;},
     toggle_sections:()=>practiceScreen?.command('toggle_sections'), show_pitch:()=>practiceScreen?.command('show_pitch'),
     show_goto_measure:()=>practiceScreen?.command('show_goto_measure'), show_passage_bounds:()=>practiceScreen?.command('show_passage_bounds'),
@@ -594,13 +594,13 @@
     if(id==='repeat_count_in')return hasMeasureMap&&native&&!transport.audio_error;
     if(id==='practice_metronome')return native&&!!audibleMap?.measures.length&&(clickEnabled||!transport.audio_error);
     if(id==='toggle_loop_snap')return !!mapView?.measures.length;
-    if(id in MAPPING_ACTIONS)return !!measureEditor?.canRun(id as MappingActionId);
+    if(id in MAPPING_ACTIONS)return !!measureMap?.canRun(id as MappingActionId);
     if(['previous_measure','next_measure','goto_measure','show_goto_measure'].includes(id))return !!mapView?.measures.length;
     return true;
   }
   function buttonAvailable(id: ButtonId) { return actionAvailable(keymap.actionFor(id)); }
   // Modal states own the keyboard and the menu bar's commands.
-  function commandsBlocked() { return quitConfirmation || !!stemsScreen?.confirming() || !!busy || sectionOpen || helpOpen || settingsOpen || !!replacementDialog?.isOpen() || !!managedState.dialog; }
+  function commandsBlocked() { return quitConfirmation || !!stemsScreen?.confirming() || !!measureMap?.modal() || !!busy || sectionOpen || helpOpen || settingsOpen || !!replacementDialog?.isOpen() || !!managedState.dialog; }
   // Single routing point: key owners keep their own keys, everything else goes
   // through the keymap to the dispatcher. Esc first unwinds focus to home.
   function keyboard(event: KeyboardEvent) {
@@ -632,7 +632,7 @@
     error:managedState.dialog||settingsOpen?'':error,info:settingsInfo,startupNotice,busy:busyText,preview:!native,undoCount:undo.length,
     audioError:song?transport.audio_error:null,audioRetry:buttonAvailable('retry_audio'),saveError:transport.save_error,keymapWarning,keymapLoading,
     stemMixError:stemsState.error,stemMixRetry:buttonAvailable('retry_stem_mix'),stemWarning:screen==='stems'?null:stemsState.snapshot?.warning??null,stemsUnavailable:!stemsState.snapshot?.available,
-    countInError:countInState.error,clickError:clickState.error,processing
+    countInError:countInState.error,clickError:clickState.error,processing,mapNotice:screen==='mapping'?mapNotice:null
   }));
   onMount(() => {
     mounted = true; busy = 'Restoring practice…';
@@ -685,22 +685,17 @@
   <Toasts notices={noticeList} {keymap} run={id=>{void runButton(id);}}/>
 
   <LibraryScreen bind:this={libraryScreen} active={screen==='library'} currentKey={song?.key??null} status={managedState.status} epoch={libraryEpoch} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onchanged={entry=>{if(song?.key===entry.song_key)song={...song,title:entry.metadata.title};}}/>
-  <div class="screen-frame" hidden={screen==='practice'||screen==='library'}>
+  <div class="screen-frame" hidden={screen!=='stems'}>
     <StemsScreen bind:this={stemsScreen} active={screen==='stems'} reference={song?.reference_token??''} state={stemsState} separation={separationState} {attachment} space={separationEstimate} {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}}/>
-    {#if song}
-      {#key song.reference_token}
-        {#snippet mapPlayback()}<MapPlayback {transport} duration={song?.duration??0} {speed} loopEnabled={project?.loop_enabled??false} {keymap} available={buttonAvailable} run={id=>{void runButton(id);}} onspeed={value=>controls({speed:value})} disabled={!!busy||separationActive}/>{/snippet}
-        <MeasureEditor bind:this={measureEditor} playbackFrozen={separationActive} modelDownloading={!!beatState.status?.running&&beatState.status.kind==='install'} {song} map={project?.measure_map??null} {mapView} {transport} {keymap} bind:clickEnabled bind:clickLevel onreview={map=>{reviewMap={key:song!.reference_token,map};}} playback={mapPlayback} active={screen==='mapping'} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} run={(id,payload)=>{void runButton(id,payload);}} available={buttonAvailable}/>
-      {/key}
-      <div class="musical-navigation" hidden={screen!=='mapping'||!mapView?.measures.length}>
-        <span>{transport.musical_position?`Measure ${transport.musical_position.label}, beat ${transport.musical_position.beat.toFixed(2)}`:'Unmapped position'}</span>
-        <button class="text-button" disabled={!buttonAvailable('previous_measure')} title={keymap.title('previous_measure')} onclick={()=>runButton('previous_measure')}>{keymap.buttonLabel('previous_measure','Previous measure')}</button>
-        <button class="text-button" disabled={!buttonAvailable('next_measure')} title={keymap.title('next_measure')} onclick={()=>runButton('next_measure')}>{keymap.buttonLabel('next_measure','Next measure')}</button>
-        <label>Measure <input aria-label="Go to measure number" type="number" min="1" step="1" bind:value={measureNumber}/></label>
-        <button class="text-button" disabled={!buttonAvailable('goto_measure')} title={keymap.title('goto_measure')} onclick={()=>runButton('goto_measure')}>{keymap.buttonLabel('goto_measure','Go')}</button>
-      </div>
-    {/if}
   </div>
+  {#if song}
+    {#key song.reference_token}
+      <MeasureMapScreen bind:this={measureMap} bind:measureNumber active={screen==='mapping'} {song} map={project?.measure_map??null} {mapView} {transport} {speed} loopEnabled={project?.loop_enabled??false}
+        frozen={separationActive} separating={separationActive} modelDownloading={!!beatState.status?.running&&beatState.status.kind==='install'} busy={!!busy} {keymap}
+        onreview={map=>{reviewMap={key:song!.reference_token,map};}} oncommit={commitMap} onseek={seconds=>{void action({type:'seek',seconds});}} onspeed={value=>controls({speed:value})}
+        onnotice={notice=>{mapNotice=notice;}} run={(id,payload)=>{void runButton(id,payload);}} available={buttonAvailable}/>
+    {/key}
+  {/if}
   {#if dropPreview}<DropOverlay preview={dropPreview}/>{/if}
   <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ownsKey } from './key-routing';
+import { ownsKey, trackKeyboardFocus } from './key-routing';
 import { NAVIGATION_KEYS } from './keymap';
 
 function element(html: string, selector: string): Element {
@@ -37,6 +37,48 @@ describe('key ownership is decided by the key', () => {
     expect(ownsKey(handle, 'ArrowLeft', 'pointer')).toBe(true);
     expect(ownsKey(handle, 'ArrowRight', 'pointer')).toBe(true);
     for (const key of ['ArrowUp', 'Home', 'l', ' ']) expect(ownsKey(handle, key, 'pointer'), key).toBe(false);
+  });
+
+  it('lets a toolbar own its navigation keys only during keyboard navigation (Measure map toolbar)', () => {
+    const tool = element('<div role="toolbar" data-nav-keys="ArrowLeft ArrowRight Home End" data-keyboard-focus><button data-tool><svg></svg></button></div>', 'svg');
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) {
+      expect(ownsKey(tool, key, 'keyboard'), key).toBe(true);
+      // After a click the arrows seek again, as everywhere else.
+      expect(ownsKey(tool, key, 'pointer'), key).toBe(false);
+    }
+    for (const key of ['ArrowUp', 'PageDown', 'l', 's', 'm', 'Escape', ',']) expect(ownsKey(tool, key, 'keyboard'), key).toBe(false);
+    // The focused button still owns Space and Enter while navigating by keyboard, and not after a click.
+    expect(ownsKey(tool, ' ', 'keyboard')).toBe(true);expect(ownsKey(tool, ' ', 'pointer')).toBe(false);
+  });
+
+  it('leaves the arrows to the shortcuts when a toolbar button was focused other than by keyboard', () => {
+    // On Windows and Linux the arrow press itself switches the modality to
+    // keyboard; a button that got focus from a click must not take it.
+    const tool = element('<div role="toolbar" data-nav-keys="ArrowLeft ArrowRight Home End"><button data-tool>Split</button></div>', 'button');
+    const toolbar = tool.parentElement!;
+    trackKeyboardFocus(toolbar, new FocusEvent('focusin'), 'pointer');
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) expect(ownsKey(tool, key, 'keyboard'), key).toBe(false);
+    trackKeyboardFocus(toolbar, new FocusEvent('focusin'), 'keyboard');
+    expect(ownsKey(tool, 'ArrowRight', 'keyboard')).toBe(true);
+    trackKeyboardFocus(toolbar, new FocusEvent('focusout', { relatedTarget: document.body }), 'keyboard');
+    expect(ownsKey(tool, 'ArrowRight', 'keyboard')).toBe(false);
+  });
+
+  it('lets map beat diamonds own their nudge and Delete keys, and nothing else', () => {
+    const diamond = element('<button data-owns-keys="ArrowLeft ArrowRight Delete Backspace" aria-label="Measure 1 beat 2"></button>', 'button');
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']) expect(ownsKey(diamond, key, 'pointer'), key).toBe(true);
+    for (const key of ['ArrowUp', 'Home', 'd', 's', 'j', 'l', 'm', 'f', 'w', '[', ']', 'Escape']) expect(ownsKey(diamond, key, 'keyboard'), key).toBe(false);
+    expect(ownsKey(diamond, ' ', 'pointer')).toBe(false);
+  });
+
+  it('lets panels and the drafting drawer fields own their keys while focused', () => {
+    const panel = element('<div role="dialog" data-popover aria-label="m. 37 properties"><button type="button">Pickup</button></div>', 'button');
+    for (const key of ['s', 'j', 'l', ' ', 'ArrowLeft', 'm']) expect(ownsKey(panel, key, 'pointer'), key).toBe(true);
+    const drawer = element('<aside aria-label="Draft a measure map"><input aria-label="Number of measures" type="number"><button>Preview draft</button></aside>', 'input');
+    for (const key of [' ', 's', 'Enter', 'ArrowLeft']) expect(ownsKey(drawer, key, 'pointer'), key).toBe(true);
+    // A drawer button is a plain button: letters, and Space after a click, reach the shortcuts.
+    const preview = document.querySelector('aside button')!;
+    for (const key of ['s', 'm', ' ']) expect(ownsKey(preview, key, 'pointer'), key).toBe(false);
   });
 
   it('lets only keyboard-focused buttons and toggles own Space and Enter', () => {

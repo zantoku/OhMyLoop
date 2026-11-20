@@ -45,3 +45,27 @@ export function pageForPlayhead(view:View,duration:number,position:number):View 
   const start=clamp(view.start+pages*span,0,Math.max(0,duration-span));
   return start===view.start?view:{start,end:Math.min(duration,start+span)};
 }
+
+/**
+ * Following the playhead while playing (Practice and the Measure map): turn
+ * the page when playback starts off-page, when the playhead crosses the
+ * page's right edge, and when it wraps back (loop or seek). A manual pan
+ * holds until one of those happens; paused playback never moves the view.
+ */
+export function followPage(view:View,duration:number,previous:{position:number;playing:boolean},current:{position:number;playing:boolean}):View {
+  if(!current.playing)return view;
+  const started=!previous.playing,crossed=previous.position<view.end&&current.position>=view.end,wrapped=current.position<previous.position;
+  return started||crossed||wrapped?pageForPlayhead(view,duration,current.position):view;
+}
+
+/** A view fitted to a source range with some room on both sides. */
+export function fitRange(duration:number,start:number,end:number,pad=.15):View {
+  const room=(end-start)*pad;
+  return {start:Math.max(0,start-room),end:Math.min(duration,end+room)};
+}
+
+/** The view itself when it shows the whole range; otherwise centred on it, zooming out only as needed. */
+export function revealRange(view:View,duration:number,start:number,end:number):View {
+  if(start>=view.start&&end<=view.end)return view;
+  return zoom(view,duration,Math.max(1,(end-start)/(view.end-view.start)),(start+end)/2);
+}

@@ -152,7 +152,33 @@ it('toggles the notes drawer with N on every song view and saves a section with 
   const map=new Keymap();
   for(const context of ['practice','mapping','stems'] as const)expect(map.match(key('n'),context)).toBe('show_notes');
   expect(map.match(key('N',{shiftKey:true}))).toBe('show_notes');
-  expect(map.match(key('s'),'practice')).toBe('add_section');expect(map.match(key('s'),'mapping')).toBeUndefined();
+  expect(map.match(key('s'),'practice')).toBe('add_section');expect(map.match(key('s'),'mapping')).toBe('map_split');
   expect(map.title('show_notes')).toBe('Show or hide notes (N)');expect(map.title('save_selection')).toBe('Save a named section (S)');
   expect(map.keysFor('close_notes')).toEqual([]);expect(map.keysFor('retry_notes')).toEqual([]);
+});
+
+it('loads a file that still names the retired map_metronome and map_follow toggles, with a warning',async()=>{
+  const configuration={version:1,keys:{map_metronome:['k'],map_follow:['Alt+f'],play_pause:['Space']},buttons:{map_metronome:'map_metronome',map_follow:'map_follow',play:'play_pause'},descriptions:{map_follow:'Follow'}};
+  const loaded=await loadKeymap(async()=>({path:'/k.json',configuration,warning:null}),false);
+  expect(loaded.source).toBe('custom');
+  for(const ignored of ['keys.map_metronome','keys.map_follow','buttons.map_metronome','buttons.map_follow','descriptions.map_follow'])expect(loaded.warning).toContain(`Ignored ${ignored}`);
+  expect(loaded.model.match(key('k'),'mapping')).toBeUndefined();expect(loaded.model.match(key(' '),'mapping')).toBe('play_pause');
+});
+
+it('binds the Measure map toolbar and view keys on the Measure map only',()=>{
+  const keymap=new Keymap(true);
+  const bindings:[string,string][]=[['m','map_properties'],['s','map_split'],['j','map_merge'],['[','map_shift_left'],[']','map_shift_right'],['l','map_protect'],['f','map_fit'],['w','map_whole'],['d','map_show_detected']];
+  for(const [k,action] of bindings)expect(keymap.match(key(k),'mapping'),k).toBe(action);
+  // Practice keeps its own meanings for the same keys.
+  expect(keymap.match(key('l'),'practice')).toBe('toggle_loop');expect(keymap.match(key('['),'practice')).toBe('previous_section');
+  for(const k of ['m','j','f','w','d'])expect(keymap.match(key(k),'practice'),k).toBeUndefined();
+  expect(keymap.title('map_split')).toBe('Split before the beat nearest the playhead into two partial measures (S)');
+  expect(keymap.shortcuts('mapping').some(row=>row.action==='map_properties'&&row.keys==='M')).toBe(true);
+});
+
+it('lets a person’s own binding of a key keep it over a new Measure map default, with a warning',()=>{
+  const keymap=new Keymap(false,{version:1,keys:{show_shortcuts:['m'],map_beat:['s']}});
+  expect(keymap.match(key('m'),'mapping')).toBe('show_shortcuts');expect(keymap.match(key('s'),'mapping')).toBe('map_beat');
+  expect(keymap.shortcut('map_properties')).toBe('');expect(keymap.shortcut('map_split')).toBe('');
+  expect(keymap.warnings).toEqual([expect.stringMatching(/show_shortcuts replaces the default M of map_properties/),expect.stringMatching(/map_beat replaces the default S of map_split/)]);
 });

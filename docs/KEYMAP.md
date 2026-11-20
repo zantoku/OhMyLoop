@@ -10,10 +10,12 @@ the song start also turns looping off when it lies outside the enabled range.
 Seeking preserves play/pause state; reaching the file's natural end can finish
 playback. A range remains saved when looping is turned off.
 
-Practice always pages the waveform to follow the playhead while playing (on
-start, at the page's right edge, and on wraps; a manual pan holds until then); its
-former `practice_follow` toggle is removed, and a `keymap.json` that still names
-it is rejected like any unknown action. Mapping keeps its own `map_follow`.
+Practice and the Measure map always page the waveform to follow the playhead
+while playing (on start, at the page's right edge, and on wraps; a manual pan
+holds until then). The former `practice_follow` toggle is removed, and a
+`keymap.json` that still names it is rejected like any unknown action. The
+Measure map's `map_follow` was removed in the redesign; a file that names it
+still loads, with a warning (see [Older configuration files](#older-configuration-files)).
 Explicit seeks reveal the playhead even while paused.
 
 Zoom has no buttons on Practice: the mouse wheel zooms at the pointer. The
@@ -21,12 +23,12 @@ keyboard zooms with `zoom_in` (**=**), `zoom_out` (**-**) and `show_whole_song`
 (**0**), so zoom works on Windows and Linux, which have no View menu.
 
 The practice actions `practice_metronome` and `toggle_loop_snap` control the
-shared authored-map metronome (the On/Off button under the Click knob at the
-start of the mixer) and default-on loop snapping (the magnet button beside the
-passage bounds). Their buttons are `practice_metronome` and `loop_snap`;
-neither has a default key. Both need an accepted measure map. Enable/level
-persist across practice/mapping screen changes. Practice uses the accepted map;
-mapping can use an unapplied draft. With snapping on, A/B use the nearest
+authored-map metronome (the On/Off button under the Click knob at the start of
+the mixer) and default-on loop snapping (the magnet button beside the passage
+bounds). Their buttons are `practice_metronome` and `loop_snap`; neither has a
+default key. Both need an accepted measure map. Practice uses the accepted map
+at its click level; the Measure map always clicks its displayed map or draft at
+full level and leaves Practice's setting alone. With snapping on, A/B use the nearest
 barline, and without an existing loop they select the containing measure. Exact
 loop-time inputs and saved sections preserve their source coordinates.
 
@@ -52,30 +54,43 @@ or Stems `show_notes` opens Practice with the drawer. `add_section` (**S**,
 button `save_selection`) saves the passage as a named section; it moved from N
 when N became the notes toggle.
 
-The mapping actions `map_metronome` and `map_follow` control authored-map clicks
-and waveform paging. They have button/help metadata and no default keyboard
-bindings; custom bindings can be assigned like other mapping actions.
-`map_show_detected` toggles the Analysis checkbox for raw beat suggestions and
-also accepts a custom keyboard binding. It changes presentation only.
+The Measure map's floating toolbar and view commands have default keys on that
+screen only (the redesign, concept MB): `map_properties` (**M**, the properties
+panel), `map_split` (**S**), `map_merge` (**J**), `map_shift_left` (**[**),
+`map_shift_right` (**]**), `map_protect` (**L**, lock or unlock), `map_fit`
+(**F**, fit the selected measure, also when it has scrolled out of view),
+`map_whole` (**W**) and `map_show_detected` (**D**, the Detected beats toggle,
+presentation only). Practice keeps its own meanings for S, L, `[` and `]`.
+While the toolbar is collapsed to its edge tab (the selected measure has scrolled
+away), a toolbar key first brings the measure back into view and the next press
+acts, so nothing edits a measure you can't see.
+These are newer defaults: a binding of your own for one of those keys wins and
+the default is dropped with a warning. `map_more` (the ⋯ panel), `map_redraft`
+(the drafting drawer once a map exists) and `map_song_settings` (numbering,
+grouping, clear map) have buttons and no default keys. The retired
+`map_metronome` and `map_follow` are gone: the metronome always plays at full
+level on this screen and the view always follows playback.
 
-`map_split` splits before the selected numbered beat; `map_merge` joins adjacent
+`map_split` splits before the beat nearest the playhead, and is unavailable while
+the playhead is outside the selected measure; `map_merge` joins adjacent
 measures with matching denominators. `map_remove` marks a measure as free time,
-and `map_reclaim` creates a measure in the selected uncounted range. These actions
+and `map_reclaim` counts the selected free-time range as a measure. These actions
 use direct validated edits with Undo and share button/hover metadata.
-Notation and anchor/boundary edits also commit directly; draft creation and
-global numbering retain the Preview/Apply/Discard flow.
+Notation (`map_notation`, the properties panel's Apply) and exact barline or beat
+positions (`map_boundary`, `map_beat`, `map_remove_beat`, `map_anchor_playhead`
+in the ⋯ panel) also commit directly; drafts, numbering and grouping keep the
+Preview/Apply/Discard flow.
 `map_shift_resnap` toggles optional detected-beat refitting for subsequent shifts.
-Its checkbox uses the same action identity and hover description; it has no default
-shortcut and can be toggled even without detected beats. Re-snapping defaults on;
-shifting then requires current or restored detection. Epsilon is shared with Create
-measures. Configured shift keys honor the checkbox and current tolerance.
+Its checkbox in the ⋯ panel uses the same action identity and hover description;
+it has no default shortcut and is available once the song has detected beats.
+Re-snapping defaults on; without detected beats, shifts keep authored timing.
+Epsilon is shared with drafting.
 
 `map_shift_left` and `map_shift_right` shift the selected and remaining bars by
-the form’s pulse count. They share central button/help metadata and have no
-default keys; custom shortcuts work from any selected-measure panel, using the
-current form pulse count. Consumed measures are absorbed and Undo restores them. The legacy
-`map_respace` identity remains recognized for older keymaps, but is unavailable
-in the desktop editor and has no button. Reapply Meter for even beat spacing.
+the shift step (⋯ panel, one pulse by default). Consumed measures are absorbed
+and Undo restores them. The legacy `map_respace` identity remains recognized for
+older keymaps, but is unavailable in the desktop editor and has no button.
+Reapply the meter for even beat spacing.
 
 ## Configuration file
 
@@ -151,9 +166,13 @@ action catalog.
 
 Key ownership is decided by the key (`ui/key-routing.ts`). Text fields,
 selects, open dialogs and popovers, and IME composition own every key. Composite controls
-(waveform and map seek sliders, loop handles, map lines, the click and stem
+(waveform and map seek sliders, loop handles, the map's barline grips and beat
+diamonds (which also own Delete and Backspace to remove an anchor), the click and stem
 knobs, range inputs, the Stems processing-step list's ↑/↓, Page Up/Down and Home/End) own only their documented keys, such as the arrows and Home/End;
-letters, Space, Enter and Esc still reach the shortcuts from them. Clicking a
+letters, Space, Enter and Esc still reach the shortcuts from them. The Measure
+map's floating toolbar owns ←/→, Home and End only during keyboard navigation
+(`data-nav-keys`), to move between its buttons; after a click they seek as
+everywhere else. Clicking a
 button or toggle leaves keyboard focus where it was, so Space keeps playing;
 only a Tab-focused button activates with Space or Enter. Holding a transport
 toggle does not repeatedly toggle it; seek actions permit key repeat.
@@ -214,8 +233,9 @@ versioned format rather than introducing another action or binding system.
 
 Mapping actions belong to the `mapping` scope; loop-editing actions belong to
 `practice`, and shared transport/navigation actions are available on both.
-The shortcut dialog lists actions for the current screen. New mapping commands
-have no default bindings so existing keymap files continue to work. For example:
+The shortcut dialog lists actions for the current screen. The toolbar and view
+keys above are the only mapping defaults besides Undo and Redo; a person's own
+binding of the same key keeps it. Other mapping commands can be bound, for example:
 
 ```json
 {
@@ -229,9 +249,10 @@ have no default bindings so existing keymap files continue to work. For example:
 }
 ```
 
-Handle nudging remains local widget behavior. Enter/Space on a focused button
-activate that button through the native WebView instead of dispatching a global
-rewind or playback toggle.
+Handle nudging remains local widget behavior: arrows nudge a focused grip or
+diamond by 10 ms (Shift: 1 ms), Delete removes a focused diamond's anchor.
+Enter/Space on a Tab-focused button activate that button through the native
+WebView instead of dispatching a global rewind or playback toggle.
 
 ## Library actions
 
@@ -284,17 +305,19 @@ built-in demo and its `load_demo` action (button `demo`) were removed.
 A `keymap.json` written for an older version still loads:
 
 - Removed identities (`keys.load_demo`, `descriptions.load_demo`,
-  `buttons.demo`, `managed_settings`, or a button mapped to one of them) are
+  `buttons.demo`, `managed_settings`, `separation_practice`, the Measure map's
+  `map_metronome` and `map_follow`, or a button mapped to one of them) are
   ignored, with a warning naming each one.
 - Where your own binding uses a key that a newer default now claims (Esc for
   `library_close`, ⌘I/Ctrl+I for `library_edit`, ⌘F/Ctrl+F for `library_find`,
-  ⌘,/Ctrl+, for `show_settings`), your binding wins: that default is dropped
+  ⌘,/Ctrl+, for `show_settings`, and the Measure map's M, S, J, `[`, `]`, L, F,
+  W and D), your binding wins: that default is dropped
   and a warning names it. Bind the action to another key to get it back.
 
 Unknown identities that never existed, and two of your own bindings that
 collide (or a binding against an older default), still reject the whole file
 and restore the default keymap.
-The X beside the mapping panel title binds `show_practice`.
+The X at the start of the Measure map's readout band binds `show_practice`.
 
 ## Notes actions
 

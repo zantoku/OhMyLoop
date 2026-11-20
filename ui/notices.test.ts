@@ -35,6 +35,12 @@ describe('notices', () => {
     expect(failed).toMatchObject({ tone: 'error', title: 'Separation stopped', text: 'Not enough memory.', dismiss: 'hide', action: { button: 'separation_open' } });
   });
 
+  it('confirms a Measure map split with Undo, once per split, and not while work runs', () => {
+    const split = { id: 1, text: 'Split m. 37 before beat 3. Later measures renumbered.' };
+    expect(notices({ ...calm, mapNotice: split })).toEqual([{ key: `map-1:${split.text}`, tone: 'info', text: split.text, action: { button: 'map_undo', label: 'Undo', enabled: true }, dismiss: 'hide' }]);
+    expect(notices({ ...calm, mapNotice: split })[0].key).not.toBe(notices({ ...calm, mapNotice: { ...split, id: 2 } })[0].key);
+    expect(notices({ ...calm, mapNotice: split, busy: 'Saving measure map…' }).map(n => n.tone)).toEqual(['progress']);
+  });
   it('offers Undo for each removal, but not while work is running', () => {
     expect(notices({ ...calm, undoCount: 1 })[0]).toMatchObject({ tone: 'info', action: { button: 'undo_delete' } });
     expect(notices({ ...calm, undoCount: 1 })[0].key).not.toBe(notices({ ...calm, undoCount: 2 })[0].key);

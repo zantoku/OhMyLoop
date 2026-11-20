@@ -22,6 +22,11 @@ describe('clicks leave focus where it was', () => {
     for (const id of ['lt', 'field', 's', 'r', 'k', 'h', 'p']) expect(keepsFocusOnPress(at(id)), id).toBe(false);
   });
 
+  it('keeps focus off a toolbar button, whose arrows are owned only during keyboard navigation', () => {
+    const page = mount('<div role="toolbar" data-nav-keys="ArrowLeft ArrowRight Home End"><button id="split">Split</button></div>');
+    expect(keepsFocusOnPress(page.querySelector('#split'))).toBe(true);
+  });
+
   it('commits a focused field before cancelling a press on a button', () => {
     const home = vi.fn(() => (document.activeElement as HTMLElement).blur());
     cleanups.push(installNativeChrome(document, home));

@@ -117,11 +117,12 @@ Interaction defaults:
   numbers in mapped audio and timecodes in free time. Thin sage barlines extend
   through the waveform. Thin number labels with zoom density, keeping all barlines.
   There is no separate practice measure lane.
-- Practice has the same authored-map metronome and click level as mapping.
-  Enable/level are shared session preferences and default to on/50%; practice
-  clicks use the accepted map, while mapping can audition its displayed draft.
-- Practice always follows the playhead while playing (there is no toggle);
-  mapping keeps its own Follow playhead toggle. Practice pages when playback
+- Practice's authored-map metronome has its own on/off and click level, session
+  preferences that default to on/50%; practice clicks use the accepted map. The
+  Measure map always clicks its displayed map or draft at full level and leaves
+  Practice's setting alone.
+- Practice and the Measure map always follow the playhead while playing (there
+  is no toggle; `followPage` in `ui/timeline.ts`). They page when playback
   starts off-page, when the playhead crosses the page's right edge, and on loop
   wraps and backward seeks, preserving zoom. A minimap move or pan during
   playback holds until the playhead next leaves the page; paused playback
@@ -176,68 +177,110 @@ stacked actions that fit narrow windows. Explain that unchanged timing preserves
 the current annotations, while changed timing clears the map, sections, loop and
 position. A song has one current recording/map; there is no recording-history UI.
 
-## Measure-mapping screen
+## Measure map (concept MB)
 
-Current implementation: updated 2026-10-11.
-
-The button above the practice waveform opens **Measure map**; the **X** beside the panel title returns from the
-dedicated screen in the same window. It shares the song and
-transport, but has a separate viewport and editing selection. Its waveform
-uses the existing zoom, pan and minimap conventions while showing measure
-boundaries, beat anchors and meter changes instead of A–B editing handles.
-
-The shared metronome defaults on for the app session. Paged Follow playhead
-defaults on for the song session; mapping clicks follow the displayed authored
-map/draft. View navigation preserves following; explicit
-seeks reveal the playhead even while paused. Waveform clicks select the containing
-measure at the exact clicked time; measure-lane clicks seek to the measure start.
-Playback selects its current measure independently of viewport following.
-
-A musical ruler and editing panel support pulse interpretation, pickups,
-incomplete measures and protected corrections. Automatic analysis supplies
-an editable draft; manual mapping remains available without a model. The
-interaction contract and implementation scope are recorded in
+The design pass chose **MB, a floating toolbar** ([brief](design/measure-map.md),
+2026-11-18/19), in `MeasureMapScreen.svelte`. It's a song view in the header
+(Practice · Measure map · Stems) and shares the song and transport, with its own
+viewport, editing selection and session state. Behaviour and edit rules are in
 [MEASURE_MAPPING.md](MEASURE_MAPPING.md).
 
-The waveform carries the map review. Detected suggestions are optional and beat
-lines thin with density instead of overlapping labels. Analysis and draft creation
-live in the right sidebar; model installation is a secondary disclosure. A compact
-play/speed overlay sits at the waveform's lower left. The full-width panel beneath
-it holds selected-measure tools, grouped into Measure, Join / Split / Shift,
-and Free time. Keep the existing palette and type hierarchy; give
-vertical space to the waveform rather than a second large speed/pitch panel.
+```
+Library › Song title        [ Practice | Measure map | Stems ]   ✓ Saved  Notes  ⌨
+──────────────────────────────────────────────────────────────────────────────────
+✕ MEASURE 37 ■■□□ beat 2 · 4/4 · 124.6 BPM · 1:24.6 / 3:48   ↶ ↷ │ Redraft  Song settings
+[ whole-song minimap · mapped strip · viewport ]
+│ 33   34   35🔒 36  [37]  38   39  free time   41 │  ← ruler: measure numbers
+│        ┌─▲────────────────────────────────────┐ │
+│        │ m. 37 │ 4/4 · Full ▾ │ Split at beat 2 │ Join │ ◀ Shift ▶ │ 🔒 │ ⋯ │
+│        └──────────────────────────────────────┘ │
+│ waveform · barlines · dotted beats · ◆ diamonds on the selected measure │
+│ ▲ ▲ ▲ ▲ detected beats (amber) along the bottom                          │
+[Detected beats]  | Map ▲ Detected ┆ Draft                 Fit measure  Whole song
+──────────────────────────────────────────────────────────────────────────────────
+⏮ ▶ ⏭   Go to m. [37]   SPEED − [75 %] + ↺   (Turn looping off)      Click follows the map
+```
 
-The Measure panel gives the compact `4 / 4` meter pair, kind and one Apply changes
-action the primary row. Two 48 px numeric inputs use tabular figures and an 18 px
-type size; the slash is larger and quiet. Keep the existing Avenir/Segoe/Noto
-type stack, pale `#f9fafc` surface, `#e0e6f0` dividers, `#334966` text and muted
-`#7a879d` hints. A small lock beside the title uses the map's green accent when
-protected. Advanced folds away grouping, pulse and boundary positions; it can
-scroll within the editing panel without filling the default view. The sidebar's
-Batch tools owns global numbering and batch grouping (Preview/Apply). A compact
-signature dropdown and grouping field show changed/locked counts; blank grouping
-clears it. Grouping affects all unlocked measures with that exact signature and
-preserves timing corrections and pulse values. Create measures remains a separate
-draft form with derived detected-measure counts and the epsilon field.
+- **Readout band** (`MapReadout.svelte`, decision 3): compact, so the waveform
+  gets the height. A leading X returns to Practice (Foundations). The measure,
+  beat boxes, beat, meter, local tempo and time come from the displayed map or
+  draft; in free time or without a map it shows the time. Undo and Redo are icon
+  buttons; once a map exists, **Redraft** (a toggle for the drawer) and **Song
+  settings** follow.
+- **Waveform** (`MapWaveform.svelte`): the minimap with the mapped extent (green
+  while a draft shows), then the field with a 24 px ruler band. Measure numbers
+  thin like Practice's ruler (a locked measure shows a lock); times label free
+  time only. Barlines are thin lines, beats dotted lines across the full height,
+  detected beats amber marks along the bottom (downbeats larger). The selected
+  measure is tinted with blue barlines; grips on them and diamonds on its beats
+  (filled when anchored) are the drag handles, and only they are Tab stops.
+  A draft shows in dashed green with green numbers; free time is hatched, and a
+  selected free-time range is outlined. When lines would crowd, a note says
+  "Every 2 beats · zoom in for detail". The waveform field stays dark in both
+  themes; its overlay colours are fixed for that background.
+- **Floating toolbar** (`MapToolbar.svelte`, placement in `map-toolbar.ts`):
+  just below the ruler, centred on the selected measure, notch up. At an edge
+  it stays inside with the notch sliding; out of view it becomes an edge tab
+  ("m. 37") that shows the measure again. It fades while a line is dragged. One
+  Tab stop; during keyboard navigation ←/→, Home and End move between its
+  buttons (`data-nav-keys`). Unavailable tools stay focusable (aria-disabled)
+  with the reason as their tooltip. It hides while a preview shows.
+- **Panels** are popovers below the toolbar (`Popover.svelte`): properties
+  (`MeasureProperties.svelte`, Cancel/Apply) and ⋯ (`MeasureExpert.svelte`:
+  exact positions, beats, shift step with re-snap and ε, Mark as free time). For
+  free time the toolbar offers **Count as a measure ▾** (`FreeTimeCount.svelte`).
+- **View bar** (`MapViewBar.svelte`): the Detected beats toggle (amber when on,
+  unavailable until there are suggestions), the legend, Fit measure and Whole
+  song. A numbering or grouping preview replaces the legend with "Preview · shown
+  in green" and Discard / Apply map.
+- **Drafting drawer** (`DraftDrawer.svelte`): 340 px on the right, from below
+  the header to the playback bar, like Notes on Practice; the readout band and
+  waveform narrow beside it. It shows while the map is empty and while Redraft
+  is on, and closes once a draft is applied. Steps are numbered, current in
+  blue, done with a check, upcoming dimmed (`draft-steps.ts`).
+- **Song settings** (`SongMapDialog.svelte`): a modal dialog, 480 px, leading
+  X: Measure numbering, Beat grouping, Start over (Clear map… with an inline
+  confirmation), and a footnote that previews show on the waveform.
+- **Playback bar**: the shared `PlaybackBar` and `TransportButtons`, Go to m.,
+  the compact `SpeedControl`, Turn looping off while looping, and on the right
+  what the click follows ("Click follows the map", "the draft", "Click off: no
+  audio output", or "The click starts once there's a map").
+- **Split toast:** after a split, an info toast ("Split m. 37 before beat 3.
+  Later measures renumbered.") with Undo, timing out like other info toasts.
 
-Join / Split / Shift arranges all three tools horizontally with vertical
-separators. The compact split dropdown shows only beat numbers; the shift tool
-contains a pulse-count input, Shift left/right buttons, and an optional
-Re-snap to detected beats checkbox. When enabled, its epsilon input shares the
-Create measures tolerance (initially 30 ms). Re-snapping defaults on; the checkbox
-can always be toggled. Restore saved detection on opening the editor. Without
-detected beats, explain why re-snapped shifts are unavailable; unchecked shifts
-retain authored timing. At narrow widths,
-stack the tools with horizontal separators to keep controls accessible. Show
-the selected pulse unit and explain the endpoint effects beside the controls.
-Shift retains authored timing, absorbing consumed bars at fixed endpoints and
-growing meters to avoid overfull bars. Join/Split/Shift and notation use direct
-validated edits with Undo. Numerical anchor corrections are behind their own
-Advanced disclosure.
-Free time has a selected-measure removal action and an uncounted-range picker
-with meter/pulse and Create measure from range. Reclaimed measures return to
-the Measure panel. Inactive panel markup is omitted while form/command state
-remains mounted, so WebKit accessibility follows panel changes reliably.
+States the brief left undesigned, as implemented (2026-11-19):
+
+- **Free-time range selected:** the range is outlined in the accent blue; the
+  toolbar sits over it with "Free time", its extent and **Count as a measure ▾**.
+- **Edit rejected:** a rejection from a panel, the drawer or Song settings shows
+  as a red alert inside it, which stays open with what was typed. A rejected
+  toolbar, key or drag edit shows as a red "Not changed: …" bubble over the
+  bottom of the waveform with a dismiss X. Both use `role=alert`, so they're
+  announced; the map is unchanged.
+- **Analysis notes outside the drawer:** with a map and the drawer closed, the
+  view bar shows a quiet amber note with a Redraft… link when analysis is out of
+  date, failed, or waits for stem separation.
+- **Edge tab and keys:** while the toolbar is collapsed to its edge tab, a
+  toolbar key (M, S, J, `[`, `]`, L…) first brings the measure back into view,
+  keeping zoom when it fits; the next press acts. Nothing acts on a measure
+  you can't see.
+- **Stale or missing analysis:** missing is step 1's one-time download (size,
+  progress, Cancel, a link to Settings › Beat analysis, and the failure when a
+  download failed). Stale shows in the drawer as an amber note that the map
+  changed since the analysis. A refused download outside Settings is an error
+  toast.
+- **Separation running:** analysis waits; step 1 says so in amber and Analyze is
+  absent; By hand and all map edits keep working. Playback controls freeze as on
+  Practice.
+- **Dense map:** barlines thin as well as beats and numbers, with a note naming
+  the step. Grips and diamonds hide on a measure narrower than about 28 px (Fit
+  measure, F, zooms in); its blue barlines still show.
+
+Keys on this screen: M properties, S split, J join, `[` `]` shift, L lock, F fit
+(and show the selected measure), W whole song, D detected beats; ⌘Z/⇧⌘Z undo and
+redo; arrows step measures (Shift for 0.1 s); Enter goes to the first measure;
+Esc closes a panel, then returns home, then turns looping off. See
+[KEYMAP.md](KEYMAP.md#mapping-actions).
 
 ## Music library
 

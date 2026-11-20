@@ -218,4 +218,6 @@ a full-height drawer on the right, from below the header down to the
 playback bar, like Notes on Practice.
 
 Still to design: free-time range selected, edit rejected, stale or missing
-analysis, separation running, dense map.
+analysis, separation running, dense map. The implementation (2026-11-19) chose
+interim treatments for these in the same visual language; they are recorded in
+[UI_DESIGN.md](../UI_DESIGN.md#measure-map-concept-mb) for review.

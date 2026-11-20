@@ -37,14 +37,15 @@ function overlaps(a: Chord, b: Chord): boolean {
  * Identities that existed in older versions. A configuration that still names
  * them loads with a warning instead of being rejected.
  */
-const REMOVED_ACTIONS: ReadonlySet<string> = new Set(['load_demo', 'managed_settings', 'separation_practice']);
-const REMOVED_BUTTONS: ReadonlySet<string> = new Set(['demo', 'managed_settings', 'separation_practice']);
+const REMOVED_ACTIONS: ReadonlySet<string> = new Set(['load_demo', 'managed_settings', 'separation_practice', 'map_metronome', 'map_follow']);
+const REMOVED_BUTTONS: ReadonlySet<string> = new Set(['demo', 'managed_settings', 'separation_practice', 'map_metronome', 'map_follow']);
 /**
  * Defaults added after configurations could already use their keys. One of
  * these gives way to a person's own binding of the same key, with a warning;
  * any other collision is an error.
  */
-const NEWER_DEFAULTS: ReadonlySet<ActionId> = new Set(['library_close', 'library_edit', 'library_find', 'show_settings']);
+const NEWER_DEFAULTS: ReadonlySet<ActionId> = new Set(['library_close', 'library_edit', 'library_find', 'show_settings',
+  'map_show_detected', 'map_properties', 'map_split', 'map_merge', 'map_shift_left', 'map_shift_right', 'map_protect', 'map_fit', 'map_whole']);
 
 /** Drops removed identities from a configuration, describing each one dropped. */
 function withoutRemoved(value: unknown, warnings: string[]): unknown {

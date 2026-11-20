@@ -22,3 +22,11 @@ export function sectionColor(id: string): string {
   let hash = 0; for (const c of id) hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
   return colors[hash % colors.length];
 }
+/** Reads `1:23.104` or `83.104` as seconds; NaN for anything else. */
+export function parseClock(text: string): number {
+  const match = /^\s*(?:(\d+):)?(\d+(?:\.\d*)?|\.\d+)\s*$/.exec(text);
+  if (!match) return NaN;
+  const seconds = Number(match[2]);
+  if (match[1] !== undefined && seconds >= 60) return NaN;
+  return Number(match[1] ?? 0) * 60 + seconds;
+}

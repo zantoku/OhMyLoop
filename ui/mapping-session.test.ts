@@ -33,4 +33,13 @@ describe('mapping edit orchestration',()=>{
     s.current={key:'song',map:null};s.commit.mockRejectedValueOnce(new Error('Disk full'));await s.session.edit(build,false);
     expect(s.state.undo).toBe(0);expect(s.state.error).toContain('Disk full');
   });
+  it('dismisses a rejection without discarding the preview',async()=>{
+    const s=setup();api.previewMap.mockResolvedValue(timingFixture());await s.session.edit(build);
+    s.current={key:'song',map:{...timingFixture().map,revision:4}};api.previewMap.mockRejectedValueOnce(new Error('Overlap'));
+    await s.session.edit(build,false);expect(s.state.error).toContain('Overlap');
+    api.previewMap.mockResolvedValue(timingFixture());await s.session.edit(build);expect(s.state.preview).not.toBeNull();
+    s.commit.mockRejectedValueOnce(new Error('Disk full'));s.current={key:'song',map:null};await s.session.apply();
+    expect(s.state.error).toContain('Disk full');expect(s.state.preview).not.toBeNull();
+    s.session.clearError();expect(s.state.error).toBe('');expect(s.state.preview).not.toBeNull();
+  });
 });

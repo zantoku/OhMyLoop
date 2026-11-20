@@ -37,6 +37,11 @@ not own the key.
     map line), and only for the keys it documents, such as the arrows,
     Home/End and Page Up/Down. Every other key bubbles on to the global
     handler.
+  - a toolbar (`data-nav-keys`), for the arrows that move between its
+    buttons, and only while its focus arrived by keyboard (it marks itself
+    `data-keyboard-focus` on focus during keyboard navigation). Don't rely on
+    the modality alone: on Windows and Linux the arrow press itself switches
+    it to keyboard, so a button focused by a click would take the arrows.
 
   Decide ownership by the key, never by the element's role. Swallowing every
   key inside `[role=slider]` is the bug this rule exists to prevent.
