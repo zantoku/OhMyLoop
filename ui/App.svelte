@@ -485,7 +485,7 @@
     separation_remove_model:()=>separationSession.remove(),separation_refresh_runtime:()=>separationSession.runtime(),
     separation_open:()=>showView('stems'),
     retry_stem_mix:()=>stemsSession.retry(),
-    show_stems:()=>showView('stems'),close_stems:()=>{screen=song?'practice':'library';},attach_stems:()=>stemsWork(),remove_stems:()=>stemsWork(true),
+    show_stems:()=>showView('stems'),attach_stems:()=>stemsWork(),remove_stems:()=>stemsWork(true),
     stem_gain:({role,gain})=>{if(role&&Number.isFinite(gain))stemsSession.change(role,{gain});},
     solo_bass:()=>soloRole('bass'),
     solo_drums:()=>soloRole('drums'),
@@ -573,7 +573,7 @@
     if(id.startsWith('mute_')||id.startsWith('solo_'))return !!stemsState.snapshot?.available&&!transport.audio_error&&stemsState.snapshot.tracks.some(track=>track.role===id.slice(5));
     if(id==='show_stems'||id==='attach_stems')return native&&!!song?.path;
     if(id==='remove_stems')return native&&!!stemsState.snapshot?.set_id;
-    if(screen==='stems'&&!['retry_stem_mix','close_stems','attach_stems','remove_stems',...NAVIGATION_ACTIONS].includes(id))return false;
+    if(screen==='stems'&&!['retry_stem_mix','attach_stems','remove_stems',...NAVIGATION_ACTIONS].includes(id))return false;
     if(id==='show_notes')return screen!=='library';
     if(id==='close_notes')return notesOpen&&screen==='practice';
     if(id==='retry_notes')return !!notesState.error&&!notesState.pending;
@@ -700,7 +700,7 @@
   <RecordingChooser bind:this={replacementDialog} {keymap} run={id=>{void runButton(id);}}/>
 
   {#if song && project}
-    {#snippet notesDrawer()}<NotesDrawer bind:this={notesPanel} notes={notesState} readonly={!!busy} font={notesFont} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>{void runButton(id);}}/>{/snippet}
+    {#snippet notesDrawer()}<NotesDrawer bind:this={notesPanel} notes={notesState} readonly={!!busy} font={notesFont} {keymap} available={buttonAvailable} onchange={text=>notesSession.change(text)} run={id=>runButton(id)}/>{/snippet}
     <PracticeScreen bind:this={practiceScreen} bind:measureNumber active={screen==='practice'} {song} controls={playbackControls} {sections} selectedSection={project.selected_section}
       {selection} looping={project.loop_enabled} repeatCountIn={repeatCountIn&&hasMeasureMap} {transport} {mapView} {view} {snapToMeasures} frozen={separationActive} busy={!!busy}
       {keymap} available={buttonAvailable} run={(id,payload)=>{void runButton(id,payload);}} onseek={seconds=>action({type:'seek',seconds})} onselection={chooseLoop}

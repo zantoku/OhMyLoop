@@ -63,7 +63,8 @@ Comma jumps to A, period jumps to B, and Enter jumps to the first mapped measure
 (including a pickup), or the song start without a map.
 Jumping to B turns looping off; seeking preserves play/pause state.
 X clears the A–B range and turns looping off, brackets navigate sections,
-S saves the passage as a section, N shows or hides notes, and Cmd/Ctrl+O opens a song. Arrow keys
+S saves the passage as a section, N shows or hides notes (Esc in the notes text
+also closes them), and Cmd/Ctrl+O opens a song. Arrow keys
 jump to the preceding/following measure start when a map has measures, or seek
 five seconds without one. Shift+arrows always seek 0.1 seconds. Shortcuts are suspended while
 editing fields or dialogs. The in-app shortcut panel lists these controls.

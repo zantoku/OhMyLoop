@@ -68,8 +68,9 @@ pass and reused afterwards.
   a measure number. Shown on Practice and Measure map whenever a map exists.
 - **Metronome:** on/off and click level on Practice; always on at full level on
   the Measure map (measure-map decision 7).
-- **Screen header:** dedicated screens (Notes, Measure map, Stems) have a
-  leading X that returns to Practice.
+- **Screen header:** song views reached through the view switcher (Measure
+  map, Stems) have no close X; the switcher returns to Practice. Dialogs keep
+  their leading X.
 
 ## Foundations that carry over
 
@@ -89,6 +90,8 @@ and `ui/theme.css`.
 - Every command comes from the shared action/keymap model, so buttons,
   tooltips and the shortcut list stay consistent. Shortcuts never fire while
   typing.
-- Close controls are an X in the top leading corner. Determinate circular
+- Dialogs close with an X in the top leading corner; song views reached
+  through the view switcher have none, since the switcher returns to
+  Practice. Determinate circular
   progress starts at 12 o'clock and fills clockwise.
 - Visible keyboard focus during keyboard navigation; none on pointer use.

@@ -70,7 +70,6 @@ export const ACTIONS = {
   separation_open:define('Open current stem processing',[],'none'),
   retry_stem_mix:define('Retry saving stem controls'),
   show_stems:define('Open the Stems view: separate, attach or review this song’s stems'),
-  close_stems:{...define('Close stems and return to practice',[],'none'),scope:'stems' as ActionScope},
   attach_stems:{...define('Attach or replace this song’s stems'),scope:'stems' as ActionScope},
   remove_stems:{...define('Remove this song’s stems'),scope:'stems' as ActionScope},
   stem_gain:practice('Adjust stem gain', [], 'song', 'stem_gain'),
@@ -197,7 +196,7 @@ export const ACTION_LABELS: Partial<Record<ActionId, string>> = {
 };
 export const BUTTONS = {
   separation_install:'separation_install',separation_reinstall_model:'separation_reinstall_model',separation_reinstall_runtime:'separation_reinstall_runtime',separation_remove_runtime:'separation_remove_runtime',separation_start:'separation_start',separation_cancel:'separation_cancel',separation_remove_model:'separation_remove_model',separation_refresh_runtime:'separation_refresh_runtime',separation_open:'separation_open',
-  retry_stem_mix:'retry_stem_mix',stem_gain:'stem_gain',show_stems:'show_stems',close_stems:'close_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',
+  retry_stem_mix:'retry_stem_mix',stem_gain:'stem_gain',show_stems:'show_stems',attach_stems:'attach_stems',remove_stems:'remove_stems',
   solo_bass:'solo_bass',  solo_drums:'solo_drums',  solo_guitar:'solo_guitar',  solo_piano:'solo_piano',  solo_vocals:'solo_vocals',  solo_other:'solo_other',
   mute_bass:'mute_bass',mute_drums:'mute_drums',mute_guitar:'mute_guitar',mute_piano:'mute_piano',mute_vocals:'mute_vocals',mute_other:'mute_other',
   settings:'show_settings',close_settings:'close_settings',reveal_library:'reveal_library',open_keymap:'open_keymap',reveal_keymap:'reveal_keymap',

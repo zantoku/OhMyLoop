@@ -178,7 +178,8 @@ only a Tab-focused button activates with Space or Enter. Holding a transport
 toggle does not repeatedly toggle it; seek actions permit key repeat.
 
 Esc unwinds one level per press: an open popover closes (focus returns to where
-it was), then an open dialog closes, a number or text field restores its value
+it was), then an open dialog closes, Esc in the notes text closes the notes
+drawer, a number or text field restores its value
 and returns focus to the screen's workspace, any other focused control returns
 focus to the workspace, and only then does Esc run its shortcut
 (`disable_loop`). Enter in a field commits and returns to the workspace. An
@@ -306,7 +307,8 @@ A `keymap.json` written for an older version still loads:
 
 - Removed identities (`keys.load_demo`, `descriptions.load_demo`,
   `buttons.demo`, `managed_settings`, `separation_practice`, the Measure map's
-  `map_metronome` and `map_follow`, or a button mapped to one of them) are
+  `map_metronome` and `map_follow`, Stems' `close_stems` (its close X is gone;
+  the view switcher returns to Practice), or a button mapped to one of them) are
   ignored, with a warning naming each one.
 - Where your own binding uses a key that a newer default now claims (Esc for
   `library_close`, ⌘I/Ctrl+I for `library_edit`, ⌘F/Ctrl+F for `library_find`,
@@ -328,8 +330,10 @@ button). Those two have no default keys or buttons of their own besides Retry.
 Buttons, hover descriptions and optional keymap overrides use these same stable
 identities. Closing flushes edits first; a failed save keeps the drawer open.
 The notes text owns every key while focused, so no shortcut fires while typing;
-**Esc** in it returns focus to the waveform, and the next key reaches the
-shortcuts again. ⌘Z/⇧⌘Z (Ctrl elsewhere) undo and redo in the text. The text
+**Esc** in it closes the drawer through `close_notes`, the same path as N, so
+a failed save or over-long notes keep it open with its alert and focus in the
+text. When it closes, focus returns to the waveform, and the next key reaches
+the shortcuts again. ⌘Z/⇧⌘Z (Ctrl elsewhere) undo and redo in the text. The text
 is read-only while the app is busy (opening, importing), so nothing typed then
 is lost when the song changes.
 

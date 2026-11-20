@@ -18,7 +18,7 @@ audio, change playback speed, or move existing sections and temporary loops.
 ## A dedicated screen
 
 **Measure map** is one of the song's views in the header (Practice · Measure map
-· Stems); the leading **X** in its readout band returns to Practice. The screen
+· Stems); the view switcher returns to Practice, so the screen has no close X. The screen
 follows the chosen design, concept MB, a floating toolbar
 ([brief](design/measure-map.md), layout in [UI_DESIGN.md](UI_DESIGN.md#measure-map-concept-mb)).
 Every command belongs to the shared action/keymap catalog, with descriptions and

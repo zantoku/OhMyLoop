@@ -16,8 +16,12 @@ closed. Opening or closing it never changes the transport.
 
 Opening the drawer focuses the text for writing; closing it returns focus to
 where it was, or to the waveform. The text area owns every key while focused,
-so Space and letter shortcuts never fire while typing. **Esc** returns focus to
-the waveform, after which Space plays again; the drawer's hint says so. The
+so Space and letter shortcuts never fire while typing. **Esc** closes the
+drawer, like N, and returns focus to the waveform, after which Space plays
+again; the drawer's hint says so. Like any close, it flushes the notes first: a
+failed save or over-long notes keep the drawer open with its alert, and focus
+stays in the text, where the fix happens. Focus goes home only when the drawer
+closes. The
 transport stays clickable throughout, and notes stay editable while separation
 runs. The editor preserves text, whitespace and line breaks without Markdown
 rendering, with spell checking, an empty-notes placeholder, and the native text

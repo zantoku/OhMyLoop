@@ -1,10 +1,12 @@
 <script lang="ts">
   // The notes drawer on Practice's right edge (Notes concept NC). The header's
   // Notes button and N open and close it; it has no close X. The text area owns
-  // every key while focused, and Esc returns focus to the waveform so Space and
-  // the letter shortcuts work again. Saving is shown here only when it is slow
+  // every key while focused, and Esc closes the drawer through close_notes, the
+  // same path as N, and returns focus to the waveform so Space and the letter
+  // shortcuts work again. A failed or blocked save keeps the drawer open with
+  // its alert and focus in the text, where the fix happens. Saving is shown here only when it is slow
   // or fails; the header's save state covers the normal case.
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Icon from './Icon.svelte';
   import { focusHome } from './home-focus';
   import { notesUnsaved, saveFailureReason, type NotesState } from './notes-session';
@@ -13,9 +15,12 @@
   import type { Keymap } from './keymap';
   let { notes, readonly = false, font, keymap, available, onchange, run }:
     { notes: NotesState; readonly?: boolean; font: NotesFont; keymap: Keymap; available: (id: ButtonId) => boolean;
-      onchange: (text: string) => void; run: (id: ButtonId) => void } = $props();
+      onchange: (text: string) => void; run: (id: ButtonId) => unknown } = $props();
   let field = $state<HTMLTextAreaElement>();
   let typing = $state(false);
+  // Set while Esc is closing the drawer, so focus lands home rather than where
+  // it was before the drawer opened.
+  let escaping = false;
   const playKey = $derived(keymap.shortcut(keymap.actionFor('play')));
 
   // Opening the drawer is for writing, so the text takes focus. Closing it
@@ -25,6 +30,7 @@
     field?.focus({ preventScroll: true });
     return () => {
       const active = document.activeElement;
+      if (escaping && (!active || active === document.body || !active.isConnected || field?.contains(active))) { focusHome(); return; }
       if (active && active !== document.body && active.isConnected && !field?.contains(active)) return;
       if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body && !previous.closest('[hidden], [inert]')) previous.focus({ preventScroll: true });
       if (document.activeElement !== previous || previous === document.body) focusHome();
@@ -34,10 +40,19 @@
   /** Focuses the text, as opening the drawer does. */
   export function focusText() { field?.focus({ preventScroll: true }); }
 
-  function key(event: KeyboardEvent) {
+  async function key(event: KeyboardEvent) {
     if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return;
     event.preventDefault();
-    focusHome();
+    // One close at a time: a press while one is pending changes nothing.
+    if (escaping) return;
+    // Without close_notes (the app is busy) Esc can only return home.
+    if (!available('close_notes')) { focusHome(); return; }
+    // Closing flushes first. If the drawer stays open (failed save, over-long
+    // notes), focus stays in the text beside the alert; it goes home only when
+    // the drawer closes.
+    escaping = true;
+    try { await run('close_notes'); await tick(); }
+    finally { if (field?.isConnected) escaping = false; }
   }
 </script>
 
@@ -56,7 +71,7 @@
   <textarea bind:this={field} class:mono={font === 'monospace'} aria-label="Notes for this song" placeholder="What to practise, where it goes wrong, reminders for next time…"
     spellcheck="true" {readonly} value={notes.text} oninput={event => onchange(event.currentTarget.value)} onkeydown={key}
     onfocus={() => { typing = true; }} onblur={() => { typing = false; }}></textarea>
-  <p class="hint">{#if typing}Typing · Esc returns to the waveform{#if playKey}, so {playKey} plays again{/if}{:else if !notesUnsaved(notes)}Saved as you type{/if}</p>
+  <p class="hint">{#if typing}Typing · Esc closes the notes{#if playKey}, so {playKey} plays again{/if}{:else if !notesUnsaved(notes)}Saved as you type{/if}</p>
 </aside>
 
 <style>

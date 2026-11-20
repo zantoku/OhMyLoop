@@ -142,8 +142,10 @@ in the sections sidebar (NB), and a tall drawer (NC). NC was chosen on
   when saving is slow, and an alert with Retry when it fails (C1) or when
   the notes exceed 1 MiB (C3).
 - **Playing while writing** (B2): shortcuts don't fire while typing, so a
-  hint in the drawer says Esc returns focus to the waveform, after which
-  Space plays again. The transport stays clickable throughout.
+  hint in the drawer says Esc closes the notes, after which Space plays
+  again. Esc closes the drawer like N (flushing the notes first; a failed
+  save keeps it open with its alert and focus in the text) and returns
+  focus to the waveform once it closes. The transport stays clickable throughout.
 - **Empty notes** show a placeholder in the text area.
 
 Separation running and the minimum window are drawn with the Practice

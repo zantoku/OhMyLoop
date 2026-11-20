@@ -165,6 +165,14 @@ it('loads a file that still names the retired map_metronome and map_follow toggl
   expect(loaded.model.match(key('k'),'mapping')).toBeUndefined();expect(loaded.model.match(key(' '),'mapping')).toBe('play_pause');
 });
 
+it('loads a file that still names the retired close_stems action and button, with a warning',async()=>{
+  const configuration={version:1,keys:{close_stems:['Alt+w'],play_pause:['Space']},buttons:{close_stems:'close_stems',play:'play_pause'},descriptions:{close_stems:'Back to Practice'}};
+  const loaded=await loadKeymap(async()=>({path:'/k.json',configuration,warning:null}),false);
+  expect(loaded.source).toBe('custom');
+  for(const ignored of ['keys.close_stems','buttons.close_stems','descriptions.close_stems'])expect(loaded.warning).toContain(`Ignored ${ignored}`);
+  expect(loaded.model.match(key('w',{altKey:true}),'stems')).toBeUndefined();expect(loaded.model.match(key(' '),'stems')).toBe('play_pause');
+});
+
 it('binds the Measure map toolbar and view keys on the Measure map only',()=>{
   const keymap=new Keymap(true);
   const bindings:[string,string][]=[['m','map_properties'],['s','map_split'],['j','map_merge'],['[','map_shift_left'],[']','map_shift_right'],['l','map_protect'],['f','map_fit'],['w','map_whole'],['d','map_show_detected']];

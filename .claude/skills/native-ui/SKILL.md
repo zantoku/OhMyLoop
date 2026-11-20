@@ -57,7 +57,10 @@ not own the key.
   - Esc restores the previous value and returns home focus.
   - Leaving the field (blur) commits.
 - **Esc unwinds** one level per press: the open menu or popover, then the
-  dialog, then the drawer's text field, then home focus.
+  dialog, then a field or control back to home focus. Esc in the Notes text
+  closes the Notes drawer (flushing first, like N) and returns home focus; if
+  the save fails or the notes are over-long, the drawer stays open and focus
+  stays in the text, and while the app is busy Esc only returns home.
 - **⌘ shortcuts live in the native menu bar** (Tauri `menu` API). Build the
   menus from the action model, so labels, accelerators and enabled state
   match the buttons and the shortcut list. Single-key shortcuts (Space,

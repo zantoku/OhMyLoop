@@ -188,7 +188,7 @@ viewport, editing selection and session state. Behaviour and edit rules are in
 ```
 Library › Song title        [ Practice | Measure map | Stems ]   ✓ Saved  Notes  ⌨
 ──────────────────────────────────────────────────────────────────────────────────
-✕ MEASURE 37 ■■□□ beat 2 · 4/4 · 124.6 BPM · 1:24.6 / 3:48   ↶ ↷ │ Redraft  Song settings
+MEASURE 37 ■■□□ beat 2 · 4/4 · 124.6 BPM · 1:24.6 / 3:48   ↶ ↷ │ Redraft  Song settings
 [ whole-song minimap · mapped strip · viewport ]
 │ 33   34   35🔒 36  [37]  38   39  free time   41 │  ← ruler: measure numbers
 │        ┌─▲────────────────────────────────────┐ │
@@ -202,7 +202,8 @@ Library › Song title        [ Practice | Measure map | Stems ]   ✓ Saved  No
 ```
 
 - **Readout band** (`MapReadout.svelte`, decision 3): compact, so the waveform
-  gets the height. A leading X returns to Practice (Foundations). The measure,
+  gets the height. It has no close X: the view switcher returns to Practice
+  (Foundations). The measure,
   beat boxes, beat, meter, local tempo and time come from the displayed map or
   draft; in free time or without a map it shows the time. Undo and Redo are icon
   buttons; once a map exists, **Redraft** (a toggle for the drawer) and **Song
@@ -409,14 +410,16 @@ and the minimum window (1180 × 680) fits both side panels. The header's Notes
 button and N toggle it; there is no close X. A "Notes" heading sits above a
 full-height plain textarea in the UI font, or monospaced when chosen in
 Settings → Appearance (`notes-font.ts`), with a placeholder when empty and a
-one-line hint below: "Typing · Esc returns to the waveform, so Space plays
-again" while typing, "Saved as you type" otherwise. Keep line breaks and
+one-line hint below: "Typing · Esc closes the notes, so Space plays again"
+while typing, "Saved as you type" otherwise. Keep line breaks and
 whitespace; Markdown syntax is displayed as text.
 
 The header's save state covers notes. The drawer shows "Saving…" beside its
 heading only when a save is slow, an alert with Retry save when a save fails,
 and an alert without Retry when the notes exceed 1 MiB. Opening the drawer
-focuses the text; closing it returns focus to where it was, or home. Opening
+focuses the text; closing it returns focus to where it was, or home. Esc in
+the text closes the drawer like N and returns focus home; a failed save or
+over-long notes keep it open with its alert and focus in the text. Opening
 Library pauses playback after notes have saved, while opening or closing the
 drawer never changes the transport.
 
@@ -448,8 +451,8 @@ Concept SC, "guided steps" ([stems.md](design/stems.md)), in
 separation status, the song's stem set and a manual attachment
 (`stems-screen.ts`), so every state is unit-tested.
 
-- **Step list** (left, 300 px): a leading X closes Stems ("Stems for this
-  song"), then **1 Set up separation → 2 Separate this song → 3 Review the
+- **Step list** (left, 300 px): the heading "Stems for this song" (no close
+  X; the view switcher returns to Practice), then **1 Set up separation → 2 Separate this song → 3 Review the
   stems**. The current step is tinted with a blue number; done steps show a
   check and a one-line summary (Ready · works offline; Five instruments, or
   ", attached"; Running · 58 %; Stopped · retry; Waits for beat analysis).
@@ -522,8 +525,8 @@ Completion automatically attaches the validated set and shows it on the review
 step with retained/skipped tracks and a dismissible banner; it doesn't navigate.
 It changes neither reference recording nor measure map. Playback stays paused
 after publication. Model removal leaves stems intact. Attach existing outputs
-remains secondary; installed-model management lives in Settings. The top-leading
-X returns to Practice without cancelling active work; the other views show a
+remains secondary; installed-model management lives in Settings. Switching to
+another view leaves active work running; the other views show a
 persistent progress toast.
 
 The [approved primary-source demo](https://github.com/zantoku/OhMyLoop/blob/prototype/stem-separation-flow-2026-10-14/ui/StemSeparation.prototype.html) is archived on

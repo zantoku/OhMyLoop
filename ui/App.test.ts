@@ -342,7 +342,7 @@ describe('measure-map screen integration',()=>{
     await fireEvent.click(within(drawer()).getByRole('button',{name:'Apply map'}));await waitFor(()=>expect(document.measure_map?.measures).toHaveLength(2));expect(document.loop_enabled).toBe(true);expect(transport.playing).toBe(true);
     // Applying the first map puts the drafting drawer away.
     await waitFor(()=>expect(screen.queryByRole('complementary',{name:'Draft a measure map'})).toBeNull());
-    await waitFor(()=>expect(screen.getByRole('button',{name:'Close measure map'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));expect(screen.getByRole('region',{name:'Measure ruler'})).toBeTruthy();
+    await waitFor(()=>expect(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}).hasAttribute('disabled')).toBe(false));await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));expect(screen.getByRole('region',{name:'Measure ruler'})).toBeTruthy();
     await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));expect(undoButton().hasAttribute('disabled')).toBe(false);
   });
 });
@@ -409,7 +409,7 @@ it('drafts from detected beats by default, derives the count from the preview, a
   await fireEvent.click(within(drawer()).getByRole('button',{name:'Preview again'}));expect(mock.previewMap.mock.lastCall?.[2].meter.numerator).toBe(3);
   await fireEvent.click(within(drawer()).getByRole('button',{name:'By hand'}));expect(within(drawer()).getByLabelText('Number of measures')).toBeTruthy();
   // Drafting inputs are session state: they survive switching screens.
-  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
+  await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   await waitFor(()=>expect(mock.analysisStatus.mock.calls.length).toBeGreaterThan(1));
   expect(within(drawer()).getByRole('button',{name:'By hand',pressed:true})).toBeTruthy();
   expect(screen.getByRole('button',{name:'Detected beats'}).getAttribute('aria-pressed')).toBe('true');
@@ -524,6 +524,8 @@ it('shows the floating toolbar at the selected measure with its tools in order',
   expect(tool('Lock m. 1').title).toBe('Lock or unlock this measure (L)');
   expect(within(screen.getByRole('region',{name:'Position'})).getByRole('button',{name:'Song settings'})).toBeTruthy();
   expect(screen.queryByRole('button',{name:/Metronome|Follow playhead/})).toBeNull();
+  // The view switcher returns to Practice; the readout band has no close X.
+  expect(within(screen.getByRole('region',{name:'Position'})).queryByRole('button',{name:/close/i})).toBeNull();
   expect(screen.queryByRole('complementary',{name:'Draft a measure map'})).toBeNull();
   const properties=await openProperties();
   for(const name of ['Meter numerator','Meter denominator','Beat grouping'])expect(within(properties).getByRole(/Meter/.test(name)?'spinbutton':'textbox',{name})).toBeTruthy();
@@ -969,7 +971,7 @@ it('always clicks the displayed map or draft at full level, and Practice keeps i
   expect(within(playbackBar()).getByText('Click off: no audio output')).toBeTruthy();
   transport.audio_error=null;
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',true,1,original.map]));
-  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
+  await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));
   await waitFor(()=>expect(mock.metronome.mock.lastCall).toEqual(['test',false,.65,original.map]));
   expect(within(screen.getByRole('group',{name:'Click track'})).getByRole('button',{name:/^(On|Off)$/}).getAttribute('aria-pressed')).toBe('false');
   expect(transport.playing).toBe(false);expect(document.measure_map).toEqual(original.map);
@@ -1559,15 +1561,35 @@ it('opens the notes drawer beside the readout and waveform without touching the 
   expect(drawer.parentElement).toBe(practice);expect(screen.getByRole('main',{name:'Practice workspace'})).toBeTruthy();
   expect(within(drawer).queryByRole('button',{name:/close/i})).toBeNull();
   expect(notesField().placeholder).toBe('What to practise, where it goes wrong, reminders for next time…');
-  expect(within(drawer).getByText('Typing · Esc returns to the waveform, so Space plays again')).toBeTruthy();
-  // Esc from the text returns home, so Space plays again; the drawer stays open.
-  await fireEvent.keyDown(notesField(),{key:'Escape'});
-  expect(globalThis.document.activeElement?.hasAttribute('data-home')).toBe(true);expect(screen.getByRole('complementary',{name:'Notes'})).toBeTruthy();
+  expect(within(drawer).getByText('Typing · Esc closes the notes, so Space plays again')).toBeTruthy();
   await fireEvent.blur(notesField());expect(within(drawer).getByText('Saved as you type')).toBeTruthy();
-  await fireEvent.keyDown(window,{key:' ',code:'Space'});await waitFor(()=>expect(mock.action).toHaveBeenCalledWith({type:'toggle_play'},'test'));
-  mock.action.mockClear();
   await fireEvent.keyDown(window,{key:'n',code:'KeyN'});await waitFor(()=>expect(screen.queryByRole('complementary',{name:'Notes'})).toBeNull());
   expect(mock.action).not.toHaveBeenCalled();
+});
+it('closes the notes drawer with Esc from the text, saving first, and Space plays again',async()=>{
+  await ready();await fireEvent.keyDown(window,{key:'n',code:'KeyN'});mock.action.mockClear();
+  await fireEvent.input(notesField(),{target:{value:'Closed with Esc'}});
+  await fireEvent.keyDown(notesField(),{key:'Escape'});
+  await waitFor(()=>expect(screen.queryByRole('complementary',{name:'Notes'})).toBeNull());
+  expect(document.notes).toBe('Closed with Esc');
+  expect(globalThis.document.activeElement?.hasAttribute('data-home')).toBe(true);
+  expect(mock.action).not.toHaveBeenCalled();
+  await fireEvent.keyDown(globalThis.document.activeElement!,{key:' ',code:'Space'});
+  await waitFor(()=>expect(mock.action).toHaveBeenCalledExactlyOnceWith({type:'toggle_play'},'test'));
+});
+it('keeps the notes drawer open with its alert when Esc meets a failed save',async()=>{
+  await ready();await fireEvent.click(notesButton());const drawer=screen.getByRole('complementary',{name:'Notes'});
+  mock.update.mockRejectedValueOnce(new Error('Disk full'));await fireEvent.input(notesField(),{target:{value:'Do not lose this'}});
+  await fireEvent.keyDown(notesField(),{key:'Escape'});
+  expect((await within(drawer).findByRole('alert')).textContent).toContain('Couldn’t save your notes: Disk full.');
+  expect(screen.getByRole('complementary',{name:'Notes'})).toBe(drawer);expect(notesField().value).toBe('Do not lose this');
+  // The alert and the fix live in the drawer, so focus stays in the text.
+  await new Promise(resolve=>setTimeout(resolve,50));
+  expect(globalThis.document.activeElement).toBe(notesField());
+  // Esc again retries the close, which now saves, closes and returns home.
+  await fireEvent.keyDown(notesField(),{key:'Escape'});await waitFor(()=>expect(screen.queryByRole('complementary',{name:'Notes'})).toBeNull());
+  expect(document.notes).toBe('Do not lose this');
+  await waitFor(()=>expect(globalThis.document.activeElement?.hasAttribute('data-home')).toBe(true));
 });
 it('opens Practice with the drawer from another view and keeps the drawer open across views',async()=>{
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
@@ -1607,6 +1629,9 @@ it('keeps over-long notes in the drawer without saving them and blocks leaving t
   expect((await within(drawer).findByRole('alert')).textContent).toContain('Notes are over 1 MiB and can’t be saved. The last saved version is kept');
   expect(within(drawer).queryByRole('button',{name:'Retry save'})).toBeNull();
   expect(within(screen.getByRole('banner')).getByRole('status').textContent).toBe('Notes not saved');
+  // Esc can't close the drawer: it stays open and focus stays in the text to shorten them.
+  await fireEvent.keyDown(notesField(),{key:'Escape'});await new Promise(resolve=>setTimeout(resolve,50));
+  expect(screen.getByRole('complementary',{name:'Notes'})).toBe(drawer);expect(globalThis.document.activeElement).toBe(notesField());
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await new Promise(resolve=>setTimeout(resolve,350));
   expect(screen.queryByRole('main',{name:'Music library'})).toBeNull();expect(mock.update).not.toHaveBeenCalled();expect(document.notes).toBe('');
   await fireEvent.input(notesField(),{target:{value:'Short again'}});await waitFor(()=>expect(document.notes).toBe('Short again'));
@@ -1644,6 +1669,18 @@ async function slowFirstSave(){
   await fireEvent.input(notesField(),{target:{value:'first, then more'}});
   return ()=>done();
 }
+it('closes the drawer with Esc only once a slow save succeeds, then returns home',async()=>{
+  await ready();await fireEvent.click(notesButton());
+  let done!:()=>void;mock.update.mockImplementationOnce(async(value:PracticeDocument)=>{await new Promise<void>(resolve=>{done=resolve;});document=structuredClone(value);return response();});
+  await fireEvent.input(notesField(),{target:{value:'slow but fine'}});
+  await fireEvent.keyDown(notesField(),{key:'Escape'});await waitFor(()=>expect(mock.update).toHaveBeenCalledOnce());
+  // A second press while the close is pending changes nothing.
+  await fireEvent.keyDown(notesField(),{key:'Escape'});
+  expect(screen.getByRole('complementary',{name:'Notes'})).toBeTruthy();
+  done();await waitFor(()=>expect(screen.queryByRole('complementary',{name:'Notes'})).toBeNull());
+  expect(document.notes).toBe('slow but fine');expect(mock.update).toHaveBeenCalledOnce();
+  await waitFor(()=>expect(globalThis.document.activeElement?.hasAttribute('data-home')).toBe(true));
+});
 it('saves text typed during a slow save before closing the drawer',async()=>{
   await ready();await fireEvent.click(notesButton());mock.update.mockClear();const release=await slowFirstSave();
   await fireEvent.click(notesButton());expect(screen.getByRole('complementary',{name:'Notes'})).toBeTruthy();
@@ -1663,7 +1700,7 @@ it('saves notes of exactly 1 MiB',async()=>{
   expect(within(screen.getByRole('complementary',{name:'Notes'})).queryByRole('alert')).toBeNull();
 });
 it('focuses the notes text when Notes brings Practice forward with the drawer already open',async()=>{
-  await ready();await fireEvent.click(notesButton());await fireEvent.keyDown(notesField(),{key:'Escape'});
+  await ready();await fireEvent.click(notesButton());(globalThis.document.querySelector('[data-home]') as HTMLElement).focus();
   await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.click(notesButton());
   await waitFor(()=>expect(globalThis.document.activeElement).toBe(notesField()));
 });
@@ -1742,7 +1779,7 @@ it('keeps count-in before Play, Loop and count-in each repeat independent, in Pr
   await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));
   expect(screen.queryByRole('group',{name:'Practice modes'})).toBeNull();
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',false,false,.7]));
-  await fireEvent.click(screen.getByRole('button',{name:'Close measure map'}));
+  await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));
   await waitFor(()=>expect(mock.countIn.mock.lastCall).toEqual(['test',false,true,.7]));
   // Loop off keeps the each-repeat choice, but disables it.
   await fireEvent.keyDown(window,{key:'l'});
@@ -1902,7 +1939,9 @@ it('keeps stems navigation transport neutral and isolates role shortcuts from no
  await ready();expect(screen.getByRole('slider',{name:'Bass gain'})).toBeTruthy();mock.action.mockClear();
  await fireEvent.keyDown(window,{key:'1'});await waitFor(()=>expect(mock.setStemMix).toHaveBeenCalled());expect(mock.setStemMix.mock.lastCall![2][0].mute).toBe(true);
  await fireEvent.click(screen.getByRole('button',{name:'Stems'}));expect(screen.getByRole('main',{name:'Stems'})).toBeTruthy();expect(mock.action).not.toHaveBeenCalled();
- await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));await fireEvent.click(screen.getByRole('button',{name:'Notes'}));mock.setStemMix.mockClear();
+ // The view switcher returns to Practice; Stems has no close X.
+ expect(within(screen.getByRole('main',{name:'Stems'})).queryByRole('button',{name:/close/i})).toBeNull();
+ await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));await fireEvent.click(screen.getByRole('button',{name:'Notes'}));mock.setStemMix.mockClear();
  await fireEvent.keyDown(screen.getByRole('textbox',{name:'Notes for this song'}),{key:'1'});expect(mock.setStemMix).not.toHaveBeenCalled();
  await fireEvent.click(screen.getByRole('button',{name:'Notes'}));await fireEvent.click(screen.getByRole('button',{name:'Measure map'}));await fireEvent.keyDown(window,{key:'1'});expect(mock.setStemMix).not.toHaveBeenCalled();
 });
@@ -1988,7 +2027,7 @@ describe('integrated separation workflow',()=>{
   await ready();await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
   expect(mock.installSeparationModel).not.toHaveBeenCalled();await fireEvent.click(screen.getByRole('button',{name:'Set up separation'}));await waitFor(()=>expect(mock.installSeparationModel).toHaveBeenCalledOnce());
   value.model_ready=true;value.install={...value.install,running:false,phase:'Complete',cancellable:false};const separate=await screen.findByRole('button',{name:'Separate song'});await waitFor(()=>expect((separate as HTMLButtonElement).disabled).toBe(false));expect(mock.startSeparation).not.toHaveBeenCalled();
-  await fireEvent.click(separate);await waitFor(()=>expect(mock.startSeparation).toHaveBeenCalledWith('test'));await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
+  await fireEvent.click(separate);await waitFor(()=>expect(mock.startSeparation).toHaveBeenCalledWith('test'));await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));
   expect((screen.getByRole('button',{name:'Play'}) as HTMLButtonElement).disabled).toBe(true);expect(speedField().disabled).toBe(true);
   for(const name of ['Back 5 seconds','Forward 5 seconds'])expect((screen.getByRole('button',{name}) as HTMLButtonElement).disabled).toBe(true);
   expect(screen.getByRole('button',{name:'Play'}).title).toBe('Playback is paused while the song is split into stems');
@@ -2007,7 +2046,7 @@ describe('integrated separation workflow',()=>{
   for(const name of [/Reinstall/,/Remove separation tools/])expect(screen.queryByRole('button',{name})).toBeNull();
   expect(screen.queryByRole('button',{name:/Settings/})).toBeNull();
   expect((within(screen.getByRole('banner')).queryByRole('button',{name:'Settings'}))).toBeNull();
-  await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));await fireEvent.click(screen.getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
+  await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));await fireEvent.click(screen.getByRole('button',{name:'Play'}));await waitFor(()=>expect(transport.playing).toBe(true));
   await fireEvent.click(screen.getByRole('button',{name:'Open Stems'}));expect(screen.getByText('Installing separation tools',{selector:'[role=status]'})).toBeTruthy();expect(mock.cancelSeparation).not.toHaveBeenCalled();expect(mock.startSeparation).not.toHaveBeenCalled();
  });
  it('confirms replacing stems, then reports the finished separation on Practice until Stems is opened',async()=>{
@@ -2024,7 +2063,7 @@ describe('integrated separation workflow',()=>{
   await waitFor(()=>expect(mock.startSeparation).toHaveBeenCalledWith('test'));
   // Focus follows to the new work's Cancel.
   await waitFor(()=>expect(window.document.activeElement).toBe(screen.getByRole('button',{name:'Cancel'})));
-  await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
+  await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));
   const separated={...attachedStems(),separated:true,tracks:[...attachedStems().tracks,{role:'drums' as const,gain:1,mute:false,solo:false},{role:'guitar' as const,gain:1,mute:false,solo:false},{role:'other' as const,gain:1,mute:false,solo:false}]};
   value.job={...value.job,running:false,cancellable:false,phase:'Complete',result:separated};
   const toast=(await screen.findByText('Stems ready')).closest('[role=status]') as HTMLElement;
@@ -2032,7 +2071,7 @@ describe('integrated separation workflow',()=>{
   await fireEvent.click(within(toast).getByRole('button',{name:'Open Stems'}));
   expect(await screen.findByText('Separation finished. Five instruments; piano was near-silent and left out.')).toBeTruthy();
   expect(screen.getByRole('list',{name:'Instruments'}).textContent).toContain('Pianonear-silent');
-  await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));expect(screen.queryByText('Stems ready')).toBeNull();
+  await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));expect(screen.queryByText('Stems ready')).toBeNull();
  });
  it('shows a stopped separation with its steps open; the list keeps only its scrolling keys',async()=>{
   const value=separationStatus();value.model_ready=true;
@@ -2086,7 +2125,7 @@ describe('integrated separation workflow',()=>{
   await fireEvent.click(screen.getByRole('button',{name:'Stems'}));
   await fireEvent.click(await screen.findByRole('button',{name:'Attach stems…'}));
   expect((await screen.findByRole('alert')).textContent).toContain('Invalid provenance');
-  await fireEvent.click(screen.getByRole('button',{name:'Close stems'}));
+  await fireEvent.click(within(screen.getByRole('group',{name:'Song views'})).getByRole('button',{name:'Practice'}));
   mock.stemsStatus.mockImplementation(async(reference:string)=>({reference_token:reference,set_id:null,tracks:[],available:false,warning:null,attenuation:null,model:null,separated:false}));
   mock.openLibrarySong.mockResolvedValue({...response(),song:{key:'other',reference_token:'other',asset_id:'asset',timeline_id:'timeline',reference_revision:1,session_id:'session',title:'Another take',path:entry.file_location,duration:12,rate:48000,peaks:[[-.2,.2]]}});
   await fireEvent.click(screen.getByRole('button',{name:'Library'}));await fireEvent.click(await screen.findByRole('button',{name:'Practise Another take'}));await screen.findByRole('heading',{name:'Another take'});

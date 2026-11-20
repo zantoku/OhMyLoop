@@ -7,8 +7,8 @@ while playback remains available. Tools and model readiness are shown separately
 both are ready, step 2 offers **Separate song**. Setup never starts separation automatically. Replacing an existing set requires confirmation.
 
 Separation pauses at the current source position. Playback, seeking, speed, pitch,
-loop/count-in and mixer edits stay disabled until processing ends. Close Stems
-with its leading X to return to Practice; on the other views a persistent toast
+loop/count-in and mixer edits stay disabled until processing ends. Return to
+Practice through the view switcher; on the other views a persistent toast
 shows the progress and **Open Stems** reopens it. When the work finishes or
 fails away from Stems, the toast stays (Stems ready / Separation stopped) until
 Stems is opened or the toast is dismissed.

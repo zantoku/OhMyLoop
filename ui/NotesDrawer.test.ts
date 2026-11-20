@@ -6,10 +6,10 @@ import { ownsKey } from './key-routing';
 import type { NotesState } from './notes-session';
 
 const calm: NotesState = { text: 'Bend lick: hit the target pitch', dirty: false, pending: false, slow: false, tooLong: false, error: '' };
-function drawer(notes: Partial<NotesState> = {}, font: 'proportional' | 'monospace' = 'proportional') {
+function drawer(notes: Partial<NotesState> = {}, font: 'proportional' | 'monospace' = 'proportional', run = vi.fn(), available = () => true) {
   const home = document.createElement('div'); home.tabIndex = -1; home.dataset.home = ''; document.body.append(home);
-  const run = vi.fn(), onchange = vi.fn();
-  render(NotesDrawer, { notes: { ...calm, ...notes }, font, keymap: new Keymap(), available: () => true, onchange, run });
+  const onchange = vi.fn();
+  render(NotesDrawer, { notes: { ...calm, ...notes }, font, keymap: new Keymap(), available, onchange, run });
   return { home, run, onchange, field: screen.getByRole('textbox', { name: 'Notes for this song' }) as HTMLTextAreaElement };
 }
 
@@ -27,25 +27,51 @@ describe('notes drawer', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('owns every key while typing; Esc returns home so the shortcuts work again', async () => {
-    const { field, home } = drawer();
+  it('owns every key while typing; Esc closes the notes and returns home so the shortcuts work again', async () => {
+    // Focus was on a button before the drawer opened; Esc still lands home.
+    const before = document.createElement('button'); document.body.append(before); before.focus();
+    const run = vi.fn(async () => { cleanup(); });
+    const { field, home } = drawer({}, 'proportional', run);
     for (const key of [' ', 'n', 's', 'l', 'a', '1', 'Enter', 'ArrowLeft', 'Escape']) expect(ownsKey(field, key, 'keyboard'), key).toBe(true);
-    expect(screen.getByText('Typing · Esc returns to the waveform, so Space plays again')).toBeTruthy();
+    expect(screen.getByText('Typing · Esc closes the notes, so Space plays again')).toBeTruthy();
     const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     field.dispatchEvent(escape);
     expect(escape.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(home);
-    // At home, nothing in the drawer owns the keys: they reach the dispatcher.
+    expect(run).toHaveBeenCalledExactlyOnceWith('close_notes');
+    await vi.waitFor(() => expect(document.activeElement).toBe(home));
+    // At home, nothing owns the keys: they reach the dispatcher.
     for (const key of [' ', 'n', 'l', 'Escape']) expect(ownsKey(home, key, 'pointer'), key).toBe(false);
+  });
+
+  it('keeps focus in the text when Esc cannot close the drawer', async () => {
+    const before = document.createElement('button'); document.body.append(before); before.focus();
+    const { field, run } = drawer({ error: 'Error: Disk full', dirty: true });
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    field.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(run).toHaveBeenCalledExactlyOnceWith('close_notes');
+    await new Promise(resolve => setTimeout(resolve));
+    expect(document.activeElement).toBe(field);
+    // A later close (N, the Notes button) returns focus to where it was, as usual.
+    cleanup();
+    expect(document.activeElement).toBe(before);
+  });
+
+  it('returns home on Esc when closing is unavailable, and shows Saved once typing stops', async () => {
+    const { field, home, run } = drawer({}, 'proportional', vi.fn(), () => false);
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(run).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(home);
     await fireEvent.blur(field);
     expect(screen.getByText('Saved as you type')).toBeTruthy();
   });
 
   it('leaves Esc alone while an input method is composing', () => {
-    const { field } = drawer();
+    const { field, run } = drawer();
     const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: true });
     field.dispatchEvent(escape);
     expect(escape.defaultPrevented).toBe(false);
+    expect(run).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(field);
   });
 

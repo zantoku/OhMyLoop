@@ -53,7 +53,7 @@
  <aside class="rail" aria-label="Steps">
   <section class="card">
    <div class="intro">
-    <div class="screen-title"><button class="icon-button screen-close" disabled={!available('close_stems')} aria-label="Close stems" title={keymap.title('close_stems')} onclick={()=>run('close_stems')}><Icon name="close" size={18}/></button><h2>Stems for this song</h2></div>
+    <h2>Stems for this song</h2>
     <span class="hint">Split the recording into instruments, review them, then mix them in Practice.</span>
    </div>
    <ol aria-label="Steps">
@@ -143,7 +143,7 @@
  .stems-screen{flex:1;min-height:0;display:flex;gap:18px}
  .rail{width:300px;flex:none;display:flex;flex-direction:column;gap:12px;min-height:0}
  .card{border:1px solid var(--border);border-radius:10px;background:var(--sidebar);overflow:hidden}
- .intro{padding:12px 16px 16px;display:flex;flex-direction:column;gap:6px}.intro .screen-title{gap:4px;margin-left:-8px}.intro h2{font-size:18px}
+ .intro{padding:12px 16px 16px;display:flex;flex-direction:column;gap:6px}.intro h2{font-size:18px}
  ol{list-style:none;margin:0;padding:0}
  li{display:flex;gap:12px;padding:16px;border-top:1px solid var(--border)}
  li.current{background:var(--blue-wash)}

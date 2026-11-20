@@ -37,8 +37,8 @@ function overlaps(a: Chord, b: Chord): boolean {
  * Identities that existed in older versions. A configuration that still names
  * them loads with a warning instead of being rejected.
  */
-const REMOVED_ACTIONS: ReadonlySet<string> = new Set(['load_demo', 'managed_settings', 'separation_practice', 'map_metronome', 'map_follow']);
-const REMOVED_BUTTONS: ReadonlySet<string> = new Set(['demo', 'managed_settings', 'separation_practice', 'map_metronome', 'map_follow']);
+const REMOVED_ACTIONS: ReadonlySet<string> = new Set(['load_demo', 'managed_settings', 'separation_practice', 'map_metronome', 'map_follow', 'close_stems']);
+const REMOVED_BUTTONS: ReadonlySet<string> = new Set(['demo', 'managed_settings', 'separation_practice', 'map_metronome', 'map_follow', 'close_stems']);
 /**
  * Defaults added after configurations could already use their keys. One of
  * these gives way to a person's own binding of the same key, with a warning;

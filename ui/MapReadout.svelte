@@ -1,6 +1,5 @@
 <script lang="ts">
-  // The Measure map's compact readout band (decision 3): the leading X back
-  // to Practice (Foundations), the measure and beat
+  // The Measure map's compact readout band (decision 3): the measure and beat
   // of the displayed map or draft, or the time in free time and without a
   // map; Undo and Redo; and, once a map exists, Redraft and the whole-song
   // settings. It gives the waveform the height.
@@ -22,7 +21,6 @@
 </script>
 
 <section class="readout" aria-label="Position">
-  <button class="close" aria-label={keymap.buttonLabel('show_practice', 'Close measure map')} title={keymap.title('show_practice')} disabled={!available('show_practice')} onclick={() => run('show_practice')}><Icon name="close" size={16}/></button>
   {#if measure && point}
     <span class="cap">{measure.number === null ? 'Pickup' : 'Measure'}</span>
     {#if measure.number !== null}<strong>{point.label}</strong>{/if}
@@ -44,8 +42,6 @@
 
 <style>
   .readout{flex:none;height:54px;display:flex;align-items:center;gap:12px;padding:0 24px 0 16px;white-space:nowrap}
-  .close{width:30px;height:30px;display:grid;place-items:center;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-secondary)}
-  .close:hover:not(:disabled){background:var(--hover);color:var(--text)}
   .cap{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary)}
   strong{font-size:30px;line-height:1;font-weight:700;font-variant-numeric:tabular-nums}
   .beats{display:flex;gap:4px}
